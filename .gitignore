@@ -1,0 +1,18 @@
+.DS_Store
+.env
+.env*.local
+.next/
+node_modules/
+out/
+dist/
+build/
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Local MVP runtime data and uploaded count-sheet photos.
+# Keep these out of GitHub because they may contain production/payroll records or photos.
+data/*.json
+public/uploads/
