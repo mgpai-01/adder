@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#22303d"/>
+      <stop offset="1" stop-color="#141d25"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <g fill="#e7edf1">
+    <!-- top deck board -->
+    <rect x="120" y="168" width="272" height="40" rx="8"/>
+    <!-- bottom deck board -->
+    <rect x="120" y="304" width="272" height="40" rx="8"/>
+    <!-- three vertical stringers -->
+    <rect x="120" y="208" width="48" height="96" rx="8"/>
+    <rect x="232" y="208" width="48" height="96" rx="8"/>
+    <rect x="344" y="208" width="48" height="96" rx="8"/>
+  </g>
+  <!-- repair accent: wrench-style bar across -->
+  <rect x="148" y="236" width="216" height="16" rx="8" fill="#4ea1d3"/>
+</svg>

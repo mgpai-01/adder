@@ -14,11 +14,14 @@
 
 html {
   -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 body {
   margin: 0;
   min-height: 100vh;
+  /* Use dynamic viewport height on mobile so toolbars don't crop content */
+  min-height: 100dvh;
   background:
     linear-gradient(180deg, rgba(245, 247, 248, 0.94), rgba(232, 236, 239, 0.88)),
     url("https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?auto=format&fit=crop&w=1800&q=80");
@@ -26,6 +29,21 @@ body {
   background-position: center;
   background-size: cover;
   font-family: Arial, Helvetica, sans-serif;
+  /* Notch / home-indicator safe areas (active with viewport-fit=cover) */
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+  padding-bottom: env(safe-area-inset-bottom);
+  /* App-like touch behaviour */
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+  overscroll-behavior-y: none;
+}
+
+/* When installed to the home screen, clear the status bar / notch */
+@media (display-mode: standalone) {
+  body {
+    padding-top: env(safe-area-inset-top);
+  }
 }
 
 button,
@@ -40,6 +58,13 @@ select,
 input,
 textarea {
   min-height: 44px;
+}
+
+/* Prevent iOS Safari from auto-zooming when focusing form fields */
+input,
+select,
+textarea {
+  font-size: max(16px, 1em);
 }
 
 .touch-target {
