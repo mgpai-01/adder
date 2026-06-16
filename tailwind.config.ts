@@ -23,8 +23,9 @@ const config: Config = {
           600: "#bf8300"
         },
         workshop: {
-          500: "#2d7d71",
-          700: "#1f5b54"
+          100: "#e3f6ea",
+          500: "#2a6b40",
+          700: "#0b522a"
         }
       },
       boxShadow: {
