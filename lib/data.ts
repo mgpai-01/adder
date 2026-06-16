@@ -14,13 +14,13 @@ export const locations: Location[] = [
 ];
 
 export const employees: Employee[] = [
-  { id: "lupita-reyes", name: "Lupita Reyes", locationId: "fontana", shift: "AM", active: true, role: "employee" },
+  { id: "lupita-reyes", name: "Lupita Reyes", locationId: "fontana", shift: "AM", active: true, role: "supervisor" },
   { id: "alberto", name: "Alberto", locationId: "fontana", shift: "AM", active: true, role: "employee" },
   { id: "rodolfo", name: "Rodolfo", locationId: "fontana", shift: "AM", active: true, role: "employee" },
-  { id: "marco", name: "Marco", locationId: "citrus", shift: "AM", active: true, role: "employee" },
+  { id: "marco", name: "Marco", locationId: "citrus", shift: "AM", active: true, role: "supervisor" },
   { id: "jovany", name: "Jovany", locationId: "citrus", shift: "AM", active: true, role: "employee" },
   { id: "jose-resendiz", name: "Jose Resendiz", locationId: "citrus", shift: "AM", active: true, role: "employee" },
-  { id: "axel", name: "Axel", locationId: "mesa", shift: "AM", active: true, role: "employee" },
+  { id: "axel", name: "Axel", locationId: "mesa", shift: "AM", active: true, role: "supervisor" },
   { id: "javier", name: "Javier", locationId: "mesa", shift: "AM", active: true, role: "employee" },
   { id: "daniel", name: "Daniel", locationId: "mesa", shift: "AM", active: true, role: "employee" },
   { id: "juan-b", name: "Juan B.", locationId: "fontana", shift: "AM", active: true, role: "employee" },

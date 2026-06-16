@@ -47,7 +47,7 @@ import {
   timeOptions
 } from "@/lib/data";
 import { calculateEntry, currency, getWeekKey, wholeNumber } from "@/lib/payroll";
-import type { BreakProfile, CountSheet, CountSheetStatus, DailyEntry, Employee, Location, PalletCategory, PalletType, PayrollSettings, ProductionLine, Shift } from "@/lib/types";
+import type { BreakProfile, CountSheet, CountSheetStatus, DailyEntry, Employee, Location, PalletCategory, PalletType, PayrollSettings, ProductionLine, Role, Shift } from "@/lib/types";
 
 const entryStorageKey = "mgp-daily-entries-v2";
 const countSheetStorageKey = "mgp-count-sheets-v1";
@@ -93,14 +93,26 @@ function createLines(palletTypes: PalletType[]): ProductionLine[] {
   return palletTypes.map((pallet) => ({ palletTypeId: pallet.id, quantity: 0 }));
 }
 
+function isManager(employee?: Employee): boolean {
+  return employee?.role === "supervisor";
+}
+
 function createBlankForm(palletTypes: PalletType[], employeeList: Employee[]): EntryForm {
-  const firstEmployee = employeeList.find((employee) => employee.active) ?? employeeList[0];
+  const firstRepairer =
+    employeeList.find((employee) => employee.active && !isManager(employee)) ??
+    employeeList.find((employee) => employee.active) ??
+    employeeList[0];
+  const locationId = firstRepairer?.locationId ?? "fontana";
+  const firstManager = employeeList.find(
+    (employee) => employee.active && isManager(employee) && employee.locationId === locationId
+  );
 
   return {
     date: today,
-    employeeId: firstEmployee?.id ?? "",
-    locationId: firstEmployee?.locationId ?? "fontana",
-    shift: firstEmployee?.shift ?? "AM",
+    employeeId: firstRepairer?.id ?? "",
+    yardManagerId: firstManager?.id ?? "",
+    locationId,
+    shift: firstRepairer?.shift ?? "AM",
     lines: createLines(palletTypes.filter((pallet) => pallet.active)),
     clockIn: "7:00 AM",
     clockOut: "3:30 PM",
@@ -418,9 +430,29 @@ export default function Home() {
     setForm((current) => ({
       ...current,
       employeeId,
-      locationId: employee?.locationId ?? current.locationId,
       shift: employee?.shift ?? current.shift
     }));
+  }
+
+  function handleYardChange(locationId: string) {
+    setForm((current) => {
+      const repairers = activeEmployees.filter((employee) => employee.locationId === locationId && !isManager(employee));
+      const managers = activeEmployees.filter((employee) => employee.locationId === locationId && isManager(employee));
+      const employeeId = repairers.some((employee) => employee.id === current.employeeId)
+        ? current.employeeId
+        : repairers[0]?.id ?? "";
+      const yardManagerId = managers.some((employee) => employee.id === current.yardManagerId)
+        ? current.yardManagerId
+        : managers[0]?.id ?? "";
+      const selectedRepairer = repairers.find((employee) => employee.id === employeeId);
+      return {
+        ...current,
+        locationId,
+        employeeId,
+        yardManagerId,
+        shift: selectedRepairer?.shift ?? current.shift
+      };
+    });
   }
 
   function updateLineQuantity(palletTypeId: string, quantity: number) {
@@ -724,6 +756,7 @@ export default function Home() {
               palletTypes={activePalletTypes}
               calculation={currentCalculation}
               onEmployeeChange={handleEmployeeChange}
+              onYardChange={handleYardChange}
               onFormChange={updateForm}
               onQuantityChange={updateLineQuantity}
               onSave={saveEntry}
@@ -866,6 +899,7 @@ function ProductionEntry({
   palletTypes,
   calculation,
   onEmployeeChange,
+  onYardChange,
   onFormChange,
   onQuantityChange,
   onSave
@@ -880,10 +914,14 @@ function ProductionEntry({
   palletTypes: PalletType[];
   calculation: ReturnType<typeof calculateEntry>;
   onEmployeeChange: (employeeId: string) => void;
+  onYardChange: (locationId: string) => void;
   onFormChange: <T extends keyof EntryForm>(key: T, value: EntryForm[T]) => void;
   onQuantityChange: (palletTypeId: string, quantity: number) => void;
   onSave: () => void;
 }) {
+  const yardRepairers = employees.filter((employee) => employee.locationId === form.locationId && employee.role !== "supervisor");
+  const yardManagers = employees.filter((employee) => employee.locationId === form.locationId && employee.role === "supervisor");
+
   return (
     <div className="grid gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -902,21 +940,12 @@ function ProductionEntry({
         </div>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-4">
         <Label title="Date" icon={<CalendarDays size={17} />}>
           <input className="field" type="date" value={form.date} onChange={(event) => onFormChange("date", event.target.value)} />
         </Label>
-        <Label title="Repairer" icon={<UserRound size={17} />}>
-          <select className="field" value={form.employeeId} onChange={(event) => onEmployeeChange(event.target.value)}>
-            {employees.map((employee) => (
-              <option key={employee.id} value={employee.id}>
-                {employee.name}
-              </option>
-            ))}
-          </select>
-        </Label>
-        <Label title="Location" icon={<MapPin size={17} />}>
-          <select className="field" value={form.locationId} onChange={(event) => onFormChange("locationId", event.target.value)}>
+        <Label title="Yard" icon={<MapPin size={17} />}>
+          <select className="field" value={form.locationId} onChange={(event) => onYardChange(event.target.value)}>
             {locations.filter((location) => location.active).map((location) => (
               <option key={location.id} value={location.id}>
                 {location.name}
@@ -924,6 +953,29 @@ function ProductionEntry({
             ))}
           </select>
         </Label>
+        <Label title="Yard Manager" icon={<ShieldCheck size={17} />}>
+          <select className="field" value={form.yardManagerId ?? ""} onChange={(event) => onFormChange("yardManagerId", event.target.value)}>
+            <option value="">— No manager —</option>
+            {yardManagers.map((employee) => (
+              <option key={employee.id} value={employee.id}>
+                {employee.name}
+              </option>
+            ))}
+          </select>
+        </Label>
+        <Label title="Repairer" icon={<UserRound size={17} />}>
+          <select className="field" value={form.employeeId} onChange={(event) => onEmployeeChange(event.target.value)}>
+            {yardRepairers.length === 0 && <option value="">No repairers in this yard</option>}
+            {yardRepairers.map((employee) => (
+              <option key={employee.id} value={employee.id}>
+                {employee.name}
+              </option>
+            ))}
+          </select>
+        </Label>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5">
         <Label title="Shift" icon={<Clock size={17} />}>
           <select className="field" value={form.shift} onChange={(event) => onFormChange("shift", event.target.value as Shift)}>
             {shifts.map((shift) => (
@@ -933,9 +985,6 @@ function ProductionEntry({
             ))}
           </select>
         </Label>
-      </div>
-
-      <div className="grid gap-3 md:grid-cols-4">
         <Label title="Clock In" icon={<Clock size={17} />}>
           <select className="field" value={form.clockIn} onChange={(event) => onFormChange("clockIn", event.target.value)}>
             {timeOptions.map((time) => (
@@ -2481,20 +2530,35 @@ function EmployeeAdmin({
     }
   }
 
+  const yardName = (id: string) => locations.find((location) => location.id === id)?.name ?? id;
+  const sortedEmployees = [...employees].sort((a, b) => {
+    const byYard = yardName(a.locationId).localeCompare(yardName(b.locationId));
+    if (byYard !== 0) return byYard;
+    const managerRank = (employee: Employee) => (employee.role === "supervisor" ? 0 : 1);
+    if (managerRank(a) !== managerRank(b)) return managerRank(a) - managerRank(b);
+    return a.name.localeCompare(b.name);
+  });
+
   return (
     <div className="grid gap-4">
       <SaveNotice message={message} error={error} />
-      <div className="grid gap-3 md:grid-cols-[1fr_180px_160px_auto]">
+      <div className="grid gap-3 md:grid-cols-[1fr_140px_140px_120px_auto]">
         <Label title="Repairer Name" icon={<UserRound size={17} />}>
           <input className="field" value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} placeholder="Repairer name" />
         </Label>
-        <Label title="Location" icon={<MapPin size={17} />}>
+        <Label title="Yard" icon={<MapPin size={17} />}>
           <select className="field" value={draft.locationId} onChange={(event) => setDraft((current) => ({ ...current, locationId: event.target.value }))}>
             {locations.map((location) => (
               <option key={location.id} value={location.id}>
                 {location.name}
               </option>
             ))}
+          </select>
+        </Label>
+        <Label title="Role" icon={<ShieldCheck size={17} />}>
+          <select className="field" value={draft.role ?? "employee"} onChange={(event) => setDraft((current) => ({ ...current, role: event.target.value as Role }))}>
+            <option value="employee">Repairer</option>
+            <option value="supervisor">Yard Manager</option>
           </select>
         </Label>
         <Label title="Shift" icon={<Clock size={17} />}>
@@ -2538,13 +2602,21 @@ function EmployeeAdmin({
         </button>
       </div>
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-        {employees.map((employee) => (
+        {sortedEmployees.map((employee) => (
           <div key={employee.id} className="rounded border border-steel-100 bg-white p-4 text-steel-900">
             <div className="flex items-start gap-3">
               <Avatar employee={employee} size="lg" />
               <div className="min-w-0 flex-1">
-                <h3 className="truncate text-lg font-black">{employee.name}</h3>
-                <p className="text-sm text-steel-500">{locations.find((location) => location.id === employee.locationId)?.name ?? employee.locationId} · {employee.shift}</p>
+                <div className="flex items-center gap-2">
+                  <h3 className="truncate text-lg font-black">{employee.name}</h3>
+                  {employee.role === "supervisor" && (
+                    <span className="flex shrink-0 items-center gap-1 rounded bg-steel-900 px-2 py-0.5 text-xs font-black text-white">
+                      <ShieldCheck size={12} />
+                      Yard Manager
+                    </span>
+                  )}
+                </div>
+                <p className="text-sm text-steel-500">{yardName(employee.locationId)} · {employee.shift}</p>
                 <p className="mt-1 text-sm text-steel-500">{employee.notes || "No notes"}</p>
               </div>
             </div>
@@ -2564,14 +2636,20 @@ function EmployeeAdmin({
             <Label title="Repairer Name" icon={<UserRound size={17} />}>
               <input className="field" value={editDraft.name} onChange={(event) => setEditDraft((current) => current ? { ...current, name: event.target.value } : current)} />
             </Label>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Label title="Location" icon={<MapPin size={17} />}>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <Label title="Yard" icon={<MapPin size={17} />}>
                 <select className="field" value={editDraft.locationId} onChange={(event) => setEditDraft((current) => current ? { ...current, locationId: event.target.value } : current)}>
                   {locations.map((location) => (
                     <option key={location.id} value={location.id}>
                       {location.name}
                     </option>
                   ))}
+                </select>
+              </Label>
+              <Label title="Role" icon={<ShieldCheck size={17} />}>
+                <select className="field" value={editDraft.role ?? "employee"} onChange={(event) => setEditDraft((current) => current ? { ...current, role: event.target.value as Role } : current)}>
+                  <option value="employee">Repairer</option>
+                  <option value="supervisor">Yard Manager</option>
                 </select>
               </Label>
               <Label title="Shift" icon={<Clock size={17} />}>

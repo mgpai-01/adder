@@ -46,6 +46,7 @@ export type DailyEntry = {
   id: string;
   date: string;
   employeeId: string;
+  yardManagerId?: string;
   locationId: string;
   shift: Shift;
   lines: ProductionLine[];
