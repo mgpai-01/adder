@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <circle cx="256" cy="256" r="250" fill="#1f3f86"/>
+  <circle cx="256" cy="256" r="198" fill="#ffffff"/>
+  <circle cx="256" cy="256" r="190" fill="none" stroke="#1f3f86" stroke-width="5"/>
+  <rect x="150" y="338" width="212" height="26" rx="8" fill="#2f9e41"/>
+  <g fill="#2f9e41">
+    <rect x="170" y="322" width="12" height="30"/>
+    <polygon points="140,332 212,332 176,262"/>
+    <polygon points="148,292 204,292 176,236"/>
+    <polygon points="156,256 196,256 176,206"/>
+    <rect x="248" y="330" width="16" height="36"/>
+    <polygon points="198,342 314,342 256,250"/>
+    <polygon points="210,292 302,292 256,202"/>
+    <polygon points="220,246 292,246 256,156"/>
+    <rect x="330" y="322" width="12" height="30"/>
+    <polygon points="300,332 372,332 336,262"/>
+    <polygon points="308,292 364,292 336,236"/>
+    <polygon points="316,256 356,256 336,206"/>
+  </g>
+  <circle cx="38" cy="256" r="9" fill="#ffffff" stroke="#1f3f86" stroke-width="3"/>
+  <circle cx="474" cy="256" r="9" fill="#ffffff" stroke="#1f3f86" stroke-width="3"/>
+  <g fill="#ffffff" font-family="DejaVu Sans, Arial, sans-serif" font-weight="bold">
+<text x="46.7" y="211.5" transform="rotate(-78.0 46.7 211.5)" font-size="30" text-anchor="middle" dominant-baseline="central">M</text>
+<text x="62.1" y="165.6" transform="rotate(-65.0 62.1 165.6)" font-size="30" text-anchor="middle" dominant-baseline="central">A</text>
+<text x="87.4" y="124.2" transform="rotate(-52.0 87.4 124.2)" font-size="30" text-anchor="middle" dominant-baseline="central">N</text>
+<text x="121.3" y="89.7" transform="rotate(-39.0 121.3 89.7)" font-size="30" text-anchor="middle" dominant-baseline="central">U</text>
+<text x="162.2" y="63.7" transform="rotate(-26.0 162.2 63.7)" font-size="30" text-anchor="middle" dominant-baseline="central">F</text>
+<text x="207.9" y="47.5" transform="rotate(-13.0 207.9 47.5)" font-size="30" text-anchor="middle" dominant-baseline="central">A</text>
+<text x="256.0" y="42.0" transform="rotate(0.0 256.0 42.0)" font-size="30" text-anchor="middle" dominant-baseline="central">C</text>
+<text x="304.1" y="47.5" transform="rotate(13.0 304.1 47.5)" font-size="30" text-anchor="middle" dominant-baseline="central">T</text>
+<text x="349.8" y="63.7" transform="rotate(26.0 349.8 63.7)" font-size="30" text-anchor="middle" dominant-baseline="central">U</text>
+<text x="390.7" y="89.7" transform="rotate(39.0 390.7 89.7)" font-size="30" text-anchor="middle" dominant-baseline="central">R</text>
+<text x="424.6" y="124.2" transform="rotate(52.0 424.6 124.2)" font-size="30" text-anchor="middle" dominant-baseline="central">I</text>
+<text x="449.9" y="165.6" transform="rotate(65.0 449.9 165.6)" font-size="30" text-anchor="middle" dominant-baseline="central">N</text>
+<text x="465.3" y="211.5" transform="rotate(78.0 465.3 211.5)" font-size="30" text-anchor="middle" dominant-baseline="central">G</text>
+<text x="45.7" y="295.7" transform="rotate(79.3 45.7 295.7)" font-size="30" text-anchor="middle" dominant-baseline="central">G</text>
+<text x="58.9" y="339.3" transform="rotate(67.1 58.9 339.3)" font-size="30" text-anchor="middle" dominant-baseline="central">R</text>
+<text x="80.9" y="379.1" transform="rotate(54.9 80.9 379.1)" font-size="30" text-anchor="middle" dominant-baseline="central">E</text>
+<text x="110.9" y="413.3" transform="rotate(42.7 110.9 413.3)" font-size="30" text-anchor="middle" dominant-baseline="central">E</text>
+<text x="147.4" y="440.4" transform="rotate(30.5 147.4 440.4)" font-size="30" text-anchor="middle" dominant-baseline="central">N</text>
+<text x="188.8" y="459.2" transform="rotate(18.3 188.8 459.2)" font-size="30" text-anchor="middle" dominant-baseline="central"> </text>
+<text x="233.3" y="468.8" transform="rotate(6.1 233.3 468.8)" font-size="30" text-anchor="middle" dominant-baseline="central">P</text>
+<text x="278.7" y="468.8" transform="rotate(-6.1 278.7 468.8)" font-size="30" text-anchor="middle" dominant-baseline="central">R</text>
+<text x="323.2" y="459.2" transform="rotate(-18.3 323.2 459.2)" font-size="30" text-anchor="middle" dominant-baseline="central">O</text>
+<text x="364.6" y="440.4" transform="rotate(-30.5 364.6 440.4)" font-size="30" text-anchor="middle" dominant-baseline="central">D</text>
+<text x="401.1" y="413.3" transform="rotate(-42.7 401.1 413.3)" font-size="30" text-anchor="middle" dominant-baseline="central">U</text>
+<text x="431.1" y="379.1" transform="rotate(-54.9 431.1 379.1)" font-size="30" text-anchor="middle" dominant-baseline="central">C</text>
+<text x="453.1" y="339.3" transform="rotate(-67.1 453.1 339.3)" font-size="30" text-anchor="middle" dominant-baseline="central">T</text>
+<text x="466.3" y="295.7" transform="rotate(-79.3 466.3 295.7)" font-size="30" text-anchor="middle" dominant-baseline="central">S</text>
+  </g>
+</svg>

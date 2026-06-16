@@ -714,9 +714,7 @@ export default function Home() {
       <header className={classNames("sticky top-0 z-20 border-b backdrop-blur", darkMode ? "border-white/10 bg-steel-900/[0.92]" : "border-steel-100 bg-white/[0.92]")}>
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-3">
           <div className="flex min-w-0 items-center gap-3">
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded bg-safety-400 text-steel-900">
-              <Factory size={24} aria-hidden />
-            </div>
+            <img src="/logo.svg" alt="Manufacturing Green Products" className="h-12 w-12 shrink-0 rounded-full sm:h-14 sm:w-14" />
             <div className="min-w-0">
               <p className="truncate text-xs font-bold uppercase tracking-wide text-workshop-700">MGP</p>
               <h1 className="truncate text-lg font-black sm:text-2xl">Pallet Repair Tracking</h1>
@@ -2449,6 +2447,7 @@ function EmployeeAdmin({
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState("Ready.");
   const [error, setError] = useState("");
+  const [yardFilter, setYardFilter] = useState("all");
 
   function reset() {
     setDraft({ ...emptyEmployee, locationId: locations[0]?.id ?? "fontana", shift: shifts[0] ?? "AM" });
@@ -2531,7 +2530,8 @@ function EmployeeAdmin({
   }
 
   const yardName = (id: string) => locations.find((location) => location.id === id)?.name ?? id;
-  const sortedEmployees = [...employees].sort((a, b) => {
+  const visibleEmployees = yardFilter === "all" ? employees : employees.filter((employee) => employee.locationId === yardFilter);
+  const sortedEmployees = [...visibleEmployees].sort((a, b) => {
     const byYard = yardName(a.locationId).localeCompare(yardName(b.locationId));
     if (byYard !== 0) return byYard;
     const managerRank = (employee: Employee) => (employee.role === "supervisor" ? 0 : 1);
@@ -2600,6 +2600,22 @@ function EmployeeAdmin({
           <Check size={19} />
           {isSaving ? "Saving..." : "Add Repairer"}
         </button>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-[260px_1fr] sm:items-end">
+        <Label title="Filter by Yard" icon={<MapPin size={17} />}>
+          <select className="field" value={yardFilter} onChange={(event) => setYardFilter(event.target.value)}>
+            <option value="all">All Yards</option>
+            {locations.map((location) => (
+              <option key={location.id} value={location.id}>
+                {location.name}
+              </option>
+            ))}
+          </select>
+        </Label>
+        <p className="pb-2 text-sm font-bold text-steel-500">
+          Showing {sortedEmployees.length} {sortedEmployees.length === 1 ? "person" : "people"}
+          {yardFilter === "all" ? " across all yards" : ` in ${yardName(yardFilter)}`}.
+        </p>
       </div>
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         {sortedEmployees.map((employee) => (
