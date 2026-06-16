@@ -97,6 +97,29 @@ function isManager(employee?: Employee): boolean {
   return employee?.role === "supervisor";
 }
 
+// Preferred default yard managers, promoted automatically when a yard has none.
+const defaultManagerIds = new Set(["lupita-reyes", "marco", "axel"]);
+
+// Guarantee every active yard has at least one Yard Manager. Yards that already
+// have a manager are left untouched, so manual assignments are preserved.
+function ensureYardManagers(list: Employee[], locationList: Location[]): Employee[] {
+  const result = [...list];
+  let changed = false;
+
+  for (const location of locationList) {
+    if (!location.active) continue;
+    const atYard = result.filter((employee) => employee.locationId === location.id && employee.active);
+    if (atYard.length === 0 || atYard.some(isManager)) continue;
+
+    const target = atYard.find((employee) => defaultManagerIds.has(employee.id)) ?? atYard[0];
+    const index = result.findIndex((employee) => employee.id === target.id);
+    result[index] = { ...result[index], role: "supervisor" };
+    changed = true;
+  }
+
+  return changed ? result : list;
+}
+
 function createBlankForm(palletTypes: PalletType[], employeeList: Employee[]): EntryForm {
   const firstRepairer =
     employeeList.find((employee) => employee.active && !isManager(employee)) ??
@@ -294,14 +317,17 @@ export default function Home() {
       window.localStorage.setItem(palletStorageKey, JSON.stringify(defaultPalletTypes));
     }
 
-    const savedEmployees = window.localStorage.getItem(employeeStorageKey);
-    if (savedEmployees) {
-      setEmployeeList(JSON.parse(savedEmployees));
+    const savedLocations = window.localStorage.getItem(locationStorageKey);
+    const effectiveLocations: Location[] = savedLocations ? JSON.parse(savedLocations) : defaultLocations;
+    if (savedLocations) {
+      setLocationList(effectiveLocations);
     }
 
-    const savedLocations = window.localStorage.getItem(locationStorageKey);
-    if (savedLocations) {
-      setLocationList(JSON.parse(savedLocations));
+    const savedEmployees = window.localStorage.getItem(employeeStorageKey);
+    if (savedEmployees) {
+      setEmployeeList(ensureYardManagers(JSON.parse(savedEmployees), effectiveLocations));
+    } else {
+      setEmployeeList((current) => ensureYardManagers(current, effectiveLocations));
     }
 
     const savedShifts = window.localStorage.getItem(shiftStorageKey);
