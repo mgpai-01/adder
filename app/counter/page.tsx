@@ -564,7 +564,7 @@ export default function CounterPage() {
                 </button>
               ))}
             </div>
-            {counterPalletTypes.length === 0 && <p className="mt-3 rounded bg-amber-50 p-3 font-bold text-amber-800">No active pallet types are available. Add or activate pallet types in Admin.</p>}
+            {counterPalletTypes.length === 0 && <p className="mt-3 rounded bg-steel-100 p-3 font-bold text-steel-700">No active pallet types are available. Add or activate pallet types in Admin.</p>}
           </section>
 
           <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
@@ -584,9 +584,9 @@ export default function CounterPage() {
               </button>
             </div>
             <div className="mt-3 flex flex-wrap items-center gap-2 text-sm font-black text-slate-600">
-              {pendingCount > 0 ? <CloudOff size={18} className="text-amber-600" /> : <CheckCircle2 size={18} className="text-[#1f7a4d]" />}
+              {pendingCount > 0 ? <CloudOff size={18} className="text-steel-500" /> : <CheckCircle2 size={18} className="text-[#1f7a4d]" />}
               <span>{status}</span>
-              {pendingCount > 0 && <span className="rounded bg-amber-100 px-2 py-1 text-amber-800">{pendingCount} pending sync</span>}
+              {pendingCount > 0 && <span className="rounded bg-steel-200 px-2 py-1 text-steel-700">{pendingCount} pending sync</span>}
             </div>
           </section>
 

@@ -1404,7 +1404,7 @@ function CountSheetsModule({
                   {roleMode === "admin" && (
                     <div className="grid grid-cols-3 gap-2 border-t border-steel-100 p-2">
                       <button type="button" className="rounded bg-workshop-500 px-2 py-2 text-xs font-black text-white" onClick={() => updateStatus(sheet, "Approved")}>Approve</button>
-                      <button type="button" className="rounded bg-yellow-500 px-2 py-2 text-xs font-black text-steel-900" onClick={() => updateStatus(sheet, "Rejected")}>Reject</button>
+                      <button type="button" className="rounded bg-red-700 px-2 py-2 text-xs font-black text-white" onClick={() => updateStatus(sheet, "Rejected")}>Reject</button>
                       <button type="button" className="rounded bg-red-700 px-2 py-2 text-xs font-black text-white" onClick={() => onDelete(sheet.id)}>Delete</button>
                     </div>
                   )}
@@ -1520,7 +1520,7 @@ function CountSheetViewer({
             </Label>
             <div className="flex flex-wrap gap-2">
               <button type="button" className="touch-target rounded bg-workshop-500 px-4 py-2 font-black text-white" onClick={() => onUpdate(sheet.id, { comments, status: "Approved", approvedBy: "Admin", approvedAt: new Date().toISOString() })}>Approve</button>
-              <button type="button" className="touch-target rounded bg-yellow-500 px-4 py-2 font-black text-steel-900" onClick={() => onUpdate(sheet.id, { comments, status: "Rejected", rejectedBy: "Admin", rejectedAt: new Date().toISOString() })}>Reject</button>
+              <button type="button" className="touch-target rounded bg-red-700 px-4 py-2 font-black text-white" onClick={() => onUpdate(sheet.id, { comments, status: "Rejected", rejectedBy: "Admin", rejectedAt: new Date().toISOString() })}>Reject</button>
               <button type="button" className="touch-target rounded bg-steel-900 px-4 py-2 font-black text-white" onClick={() => onUpdate(sheet.id, { comments })}>Save Comments</button>
             </div>
           </div>
@@ -1572,7 +1572,7 @@ function Dashboard({
         <Metric label="Missing Count Sheets" value={wholeNumber(countSheetStats.missing.length)} />
       </div>
       {countSheetStats.missing.length > 0 && (
-        <div className="rounded border border-yellow-300 bg-yellow-100 p-3 text-sm font-bold text-steel-900">
+        <div className="rounded border border-steel-200 bg-steel-100 p-3 text-sm font-bold text-steel-900">
           Missing count sheets: {countSheetStats.missing.slice(0, 6).join(", ")}
           {countSheetStats.missing.length > 6 ? ` +${countSheetStats.missing.length - 6} more` : ""}
         </div>
@@ -1861,12 +1861,12 @@ function ProductionGrid({
                             <span className={classNames("block", cell.amount < 0 ? "text-red-700" : "text-steel-500")}>{currency(cell.amount)}</span>
                           </td>
                         ))}
-                        <td className="bg-yellow-100 p-2 text-center font-black">{wholeNumber(weeklyQty)}</td>
-                        <td className="bg-yellow-100 p-2 text-center font-black">{currency(weeklyAmount)}</td>
+                        <td className="bg-workshop-100 p-2 text-center font-black">{wholeNumber(weeklyQty)}</td>
+                        <td className="bg-workshop-100 p-2 text-center font-black">{currency(weeklyAmount)}</td>
                       </tr>
                     );
                   })}
-                  <tr className="border-t-2 border-steel-900 bg-yellow-100 font-black">
+                  <tr className="border-t-2 border-steel-900 bg-workshop-100 font-black">
                     <td className="p-2">Daily Totals</td>
                     {weekDays.map((day) => {
                       const dayEntries = employeeEntries.filter((entry) => entry.date === day);
@@ -2032,7 +2032,7 @@ function EntryHistory({
                           {linkedSheets.length} attached
                         </button>
                       ) : (
-                        <span className="rounded bg-yellow-100 px-2 py-1 text-xs font-black text-steel-700">Missing</span>
+                        <span className="rounded bg-steel-200 px-2 py-1 text-xs font-black text-steel-700">Missing</span>
                       )}
                     </td>
                     <td className="p-3">
@@ -2807,7 +2807,7 @@ function StatusBadge({ status }: { status: CountSheetStatus }) {
         "rounded px-2 py-1 text-xs font-black",
         status === "Approved" && "bg-workshop-500 text-white",
         status === "Rejected" && "bg-red-700 text-white",
-        status === "Pending" && "bg-yellow-300 text-steel-900"
+        status === "Pending" && "bg-steel-200 text-steel-900"
       )}
     >
       {status}
@@ -3029,7 +3029,7 @@ function RepairerProfileModal({
               <YAxis />
               <Tooltip />
               <Bar dataKey="quantity" fill="#2d7d71" name="Quantity" />
-              <Bar dataKey="total" fill="#e7a700" name="Pay" />
+              <Bar dataKey="total" fill="#2a6b40" name="Pay" />
             </BarChart>
           </ResponsiveContainer>
         </div>
