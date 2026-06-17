@@ -37,31 +37,46 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [error, setError] = useState("");
 
-  const loadProfile = useCallback(
-    async (accessToken: string) => {
-      try {
-        const response = await fetch("/api/auth/me", {
-          headers: { Authorization: `Bearer ${accessToken}` }
-        });
-        const data = (await response.json()) as { profile: Profile | null };
-        if (data.profile && data.profile.active) {
-          setProfile(data.profile);
-          setError("");
-          return;
-        }
-        if (data.profile && !data.profile.active) {
-          setError("This account is inactive. Ask an admin to reactivate it.");
-        } else {
-          setError("This login has no access set up yet. Ask an admin.");
-        }
+  const loadProfile = useCallback(async () => {
+    if (!supabase) return;
+    try {
+      const { data: userData } = await supabase.auth.getUser();
+      const user = userData.user;
+      if (!user) {
         setProfile(null);
-        await supabase?.auth.signOut();
-      } catch {
-        setProfile(null);
+        return;
       }
-    },
-    [supabase]
-  );
+
+      const { data, error: profileError } = await supabase
+        .from("profiles")
+        .select("id, username, full_name, role, active")
+        .eq("id", user.id)
+        .maybeSingle();
+
+      if (profileError || !data) {
+        setError("This login has no access set up yet. Ask an admin.");
+        setProfile(null);
+        return;
+      }
+      if (!data.active) {
+        setError("This account is inactive. Ask an admin to reactivate it.");
+        setProfile(null);
+        await supabase.auth.signOut();
+        return;
+      }
+
+      setProfile({
+        id: data.id,
+        username: data.username ?? "",
+        fullName: data.full_name,
+        role: data.role as AppRole,
+        active: data.active
+      });
+      setError("");
+    } catch {
+      setProfile(null);
+    }
+  }, [supabase]);
 
   useEffect(() => {
     if (!supabase) {
@@ -73,14 +88,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     supabase.auth.getSession().then(async ({ data }) => {
       if (!active) return;
       if (data.session) {
-        await loadProfile(data.session.access_token);
+        await loadProfile();
       }
       setLoading(false);
     });
 
     const { data: subscription } = supabase.auth.onAuthStateChange(async (_event, session) => {
       if (session) {
-        await loadProfile(session.access_token);
+        await loadProfile();
       } else {
         setProfile(null);
       }
@@ -104,7 +119,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setError("Wrong username/email or password.");
         throw signInError ?? new Error("Sign in failed.");
       }
-      await loadProfile(data.session.access_token);
+      await loadProfile();
     },
     [supabase, loadProfile]
   );
