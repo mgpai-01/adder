@@ -40,8 +40,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const loadProfile = useCallback(async () => {
     if (!supabase) return;
     try {
-      const { data: userData } = await supabase.auth.getUser();
-      const user = userData.user;
+      const { data: sessionData } = await supabase.auth.getSession();
+      const user = sessionData.session?.user;
       if (!user) {
         setProfile(null);
         return;
@@ -53,8 +53,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         .eq("id", user.id)
         .maybeSingle();
 
-      if (profileError || !data) {
-        setError("This login has no access set up yet. Ask an admin.");
+      if (profileError) {
+        setError(`Could not read your access: ${profileError.message}`);
+        setProfile(null);
+        return;
+      }
+      if (!data) {
+        setError("No profile row was found for this login. Ask an admin.");
         setProfile(null);
         return;
       }
@@ -73,7 +78,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         active: data.active
       });
       setError("");
-    } catch {
+    } catch (caught) {
+      setError(`Login error: ${(caught as Error)?.message ?? "unknown"}`);
       setProfile(null);
     }
   }, [supabase]);
@@ -85,12 +91,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     let active = true;
+    // Never let a slow/hung network call keep the app stuck on "Loading…".
+    const safety = window.setTimeout(() => {
+      if (active) setLoading(false);
+    }, 8000);
+
     supabase.auth.getSession().then(async ({ data }) => {
       if (!active) return;
       if (data.session) {
         await loadProfile();
       }
-      setLoading(false);
+      if (active) {
+        setLoading(false);
+        window.clearTimeout(safety);
+      }
     });
 
     const { data: subscription } = supabase.auth.onAuthStateChange(async (_event, session) => {
@@ -103,6 +117,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     return () => {
       active = false;
+      window.clearTimeout(safety);
       subscription.subscription.unsubscribe();
     };
   }, [supabase, loadProfile]);
