@@ -6,6 +6,7 @@ import {
   CalendarDays,
   Camera,
   Check,
+  CheckCircle2,
   Clock,
   Database,
   Download,
@@ -29,7 +30,7 @@ import {
   X
 } from "lucide-react";
 import type { ReactNode } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Bar,
   BarChart,
@@ -279,6 +280,14 @@ export default function Home() {
   const [profileEmployeeId, setProfileEmployeeId] = useState<string | null>(null);
   const [entriesLoaded, setEntriesLoaded] = useState(false);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
+  const [toast, setToast] = useState("");
+  const toastTimer = useRef<number | undefined>(undefined);
+
+  function showToast(message: string) {
+    setToast(message);
+    window.clearTimeout(toastTimer.current);
+    toastTimer.current = window.setTimeout(() => setToast(""), 2600);
+  }
 
   // Keep the active tab valid for the signed-in role.
   useEffect(() => {
@@ -516,7 +525,8 @@ export default function Home() {
 
     setEntries((current) => [cleanEntry, ...current]);
     setForm(createBlankForm(activePalletTypes, employeeList));
-    setSaveStatus("Saved locally");
+    setSaveStatus("Saving…");
+    showToast("Daily grid saved");
 
     try {
       const response = await fetch("/api/entries", {
@@ -960,6 +970,15 @@ export default function Home() {
           box-shadow: 0 0 0 3px rgba(45, 125, 113, 0.18);
         }
       `}</style>
+
+      {toast && (
+        <div className="pointer-events-none fixed bottom-7 left-1/2 z-50 -translate-x-1/2 [animation:toast-in_0.4s_cubic-bezier(0.22,1,0.36,1)]">
+          <div className="flex items-center gap-2 rounded-full bg-workshop-500 px-6 py-3.5 text-base font-black text-white shadow-panel">
+            <CheckCircle2 size={22} className="[animation:toast-check_0.5s_ease-out]" />
+            {toast}
+          </div>
+        </div>
+      )}
     </main>
     </AuthGate>
   );

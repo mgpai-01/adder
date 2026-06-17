@@ -151,3 +151,32 @@ textarea {
   content: "";
   animation: mgp-dots 1.4s steps(1, end) infinite;
 }
+
+@keyframes toast-in {
+  0% {
+    transform: translate(-50%, 18px) scale(0.95);
+    opacity: 0;
+  }
+  60% {
+    transform: translate(-50%, -2px) scale(1.02);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(-50%, 0) scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes toast-check {
+  0% {
+    transform: scale(0) rotate(-20deg);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.25) rotate(0deg);
+  }
+  100% {
+    transform: scale(1) rotate(0deg);
+    opacity: 1;
+  }
+}
