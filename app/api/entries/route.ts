@@ -1,15 +1,27 @@
 import { NextResponse } from "next/server";
 import { appendEntryToGoogleSheets } from "@/lib/googleSheets";
+import { isCloudEntriesConfigured, readCloudEntries, upsertCloudEntry } from "@/lib/cloudEntries";
 import { readLocalEntries, upsertLocalEntry } from "@/lib/localEntries";
 import type { DailyEntry } from "@/lib/types";
 
 export async function GET() {
+  if (isCloudEntriesConfigured()) {
+    const entries = await readCloudEntries();
+    return NextResponse.json({ entries, storage: "cloud" });
+  }
+
   const entries = await readLocalEntries();
-  return NextResponse.json({ entries });
+  return NextResponse.json({ entries, storage: "local" });
 }
 
 export async function POST(request: Request) {
   const entry = (await request.json()) as DailyEntry;
+
+  if (isCloudEntriesConfigured()) {
+    await upsertCloudEntry(entry);
+    return NextResponse.json({ ok: true, entry, storage: "cloud" });
+  }
+
   await upsertLocalEntry(entry);
   const syncSheets = new URL(request.url).searchParams.get("syncSheets") !== "false";
   const sheetsResult = syncSheets
@@ -19,6 +31,7 @@ export async function POST(request: Request) {
   return NextResponse.json({
     ok: true,
     entry,
+    storage: "local",
     sheets: sheetsResult
   });
 }

@@ -58,6 +58,8 @@ export type DailyEntry = {
   createdAt: string;
   updatedAt?: string;
   updatedBy?: string;
+  submittedBy?: string;
+  submittedById?: string;
 };
 
 export type PayrollSettings = {

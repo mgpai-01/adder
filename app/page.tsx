@@ -508,7 +508,9 @@ export default function Home() {
       id: `entry-${Date.now()}`,
       manualHours: Number(form.manualHours),
       lines: form.lines.filter((line) => line.quantity !== 0),
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      submittedBy: profile?.username || profile?.fullName || undefined,
+      submittedById: profile?.id
     };
 
     setEntries((current) => [cleanEntry, ...current]);
@@ -522,7 +524,11 @@ export default function Home() {
         body: JSON.stringify(cleanEntry)
       });
       const result = await response.json();
-      setSaveStatus(result.sheets?.configured ? "Saved to Sheets" : "Saved locally; Sheets not configured");
+      if (result.storage === "cloud") {
+        setSaveStatus("Saved to the cloud");
+      } else {
+        setSaveStatus(result.sheets?.configured ? "Saved to Sheets" : "Saved locally; cloud not configured");
+      }
     } catch {
       setSaveStatus("Saved locally; sync pending");
     }
