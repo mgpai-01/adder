@@ -31,6 +31,15 @@ function toEmail(identifier: string): string {
   return value.includes("@") ? value : `${value.toLowerCase()}@mgp.local`;
 }
 
+// Reject if a network call takes too long, so a weak connection surfaces a
+// clear message instead of hanging the UI forever.
+function withTimeout<T>(promise: PromiseLike<T>, ms: number): Promise<T> {
+  return Promise.race([
+    promise as Promise<T>,
+    new Promise<T>((_, reject) => setTimeout(() => reject(new Error("timed out")), ms))
+  ]);
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const supabase = getBrowserSupabase();
   const [loading, setLoading] = useState(isSupabaseConfigured);
@@ -47,11 +56,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      const { data, error: profileError } = await supabase
-        .from("profiles")
-        .select("id, username, full_name, role, active")
-        .eq("id", user.id)
-        .maybeSingle();
+      const { data, error: profileError } = await withTimeout(
+        supabase
+          .from("profiles")
+          .select("id, username, full_name, role, active")
+          .eq("id", user.id)
+          .maybeSingle(),
+        9000
+      );
 
       if (profileError) {
         setError(`Could not read your access: ${profileError.message}`);
@@ -79,7 +91,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
       setError("");
     } catch (caught) {
-      setError(`Login error: ${(caught as Error)?.message ?? "unknown"}`);
+      const message = (caught as Error)?.message ?? "unknown";
+      setError(message === "timed out" ? "Slow connection — please try again." : `Login error: ${message}`);
       setProfile(null);
     }
   }, [supabase]);
@@ -126,15 +139,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     async (identifier: string, password: string) => {
       if (!supabase) return;
       setError("");
-      const { data, error: signInError } = await supabase.auth.signInWithPassword({
-        email: toEmail(identifier),
-        password
-      });
-      if (signInError || !data.session) {
-        setError("Wrong username/email or password.");
-        throw signInError ?? new Error("Sign in failed.");
+      try {
+        const { data, error: signInError } = await withTimeout(
+          supabase.auth.signInWithPassword({ email: toEmail(identifier), password }),
+          9000
+        );
+        if (signInError || !data.session) {
+          setError("Wrong username/email or password.");
+          throw signInError ?? new Error("Sign in failed.");
+        }
+        await loadProfile();
+      } catch (caught) {
+        if ((caught as Error)?.message === "timed out") {
+          setError("Slow connection — please try again.");
+        }
+        throw caught;
       }
-      await loadProfile();
     },
     [supabase, loadProfile]
   );
