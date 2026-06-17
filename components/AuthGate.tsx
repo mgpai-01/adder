@@ -2,6 +2,7 @@
 
 import { useAuth, type AppRole } from "@/lib/auth";
 import LoginScreen from "./LoginScreen";
+import LoadingLogo from "./LoadingLogo";
 
 // Wraps a page so it requires a signed-in user once Supabase is configured.
 // Before Supabase is set up it stays fully open (no behaviour change).
@@ -13,7 +14,7 @@ export default function AuthGate({ children, allow }: { children: React.ReactNod
   if (loading) {
     return (
       <main className="flex min-h-screen items-center justify-center">
-        <p className="text-sm font-black text-steel-500">Loading…</p>
+        <LoadingLogo />
       </main>
     );
   }

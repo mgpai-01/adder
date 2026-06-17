@@ -1,12 +1,14 @@
 "use client";
 
 import { useState } from "react";
+import { Eye, EyeOff } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 
 export default function LoginScreen() {
   const { signIn, error } = useAuth();
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
 
   async function handleSubmit(event: React.FormEvent) {
@@ -48,15 +50,25 @@ export default function LoginScreen() {
           </label>
           <label className="grid gap-1 text-sm font-black">
             Password
-            <input
-              className="field"
-              type="password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              autoComplete="current-password"
-              placeholder="••••••••"
-              required
-            />
+            <div className="relative">
+              <input
+                className="field pr-12"
+                type={showPassword ? "text" : "password"}
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                autoComplete="current-password"
+                placeholder="••••••••"
+                required
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((value) => !value)}
+                aria-label={showPassword ? "Hide password" : "Show password"}
+                className="absolute right-1 top-1/2 flex w-10 -translate-y-1/2 items-center justify-center rounded text-steel-500 hover:text-steel-900"
+              >
+                {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+              </button>
+            </div>
           </label>
 
           {error && (
