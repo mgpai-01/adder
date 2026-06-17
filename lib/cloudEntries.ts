@@ -40,9 +40,9 @@ export async function readCloudEntries(): Promise<DailyEntry[]> {
   return (data as CloudEntryRow[]).map(fromRow);
 }
 
-export async function upsertCloudEntry(entry: DailyEntry): Promise<DailyEntry> {
+export async function upsertCloudEntry(entry: DailyEntry): Promise<{ ok: boolean; error?: string }> {
   const supabase = getSupabaseServerClient();
-  if (!supabase) return entry;
+  if (!supabase) return { ok: false, error: "Supabase not configured" };
 
   const { error } = await supabase.from("cloud_entries").upsert(
     {
@@ -56,8 +56,8 @@ export async function upsertCloudEntry(entry: DailyEntry): Promise<DailyEntry> {
     { onConflict: "id" }
   );
 
-  if (error) throw error;
-  return entry;
+  if (error) return { ok: false, error: error.message };
+  return { ok: true };
 }
 
 export async function deleteCloudEntry(id: string): Promise<void> {

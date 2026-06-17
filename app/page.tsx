@@ -535,7 +535,9 @@ export default function Home() {
         body: JSON.stringify(cleanEntry)
       });
       const result = await response.json();
-      if (result.storage === "cloud") {
+      if (result.storage === "cloud" && result.ok === false) {
+        setSaveStatus(`Cloud error: ${result.error ?? "unknown"}`);
+      } else if (result.storage === "cloud") {
         setSaveStatus("Saved to the cloud");
       } else {
         setSaveStatus(result.sheets?.configured ? "Saved to Sheets" : "Saved locally; cloud not configured");

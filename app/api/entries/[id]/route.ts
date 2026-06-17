@@ -9,8 +9,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const updatedEntry = { ...entry, id };
 
   if (isCloudEntriesConfigured()) {
-    await upsertCloudEntry(updatedEntry);
-    return NextResponse.json({ ok: true, entry: updatedEntry, storage: "cloud" });
+    const result = await upsertCloudEntry(updatedEntry);
+    return NextResponse.json({ ok: result.ok, entry: updatedEntry, storage: "cloud", error: result.error });
   }
 
   await upsertLocalEntry(updatedEntry);

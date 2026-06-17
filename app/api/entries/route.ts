@@ -18,8 +18,8 @@ export async function POST(request: Request) {
   const entry = (await request.json()) as DailyEntry;
 
   if (isCloudEntriesConfigured()) {
-    await upsertCloudEntry(entry);
-    return NextResponse.json({ ok: true, entry, storage: "cloud" });
+    const result = await upsertCloudEntry(entry);
+    return NextResponse.json({ ok: result.ok, entry, storage: "cloud", error: result.error });
   }
 
   await upsertLocalEntry(entry);
