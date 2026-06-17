@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Eye, EyeOff } from "lucide-react";
-import { useAuth } from "@/lib/auth";
+import { clearStoredSession, useAuth } from "@/lib/auth";
 
 export default function LoginScreen() {
   const { signIn, error } = useAuth();
@@ -72,7 +72,19 @@ export default function LoginScreen() {
           </label>
 
           {error && (
-            <p className="rounded bg-red-50 px-3 py-2 text-sm font-bold text-red-700">{error}</p>
+            <div className="rounded bg-red-50 px-3 py-2 text-sm font-bold text-red-700">
+              <p>{error}</p>
+              <button
+                type="button"
+                onClick={() => {
+                  clearStoredSession();
+                  window.location.reload();
+                }}
+                className="mt-1 underline"
+              >
+                Stuck? Tap to reset and reload
+              </button>
+            </div>
           )}
 
           <button

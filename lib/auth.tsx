@@ -40,6 +40,18 @@ function withTimeout<T>(promise: PromiseLike<T>, ms: number): Promise<T> {
   ]);
 }
 
+// Wipe Supabase's stored auth session. A corrupted/locked session can make the
+// auth client hang; clearing it and reloading recovers cleanly.
+export function clearStoredSession() {
+  try {
+    Object.keys(window.localStorage)
+      .filter((key) => key.startsWith("sb-"))
+      .forEach((key) => window.localStorage.removeItem(key));
+  } catch {
+    // ignore storage access issues
+  }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const supabase = getBrowserSupabase();
   const [loading, setLoading] = useState(isSupabaseConfigured);
@@ -104,21 +116,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     let active = true;
-    // Never let a slow/hung network call keep the app stuck on "Loading…".
-    const safety = window.setTimeout(() => {
-      if (active) setLoading(false);
-    }, 8000);
 
-    supabase.auth.getSession().then(async ({ data }) => {
-      if (!active) return;
-      if (data.session) {
-        await loadProfile();
-      }
-      if (active) {
+    (async () => {
+      try {
+        // getSession reads local storage but may try to refresh a stored token;
+        // a corrupted/locked session hangs here, so cap it.
+        const { data } = await withTimeout(supabase.auth.getSession(), 5000);
+        if (!active) return;
+        window.sessionStorage.removeItem("mgp-auth-reset");
+        if (data.session) {
+          await loadProfile();
+        }
+        if (active) setLoading(false);
+      } catch {
+        if (!active) return;
+        // The stored session is jammed. Clear it and reload once to recover.
+        if (!window.sessionStorage.getItem("mgp-auth-reset")) {
+          window.sessionStorage.setItem("mgp-auth-reset", "1");
+          clearStoredSession();
+          window.location.reload();
+          return;
+        }
         setLoading(false);
-        window.clearTimeout(safety);
       }
-    });
+    })();
 
     const { data: subscription } = supabase.auth.onAuthStateChange(async (_event, session) => {
       if (session) {
@@ -130,7 +151,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     return () => {
       active = false;
-      window.clearTimeout(safety);
       subscription.subscription.unsubscribe();
     };
   }, [supabase, loadProfile]);
