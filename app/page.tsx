@@ -7,6 +7,7 @@ import {
   Camera,
   Check,
   Clock,
+  Database,
   Download,
   Edit2,
   Eye,
@@ -65,7 +66,7 @@ const legacyPalletTypeAliases: Record<string, string> = {
   "no-2": "stacker-grade-b-2"
 };
 
-type View = "entry" | "count-sheets" | "production-grid" | "dashboard" | "payroll" | "settings";
+type View = "entry" | "count-sheets" | "production-grid" | "dashboard" | "payroll" | "cloud" | "settings";
 type AdminTab = "settings" | "pallets" | "employees" | "locations";
 
 type EntryForm = Omit<DailyEntry, "id" | "createdAt">;
@@ -254,7 +255,7 @@ function classNames(...classes: Array<string | false | undefined>) {
   return classes.filter(Boolean).join(" ");
 }
 
-const allViews: View[] = ["entry", "count-sheets", "production-grid", "dashboard", "payroll", "settings"];
+const allViews: View[] = ["entry", "count-sheets", "production-grid", "dashboard", "payroll", "cloud", "settings"];
 
 export default function Home() {
   const { configured, profile, signOut } = useAuth();
@@ -804,6 +805,7 @@ export default function Home() {
           {allowedViews.includes("production-grid") && <NavButton icon={<FileSpreadsheet size={19} />} label="Production Grid" active={view === "production-grid"} onClick={() => setView("production-grid")} />}
           {allowedViews.includes("dashboard") && <NavButton icon={<BarChart3 size={19} />} label="Dashboard" active={view === "dashboard"} onClick={() => setView("dashboard")} />}
           {allowedViews.includes("payroll") && <NavButton icon={<FileSpreadsheet size={19} />} label="Payroll" active={view === "payroll"} onClick={() => setView("payroll")} />}
+          {allowedViews.includes("cloud") && <NavButton icon={<Database size={19} />} label="Cloud" active={view === "cloud"} onClick={() => setView("cloud")} />}
           {allowedViews.includes("settings") && <NavButton icon={<ShieldCheck size={19} />} label="Admin" active={view === "settings"} onClick={() => setView("settings")} />}
         </nav>
 
@@ -869,6 +871,16 @@ export default function Home() {
               onViewEntry={setViewingEntry}
               onDeleteEntry={deleteSavedEntry}
               onSelectEmployee={setProfileEmployeeId}
+            />
+          )}
+          {view === "cloud" && (
+            <CloudBrowser
+              entries={entries}
+              employees={employeeList}
+              locations={locationList}
+              palletTypes={palletTypes}
+              settings={settings}
+              onViewEntry={setViewingEntry}
             />
           )}
           {view === "settings" && (
@@ -3452,6 +3464,121 @@ function Metric({ label, value }: { label: string; value: string }) {
     <div className="rounded border border-steel-100 bg-white p-3 text-steel-900 shadow-panel">
       <p className="text-xs font-black uppercase text-steel-500">{label}</p>
       <p className="mt-1 text-xl font-black">{value}</p>
+    </div>
+  );
+}
+
+function CloudBrowser({
+  entries,
+  employees,
+  locations,
+  palletTypes,
+  settings,
+  onViewEntry
+}: {
+  entries: DailyEntry[];
+  employees: Employee[];
+  locations: Location[];
+  palletTypes: PalletType[];
+  settings: PayrollSettings;
+  onViewEntry: (entry: DailyEntry) => void;
+}) {
+  const employeeName = (id: string) => employees.find((employee) => employee.id === id)?.name ?? id;
+  const locationName = (id: string) => locations.find((location) => location.id === id)?.name ?? id;
+  const palletCount = (entry: DailyEntry) => entry.lines.reduce((sum, line) => sum + line.quantity, 0);
+
+  const byUser = useMemo(() => {
+    const groups = new Map<string, DailyEntry[]>();
+    for (const entry of entries) {
+      const key = entry.submittedBy?.trim() || "Unassigned";
+      const list = groups.get(key) ?? [];
+      list.push(entry);
+      groups.set(key, list);
+    }
+    return Array.from(groups.entries())
+      .map(([user, list]) => ({ user, list }))
+      .sort((a, b) => a.user.localeCompare(b.user));
+  }, [entries]);
+
+  const totalPallets = entries.reduce((sum, entry) => sum + palletCount(entry), 0);
+  const totalDays = new Set(entries.map((entry) => entry.date)).size;
+
+  return (
+    <div className="grid gap-4">
+      <div>
+        <h2 className="text-2xl font-black">Cloud Records</h2>
+        <p className="text-sm text-steel-500">Everything saved to the cloud, organized by user and day.</p>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <Metric label="Users" value={wholeNumber(byUser.length)} />
+        <Metric label="Entries" value={wholeNumber(entries.length)} />
+        <Metric label="Days" value={wholeNumber(totalDays)} />
+        <Metric label="Pallets" value={wholeNumber(totalPallets)} />
+      </div>
+
+      {entries.length === 0 && (
+        <div className="rounded border border-steel-100 bg-white p-5 text-center font-bold text-steel-500">
+          No cloud records yet. Saved entries will appear here, grouped by who entered them.
+        </div>
+      )}
+
+      {byUser.map(({ user, list }) => {
+        const byDate = new Map<string, DailyEntry[]>();
+        for (const entry of [...list].sort((a, b) => b.date.localeCompare(a.date))) {
+          const dayList = byDate.get(entry.date) ?? [];
+          dayList.push(entry);
+          byDate.set(entry.date, dayList);
+        }
+
+        return (
+          <div key={user} className="rounded border border-steel-100 bg-white p-4 text-steel-900">
+            <div className="mb-3 flex items-center gap-2">
+              <UserRound size={18} className="text-workshop-700" />
+              <h3 className="text-lg font-black">{user}</h3>
+              <span className="text-sm font-bold text-steel-500">· {list.length} {list.length === 1 ? "entry" : "entries"}</span>
+            </div>
+
+            <div className="grid gap-3">
+              {Array.from(byDate.entries()).map(([date, dayEntries]) => {
+                const dayPallets = dayEntries.reduce((sum, entry) => sum + palletCount(entry), 0);
+                const dayTotal = dayEntries.reduce((sum, entry) => sum + calculateEntry(entry, palletTypes, settings).totalPay, 0);
+
+                return (
+                  <div key={date} className="rounded border border-steel-100 bg-steel-50 p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <strong className="flex items-center gap-1.5">
+                        <CalendarDays size={16} />
+                        {date}
+                      </strong>
+                      <span className="text-sm font-bold text-steel-500">{wholeNumber(dayPallets)} pallets · {currency(dayTotal)}</span>
+                    </div>
+
+                    <div className="mt-2 grid gap-2">
+                      {dayEntries.map((entry) => {
+                        const calc = calculateEntry(entry, palletTypes, settings);
+                        return (
+                          <button
+                            key={entry.id}
+                            type="button"
+                            onClick={() => onViewEntry(entry)}
+                            className="flex flex-wrap items-center justify-between gap-2 rounded border border-steel-100 bg-white px-3 py-2 text-left"
+                          >
+                            <span className="font-black">{employeeName(entry.employeeId)}</span>
+                            <span className="text-sm text-steel-500">
+                              {locationName(entry.locationId)} · {entry.shift} · {wholeNumber(palletCount(entry))} pallets · {currency(calc.totalPay)}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }

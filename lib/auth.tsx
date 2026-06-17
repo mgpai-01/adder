@@ -191,7 +191,7 @@ export function useAuth(): AuthState {
 // Which app views each role may open. Admin sees everything; Manager runs
 // production and reports; Counter only handles count sheets.
 export const roleViews: Record<AppRole, string[]> = {
-  admin: ["entry", "count-sheets", "production-grid", "dashboard", "payroll", "settings"],
+  admin: ["entry", "count-sheets", "production-grid", "dashboard", "payroll", "cloud", "settings"],
   supervisor: ["entry", "count-sheets", "production-grid", "dashboard"],
   employee: ["count-sheets"]
 };
