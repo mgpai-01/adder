@@ -2,6 +2,7 @@
 
 import { Camera, CheckCircle2, CloudOff, Factory, ImagePlus, RefreshCw, Save, Search, UserRound } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import AuthGate from "@/components/AuthGate";
 import { defaultPalletTypes, employees as defaultEmployees, shifts } from "@/lib/data";
 import type { DailyEntry, Employee, Location, PalletType, ProductionLine, Shift } from "@/lib/types";
 
@@ -403,6 +404,7 @@ export default function CounterPage() {
   }
 
   return (
+    <AuthGate>
     <main className="min-h-screen bg-[#eef2f4] text-[#16212b]">
       <header className="sticky top-0 z-20 border-b border-slate-200 bg-white px-4 py-3 shadow-sm">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-3">
@@ -626,6 +628,7 @@ export default function CounterPage() {
         </div>
       </section>
     </main>
+    </AuthGate>
   );
 }
 

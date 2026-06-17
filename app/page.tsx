@@ -14,6 +14,7 @@ import {
   FileSpreadsheet,
   Filter,
   ImagePlus,
+  LogOut,
   MapPin,
   Minus,
   Moon,
@@ -47,6 +48,8 @@ import {
   timeOptions
 } from "@/lib/data";
 import { calculateEntry, currency, getWeekKey, wholeNumber } from "@/lib/payroll";
+import { roleLabels, roleViews, useAuth } from "@/lib/auth";
+import AuthGate from "@/components/AuthGate";
 import type { BreakProfile, CountSheet, CountSheetStatus, DailyEntry, Employee, Location, PalletCategory, PalletType, PayrollSettings, ProductionLine, Role, Shift } from "@/lib/types";
 
 const entryStorageKey = "mgp-daily-entries-v2";
@@ -251,7 +254,11 @@ function classNames(...classes: Array<string | false | undefined>) {
   return classes.filter(Boolean).join(" ");
 }
 
+const allViews: View[] = ["entry", "count-sheets", "production-grid", "dashboard", "payroll", "settings"];
+
 export default function Home() {
+  const { configured, profile, signOut } = useAuth();
+  const allowedViews = (configured && profile ? roleViews[profile.role] : allViews) as View[];
   const [view, setView] = useState<View>("entry");
   const [adminTab, setAdminTab] = useState<AdminTab>("settings");
   const [darkMode, setDarkMode] = useState(false);
@@ -271,6 +278,13 @@ export default function Home() {
   const [profileEmployeeId, setProfileEmployeeId] = useState<string | null>(null);
   const [entriesLoaded, setEntriesLoaded] = useState(false);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
+
+  // Keep the active tab valid for the signed-in role.
+  useEffect(() => {
+    if (!allowedViews.includes(view)) {
+      setView(allowedViews[0]);
+    }
+  }, [allowedViews, view]);
 
   useEffect(() => {
     const savedEntries = window.localStorage.getItem(entryStorageKey) ?? window.localStorage.getItem("mgp-daily-entries");
@@ -736,6 +750,7 @@ export default function Home() {
   }
 
   return (
+    <AuthGate>
     <main className={classNames("min-h-screen pb-24 transition-colors", darkMode ? "bg-steel-900/[0.95] text-white" : "bg-steel-50/[0.88] text-steel-900")}>
       <header className={classNames("sticky top-0 z-20 border-b backdrop-blur", darkMode ? "border-white/10 bg-steel-900/[0.92]" : "border-steel-100 bg-white/[0.92]")}>
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-3">
@@ -746,25 +761,44 @@ export default function Home() {
               <h1 className="truncate text-lg font-black sm:text-2xl">Pallet Repair Tracking</h1>
             </div>
           </div>
-          <button
-            type="button"
-            aria-label="Toggle dark mode"
-            className={classNames("touch-target flex w-12 items-center justify-center rounded border", darkMode ? "border-white/20 bg-white/10" : "border-steel-100 bg-white")}
-            onClick={() => setDarkMode((value) => !value)}
-          >
-            {darkMode ? <Sun size={20} /> : <Moon size={20} />}
-          </button>
+          <div className="flex items-center gap-2">
+            {configured && profile && (
+              <div className="hidden text-right sm:block">
+                <p className="text-sm font-black leading-tight">{profile.username || profile.fullName}</p>
+                <p className="text-xs font-bold uppercase tracking-wide text-workshop-700">{roleLabels[profile.role]}</p>
+              </div>
+            )}
+            <button
+              type="button"
+              aria-label="Toggle dark mode"
+              className={classNames("touch-target flex w-12 items-center justify-center rounded border", darkMode ? "border-white/20 bg-white/10" : "border-steel-100 bg-white")}
+              onClick={() => setDarkMode((value) => !value)}
+            >
+              {darkMode ? <Sun size={20} /> : <Moon size={20} />}
+            </button>
+            {configured && profile && (
+              <button
+                type="button"
+                aria-label="Sign out"
+                title="Sign out"
+                className={classNames("touch-target flex w-12 items-center justify-center rounded border", darkMode ? "border-white/20 bg-white/10" : "border-steel-100 bg-white")}
+                onClick={() => signOut()}
+              >
+                <LogOut size={20} />
+              </button>
+            )}
+          </div>
         </div>
       </header>
 
       <div className="mx-auto grid max-w-7xl gap-4 px-4 py-4">
         <nav className={classNames("no-scrollbar flex gap-2 overflow-x-auto rounded border p-2", darkMode ? "border-white/10 bg-white/[0.08]" : "border-steel-100 bg-white/90")}>
-          <NavButton icon={<Plus size={19} />} label="Entry" active={view === "entry"} onClick={() => setView("entry")} />
-          <NavButton icon={<Camera size={19} />} label="Count Sheets" active={view === "count-sheets"} onClick={() => setView("count-sheets")} />
-          <NavButton icon={<FileSpreadsheet size={19} />} label="Production Grid" active={view === "production-grid"} onClick={() => setView("production-grid")} />
-          <NavButton icon={<BarChart3 size={19} />} label="Dashboard" active={view === "dashboard"} onClick={() => setView("dashboard")} />
-          <NavButton icon={<FileSpreadsheet size={19} />} label="Payroll" active={view === "payroll"} onClick={() => setView("payroll")} />
-          <NavButton icon={<ShieldCheck size={19} />} label="Admin" active={view === "settings"} onClick={() => setView("settings")} />
+          {allowedViews.includes("entry") && <NavButton icon={<Plus size={19} />} label="Entry" active={view === "entry"} onClick={() => setView("entry")} />}
+          {allowedViews.includes("count-sheets") && <NavButton icon={<Camera size={19} />} label="Count Sheets" active={view === "count-sheets"} onClick={() => setView("count-sheets")} />}
+          {allowedViews.includes("production-grid") && <NavButton icon={<FileSpreadsheet size={19} />} label="Production Grid" active={view === "production-grid"} onClick={() => setView("production-grid")} />}
+          {allowedViews.includes("dashboard") && <NavButton icon={<BarChart3 size={19} />} label="Dashboard" active={view === "dashboard"} onClick={() => setView("dashboard")} />}
+          {allowedViews.includes("payroll") && <NavButton icon={<FileSpreadsheet size={19} />} label="Payroll" active={view === "payroll"} onClick={() => setView("payroll")} />}
+          {allowedViews.includes("settings") && <NavButton icon={<ShieldCheck size={19} />} label="Admin" active={view === "settings"} onClick={() => setView("settings")} />}
         </nav>
 
         <section className={classNames("rounded border p-4 shadow-panel", darkMode ? "border-white/10 bg-steel-800/[0.94]" : "border-steel-100 bg-white/95")}>
@@ -909,6 +943,7 @@ export default function Home() {
         }
       `}</style>
     </main>
+    </AuthGate>
   );
 }
 

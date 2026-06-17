@@ -79,3 +79,19 @@ textarea {
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
+
+.field {
+  width: 100%;
+  border-radius: 4px;
+  border: 1px solid #d7dee3;
+  background: white;
+  color: #18222c;
+  padding: 0.75rem;
+  font-weight: 700;
+  outline: none;
+}
+
+.field:focus {
+  border-color: #2a6b40;
+  box-shadow: 0 0 0 3px rgba(42, 107, 64, 0.18);
+}
