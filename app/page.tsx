@@ -891,7 +891,17 @@ export default function Home() {
             <img src="/logo.svg" alt="Manufacturing Green Products" className="h-12 w-12 shrink-0 rounded-full sm:h-14 sm:w-14" />
             <div className="min-w-0">
               <p className="truncate text-xs font-bold uppercase tracking-wide text-workshop-700">MGP</p>
-              <h1 className="truncate text-lg font-black sm:text-2xl">Pallet Repair Tracking</h1>
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                <h1 className="truncate text-lg font-black sm:text-2xl">Pallet Repair Tracking</h1>
+                <a
+                  href="/live-board"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="shrink-0 rounded-full bg-workshop-100 px-3 py-1 text-xs font-black text-workshop-700 hover:bg-workshop-500 hover:text-white"
+                >
+                  Live Pallet Tracker →
+                </a>
+              </div>
             </div>
           </div>
           <div className="flex items-center gap-2">

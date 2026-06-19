@@ -200,12 +200,11 @@ export default function LiveBoardPage() {
       <header className="border-b border-white/10 bg-[#0d1a22] px-8 py-5">
         <div className="flex items-center justify-between gap-6">
           <div className="flex items-center gap-5">
-            <div className="flex h-16 w-16 items-center justify-center rounded bg-safety-400 text-steel-900">
-              <Factory size={38} />
-            </div>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/logo.svg" alt="Manufacturing Green Products" className="h-16 w-16 shrink-0 rounded-full bg-white" />
             <div>
               <h1 className="text-4xl font-black text-white">MGP LIVE PRODUCTION BOARD</h1>
-              <p className="mt-1 text-xl font-bold text-cyan-200">{periodLabel} · {now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}</p>
+              <p className="mt-1 text-xl font-bold text-[#aef2bc]">{periodLabel} · {now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}</p>
               <p className="text-xl font-black text-safety-400">{selectedLocationLabel} · {selectedShiftLabel}</p>
             </div>
           </div>
@@ -251,7 +250,7 @@ export default function LiveBoardPage() {
                 {repairerRows.slice(0, 12).map((row, index) => (
                   <div key={row.employeeId} className={`grid grid-cols-[70px_1fr_auto] items-center gap-4 rounded border px-5 py-3 ${index < 3 ? "border-safety-400/60 bg-safety-400/10" : "border-white/10 bg-white/[0.04]"}`}>
                     <div className="flex items-center justify-center">
-                      {index < 3 ? <Medal size={42} className={index === 0 ? "text-yellow-300" : index === 1 ? "text-slate-200" : "text-amber-500"} /> : <span className="text-3xl font-black text-cyan-200">{index + 1}</span>}
+                      {index < 3 ? <Medal size={42} className={index === 0 ? "text-[#92d6a1]" : index === 1 ? "text-slate-200" : "text-[#4aa666]"} /> : <span className="text-3xl font-black text-[#aef2bc]">{index + 1}</span>}
                     </div>
                     <span className="truncate text-4xl font-black">{row.name}</span>
                     <span className="text-5xl font-black text-safety-400">{wholeNumber(row.quantity)}</span>
@@ -269,12 +268,12 @@ export default function LiveBoardPage() {
 
         {rotationScreen === 1 && (
           <div className="grid gap-6 xl:grid-cols-2">
-            <BoardPanel title="LOCATION TOTALS" icon={<Factory size={34} className="text-cyan-300" />}>
+            <BoardPanel title="LOCATION TOTALS" icon={<Factory size={34} className="text-[#92d6a1]" />}>
               <div className="grid gap-5">
                 {locationRows.map((location) => (
                   <div key={location.id} className="flex items-center justify-between rounded border border-white/10 bg-white/[0.04] px-8 py-7">
                     <span className="text-5xl font-black">{location.name}</span>
-                    <span className="text-6xl font-black text-cyan-300">{wholeNumber(location.quantity)}</span>
+                    <span className="text-6xl font-black text-[#92d6a1]">{wholeNumber(location.quantity)}</span>
                   </div>
                 ))}
               </div>
@@ -287,10 +286,10 @@ export default function LiveBoardPage() {
         )}
 
         {rotationScreen === 2 && (
-          <BoardPanel title="REPAIRER DETAIL" icon={<Users size={34} className="text-cyan-300" />}>
+          <BoardPanel title="REPAIRER DETAIL" icon={<Users size={34} className="text-[#92d6a1]" />}>
             <div className="overflow-hidden rounded border border-white/10">
               <table className="w-full text-left">
-                <thead className="bg-white/10 text-2xl uppercase text-cyan-200">
+                <thead className="bg-white/10 text-2xl uppercase text-[#aef2bc]">
                   <tr>
                     <th className="p-4">Rank</th>
                     <th className="p-4">Repairer</th>
@@ -302,7 +301,7 @@ export default function LiveBoardPage() {
                 <tbody>
                   {repairerRows.map((row, index) => (
                     <tr key={row.employeeId} className="border-t border-white/10 bg-white/[0.03] text-3xl font-black">
-                      <td className="p-4 text-cyan-200">{index + 1}</td>
+                      <td className="p-4 text-[#aef2bc]">{index + 1}</td>
                       <td className="p-4">{row.name}</td>
                       <td className="p-4">{getLocationName(row.locationId)}</td>
                       <td className="p-4">{row.shift}</td>
@@ -342,7 +341,7 @@ function GrandTotal({ total }: { total: number }) {
     <div className="flex flex-col items-center justify-center rounded border border-safety-400/50 bg-safety-400/10 p-8 text-center">
       <span className="text-3xl font-black text-safety-400">COMPANY TOTAL</span>
       <strong className="mt-3 text-8xl font-black text-white">{wholeNumber(total)}</strong>
-      <span className="mt-2 text-3xl font-black text-cyan-200">PALLETS</span>
+      <span className="mt-2 text-3xl font-black text-[#aef2bc]">PALLETS</span>
     </div>
   );
 }
@@ -359,7 +358,7 @@ function GoalTracker({ actual, goal, percent }: { actual: number; goal: number; 
       </div>
       <div className="mt-5 flex items-end justify-between">
         <span className="text-6xl font-black text-safety-400">{percent}%</span>
-        <span className="text-3xl font-black text-cyan-200">{wholeNumber(actual)} / {wholeNumber(goal)}</span>
+        <span className="text-3xl font-black text-[#aef2bc]">{wholeNumber(actual)} / {wholeNumber(goal)}</span>
       </div>
     </div>
   );
