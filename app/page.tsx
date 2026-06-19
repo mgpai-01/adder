@@ -2831,14 +2831,22 @@ function EmployeeAdmin({
   }
 
   const yardName = (id: string) => locations.find((location) => location.id === id)?.name ?? id;
-  const visibleEmployees = yardFilter === "all" ? employees : employees.filter((employee) => employee.locationId === yardFilter);
-  const sortedEmployees = [...visibleEmployees].sort((a, b) => {
+  const grouped = yardFilter === "grouped";
+  const visibleEmployees = yardFilter === "all" || grouped ? employees : employees.filter((employee) => employee.locationId === yardFilter);
+  const sortByYardThenManager = (a: Employee, b: Employee) => {
     const byYard = yardName(a.locationId).localeCompare(yardName(b.locationId));
     if (byYard !== 0) return byYard;
     const managerRank = (employee: Employee) => (employee.role === "supervisor" ? 0 : 1);
     if (managerRank(a) !== managerRank(b)) return managerRank(a) - managerRank(b);
     return a.name.localeCompare(b.name);
-  });
+  };
+  const sortedEmployees = [...visibleEmployees].sort(sortByYardThenManager);
+  // When grouped, split into one section per yard; otherwise one flat section.
+  const sections = grouped
+    ? locations
+        .map((location) => ({ title: location.name, people: sortedEmployees.filter((employee) => employee.locationId === location.id) }))
+        .filter((section) => section.people.length > 0)
+    : [{ title: "", people: sortedEmployees }];
 
   return (
     <div className="grid gap-4">
@@ -2907,48 +2915,60 @@ function EmployeeAdmin({
       <div className="grid gap-3 sm:grid-cols-[260px_1fr] sm:items-end">
         <Label title="Filter by Yard" icon={<MapPin size={17} />}>
           <select className="field" value={yardFilter} onChange={(event) => setYardFilter(event.target.value)}>
-            <option value="all">All Yards</option>
+            <option value="all">All Yards (flat list)</option>
+            <option value="grouped">Everyone, grouped by yard</option>
             {locations.map((location) => (
               <option key={location.id} value={location.id}>
-                {location.name}
+                {location.name} only
               </option>
             ))}
           </select>
         </Label>
         <p className="pb-2 text-sm font-bold text-steel-500">
           Showing {sortedEmployees.length} {sortedEmployees.length === 1 ? "person" : "people"}
-          {yardFilter === "all" ? " across all yards" : ` in ${yardName(yardFilter)}`}.
+          {yardFilter === "all" ? " across all yards" : grouped ? " grouped by yard" : ` in ${yardName(yardFilter)}`}.
         </p>
       </div>
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-        {sortedEmployees.map((employee) => (
-          <div key={employee.id} className="rounded border border-steel-100 bg-white p-4 text-steel-900">
-            <div className="flex items-start gap-3">
-              <Avatar employee={employee} size="lg" />
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <h3 className="truncate text-lg font-black">{employee.name}</h3>
-                  {employee.role === "supervisor" && (
-                    <span className="flex shrink-0 items-center gap-1 rounded bg-steel-900 px-2 py-0.5 text-xs font-black text-white">
-                      <ShieldCheck size={12} />
-                      Yard Manager
-                    </span>
-                  )}
+      {sections.map((section) => (
+        <div key={section.title || "all"} className="grid gap-3">
+          {section.title && (
+            <h3 className="flex items-center gap-2 border-b border-steel-100 pb-1 text-lg font-black">
+              <MapPin size={18} className="text-workshop-700" />
+              {section.title}
+              <span className="text-sm font-bold text-steel-500">· {section.people.length}</span>
+            </h3>
+          )}
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {section.people.map((employee) => (
+              <div key={employee.id} className="rounded border border-steel-100 bg-white p-4 text-steel-900">
+                <div className="flex items-start gap-3">
+                  <Avatar employee={employee} size="lg" />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <h3 className="truncate text-lg font-black">{employee.name}</h3>
+                      {employee.role === "supervisor" && (
+                        <span className="flex shrink-0 items-center gap-1 rounded bg-steel-900 px-2 py-0.5 text-xs font-black text-white">
+                          <ShieldCheck size={12} />
+                          Yard Manager
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-sm text-steel-500">{yardName(employee.locationId)} · {employee.shift}</p>
+                    <p className="mt-1 text-sm text-steel-500">{employee.notes || "No notes"}</p>
+                  </div>
                 </div>
-                <p className="text-sm text-steel-500">{yardName(employee.locationId)} · {employee.shift}</p>
-                <p className="mt-1 text-sm text-steel-500">{employee.notes || "No notes"}</p>
+                <div className="mt-4 grid grid-cols-[1fr_52px_52px] gap-2">
+                  <button type="button" className={classNames("touch-target rounded px-3 py-2 text-sm font-black", employee.active ? "bg-workshop-500 text-white" : "bg-steel-100 text-steel-700")} onClick={() => onUpdate(employee.id, { active: !employee.active })}>
+                    {employee.active ? "Active" : "Inactive"}
+                  </button>
+                  <IconButton label={`Edit ${employee.name}`} icon={<Edit2 size={18} />} onClick={() => edit(employee)} />
+                  <IconButton label={`Delete ${employee.name}`} icon={<Trash2 size={18} />} danger onClick={() => deleteRepairer(employee)} />
+                </div>
               </div>
-            </div>
-            <div className="mt-4 grid grid-cols-[1fr_52px_52px] gap-2">
-              <button type="button" className={classNames("touch-target rounded px-3 py-2 text-sm font-black", employee.active ? "bg-workshop-500 text-white" : "bg-steel-100 text-steel-700")} onClick={() => onUpdate(employee.id, { active: !employee.active })}>
-                {employee.active ? "Active" : "Inactive"}
-              </button>
-              <IconButton label={`Edit ${employee.name}`} icon={<Edit2 size={18} />} onClick={() => edit(employee)} />
-              <IconButton label={`Delete ${employee.name}`} icon={<Trash2 size={18} />} danger onClick={() => deleteRepairer(employee)} />
-            </div>
+            ))}
           </div>
-        ))}
-      </div>
+        </div>
+      ))}
       {editDraft && (
         <Modal title={`Edit ${editDraft.name}`} onClose={() => !isSaving && setEditDraft(null)}>
           <div className="grid gap-3">
