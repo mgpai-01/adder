@@ -203,7 +203,7 @@ export default function LiveBoardPage() {
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/logo.svg" alt="Manufacturing Green Products" className="h-16 w-16 shrink-0 rounded-full bg-white" />
             <div>
-              <h1 className="text-4xl font-black text-white">MGP LIVE PRODUCTION BOARD</h1>
+              <h1 className="text-4xl font-black text-white">LIVE PALLET TRACKER</h1>
               <p className="mt-1 text-xl font-bold text-[#aef2bc]">{periodLabel} · {now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}</p>
               <p className="text-xl font-black text-safety-400">{selectedLocationLabel} · {selectedShiftLabel}</p>
             </div>
