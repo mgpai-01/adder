@@ -10,7 +10,8 @@ export async function GET(request: Request) {
   const auth = await requireAdmin(request);
   if (!auth.ok) return NextResponse.json({ users: [], error: auth.error }, { status: auth.status });
 
-  const { data: list } = await auth.supabase.auth.admin.listUsers({ perPage: 1000 });
+  const { data: list, error: listError } = await auth.supabase.auth.admin.listUsers({ perPage: 1000 });
+  if (listError) return NextResponse.json({ users: [], error: listError.message });
   const { data: profiles } = await auth.supabase.from("profiles").select("id, username, full_name, role, active");
   const profileMap = new Map((profiles ?? []).map((profile) => [profile.id, profile]));
 

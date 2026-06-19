@@ -3857,11 +3857,18 @@ function UsersAdmin() {
   const [form, setForm] = useState({ fullName: "", login: "", password: "", role: "employee" });
 
   async function authedFetch(url: string, options: RequestInit = {}) {
-    const token = await getAccessToken();
-    return fetch(url, {
-      ...options,
-      headers: { ...(options.headers ?? {}), "Content-Type": "application/json", Authorization: `Bearer ${token}` }
-    });
+    const token = getAccessToken();
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), 15000);
+    try {
+      return await fetch(url, {
+        ...options,
+        signal: controller.signal,
+        headers: { ...(options.headers ?? {}), "Content-Type": "application/json", Authorization: `Bearer ${token}` }
+      });
+    } finally {
+      window.clearTimeout(timer);
+    }
   }
 
   async function load() {
@@ -3872,9 +3879,10 @@ function UsersAdmin() {
         setError(data.error);
         return;
       }
+      setError("");
       setUsers(data.users ?? []);
-    } catch {
-      setError("Could not load users.");
+    } catch (caught) {
+      setError((caught as Error)?.name === "AbortError" ? "Loading users timed out — try again." : "Could not load users.");
     }
   }
 
@@ -3897,6 +3905,8 @@ function UsersAdmin() {
       setMessage(`Added ${form.fullName || form.login}.`);
       setForm({ fullName: "", login: "", password: "", role: "employee" });
       load();
+    } catch (caught) {
+      setError((caught as Error)?.name === "AbortError" ? "Request timed out — try again." : "Could not add user.");
     } finally {
       setBusy(false);
     }

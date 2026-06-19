@@ -62,6 +62,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!supabase) return;
     try {
       const { data: sessionData } = await supabase.auth.getSession();
+      setCachedAccessToken(sessionData.session?.access_token ?? "");
       const user = sessionData.session?.user;
       if (!user) {
         setProfile(null);
@@ -142,6 +143,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     })();
 
     const { data: subscription } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      setCachedAccessToken(session?.access_token ?? "");
       if (session) {
         await loadProfile();
       } else {
@@ -168,6 +170,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setError("Wrong username/email or password.");
           throw signInError ?? new Error("Sign in failed.");
         }
+        setCachedAccessToken(data.session.access_token);
         await loadProfile();
       } catch (caught) {
         if ((caught as Error)?.message === "timed out") {
@@ -180,6 +183,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const signOut = useCallback(async () => {
+    setCachedAccessToken("");
     await supabase?.auth.signOut();
     setProfile(null);
   }, [supabase]);
@@ -208,12 +212,17 @@ export function useAuth(): AuthState {
   return context;
 }
 
+// The provider caches the current token here so admin API calls can read it
+// instantly without re-calling getSession (which can stall).
+let cachedAccessToken = "";
+
+export function setCachedAccessToken(token: string) {
+  cachedAccessToken = token;
+}
+
 // Current session token, for authenticating admin API calls from the browser.
-export async function getAccessToken(): Promise<string> {
-  const supabase = getBrowserSupabase();
-  if (!supabase) return "";
-  const { data } = await supabase.auth.getSession();
-  return data.session?.access_token ?? "";
+export function getAccessToken(): string {
+  return cachedAccessToken;
 }
 
 // Which app views each role may open. Admin sees everything; Manager runs
