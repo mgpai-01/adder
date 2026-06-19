@@ -213,3 +213,13 @@ textarea {
     transform: scale(1.35);
   }
 }
+
+@keyframes board-shine {
+  0% {
+    transform: translateX(-160%) skewX(-12deg);
+  }
+  60%,
+  100% {
+    transform: translateX(320%) skewX(-12deg);
+  }
+}

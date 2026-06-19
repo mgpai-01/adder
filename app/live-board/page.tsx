@@ -2,7 +2,7 @@
 
 import { Crown, Expand, Factory, Medal, RefreshCw, Target, Trophy, Users } from "lucide-react";
 import type { ReactNode } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { employees, locations, payrollSettings, shifts } from "@/lib/data";
 import { getWeekKey, wholeNumber } from "@/lib/payroll";
 import type { DailyEntry, PayrollSettings, Shift } from "@/lib/types";
@@ -267,44 +267,38 @@ export default function LiveBoardPage() {
         {rotationScreen === 0 && (
           <div className="grid gap-6 xl:grid-cols-[1.35fr_0.65fr]">
             <BoardPanel title="LIVE RANKING" icon={<Trophy size={34} className="text-[#92d6a1]" />}>
-              <div className="grid gap-3">
-                {repairerRows.slice(0, 12).map((row, index) => {
-                  const top3 = index < 3;
-                  const leader = index === 0;
-                  const pct = Math.round((row.quantity / maxQuantity) * 100);
-                  return (
-                    <div
-                      key={row.employeeId}
-                      style={{
-                        animation: leader
-                          ? "board-rise 0.5s ease-out both, board-glow 2.8s ease-in-out 0.7s infinite"
-                          : "board-rise 0.5s ease-out both",
-                        animationDelay: `${index * 55}ms`
-                      }}
-                      className={`relative overflow-hidden rounded-2xl border px-5 py-4 ${top3 ? "border-[#92d6a1]/50 bg-gradient-to-r from-[#92d6a1]/[0.16] to-transparent" : "border-white/10 bg-white/[0.04]"}`}
-                    >
-                      <div className="relative z-10 flex items-center gap-4">
-                        <div className="flex w-12 items-center justify-center">
-                          {leader ? (
-                            <Crown size={40} className="text-[#aef2bc]" />
-                          ) : top3 ? (
-                            <Medal size={38} className={index === 1 ? "text-slate-200" : "text-[#4aa666]"} />
-                          ) : (
-                            <span className="text-3xl font-black text-white/40">{index + 1}</span>
-                          )}
-                        </div>
-                        <BoardAvatar name={row.name} />
-                        <span className="flex-1 truncate text-4xl font-black">{row.name}</span>
-                        <span className="text-5xl font-black tabular-nums text-[#aef2bc]">{wholeNumber(row.quantity)}</span>
-                      </div>
-                      <div className="absolute inset-x-0 bottom-0 h-1.5 bg-white/5">
-                        <div className="h-full bg-gradient-to-r from-[#2a6b40] to-[#92d6a1] transition-all duration-700" style={{ width: `${pct}%` }} />
-                      </div>
+              {repairerRows.length === 0 ? (
+                <EmptyBoardMessage />
+              ) : (
+                <div className="grid gap-6">
+                  <Podium rows={repairerRows.slice(0, 3)} />
+                  {repairerRows.length > 3 && (
+                    <div className="grid gap-3">
+                      {repairerRows.slice(3, 12).map((row, position) => {
+                        const index = position + 3;
+                        const pct = Math.round((row.quantity / maxQuantity) * 100);
+                        return (
+                          <div
+                            key={row.employeeId}
+                            style={{ animation: "board-rise 0.5s ease-out both", animationDelay: `${position * 45}ms` }}
+                            className="relative overflow-hidden rounded-2xl border border-white/10 bg-white/[0.04] px-5 py-3"
+                          >
+                            <div className="relative z-10 flex items-center gap-4">
+                              <span className="w-10 text-center text-2xl font-black text-white/40">{index + 1}</span>
+                              <BoardAvatar name={row.name} size={48} />
+                              <span className="flex-1 truncate text-3xl font-black">{row.name}</span>
+                              <span className="text-4xl font-black tabular-nums text-[#aef2bc]">{wholeNumber(row.quantity)}</span>
+                            </div>
+                            <div className="absolute inset-x-0 bottom-0 h-1.5 bg-white/5">
+                              <div className="h-full bg-gradient-to-r from-[#2a6b40] to-[#92d6a1] transition-all duration-700" style={{ width: `${pct}%` }} />
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
-                  );
-                })}
-                {repairerRows.length === 0 && <EmptyBoardMessage />}
-              </div>
+                  )}
+                </div>
+              )}
             </BoardPanel>
             <div className="grid gap-6">
               <GrandTotal total={companyTotal} />
@@ -397,12 +391,82 @@ function BoardPanel({ title, icon, children }: { title: string; icon: ReactNode;
   );
 }
 
+// Animate a number toward its new value for a satisfying count-up effect.
+function useCountUp(value: number, duration = 900) {
+  const [display, setDisplay] = useState(value);
+  const previous = useRef(value);
+  useEffect(() => {
+    const start = previous.current;
+    const end = value;
+    if (start === end) return;
+    let frame = 0;
+    const startTime = performance.now();
+    const tick = (time: number) => {
+      const progress = Math.min(1, (time - startTime) / duration);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      setDisplay(Math.round(start + (end - start) * eased));
+      if (progress < 1) {
+        frame = requestAnimationFrame(tick);
+      } else {
+        previous.current = end;
+      }
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [value, duration]);
+  return display;
+}
+
+type BoardRow = { employeeId: string; name: string; locationId: string; shift: Shift; quantity: number };
+
+function Podium({ rows }: { rows: BoardRow[] }) {
+  const [first, second, third] = rows;
+  const order: Array<{ row?: BoardRow; rank: number }> = [
+    { row: second, rank: 2 },
+    { row: first, rank: 1 },
+    { row: third, rank: 3 }
+  ];
+  return (
+    <div className="grid grid-cols-3 items-end gap-4">
+      {order.map((slot, index) => (slot.row ? <PodiumCard key={slot.row.employeeId} row={slot.row} rank={slot.rank} /> : <div key={index} />))}
+    </div>
+  );
+}
+
+function PodiumCard({ row, rank }: { row: BoardRow; rank: number }) {
+  const isFirst = rank === 1;
+  return (
+    <div
+      style={isFirst ? { animation: "board-glow 2.8s ease-in-out infinite" } : undefined}
+      className={`relative flex flex-col items-center overflow-hidden rounded-3xl border text-center ${
+        isFirst ? "border-[#92d6a1]/60 bg-gradient-to-b from-[#92d6a1]/20 to-transparent px-5 pb-8 pt-7" : "border-white/10 bg-white/[0.05] px-4 pb-5 pt-5"
+      }`}
+    >
+      {isFirst && (
+        <span className="pointer-events-none absolute inset-y-0 left-0 w-1/3 bg-gradient-to-r from-transparent via-white/15 to-transparent [animation:board-shine_4s_ease-in-out_infinite]" />
+      )}
+      <div className="relative z-10 flex w-full flex-col items-center">
+        {isFirst ? <Crown size={46} className="text-[#aef2bc]" /> : <Medal size={36} className={rank === 2 ? "text-slate-200" : "text-[#4aa666]"} />}
+        <div className="mt-2">
+          <BoardAvatar name={row.name} size={isFirst ? 112 : 84} />
+        </div>
+        <span className={`mt-3 w-full truncate font-black ${isFirst ? "text-4xl" : "text-3xl"}`}>{row.name}</span>
+        <span className={`mt-1 font-black tabular-nums text-[#aef2bc] ${isFirst ? "text-7xl" : "text-6xl"}`}>{wholeNumber(row.quantity)}</span>
+        <span className="text-lg font-black uppercase tracking-widest text-white/40">pallets</span>
+      </div>
+    </div>
+  );
+}
+
 function GrandTotal({ total }: { total: number }) {
+  const shown = useCountUp(total);
   return (
     <div className="relative flex flex-col items-center justify-center overflow-hidden rounded-3xl border border-[#92d6a1]/30 bg-gradient-to-b from-[#92d6a1]/[0.14] to-transparent p-8 text-center [animation:board-glow_3.4s_ease-in-out_infinite]">
-      <span className="text-2xl font-black uppercase tracking-[0.2em] text-[#aef2bc]">Company Total</span>
-      <strong className="mt-2 bg-gradient-to-b from-white to-[#cfeed8] bg-clip-text text-8xl font-black tabular-nums text-transparent">{wholeNumber(total)}</strong>
-      <span className="mt-1 text-2xl font-black uppercase tracking-[0.2em] text-white/50">Pallets</span>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src="/logo.svg" alt="" className="pointer-events-none absolute -right-8 -top-8 h-44 w-44 opacity-[0.06]" />
+      <span className="relative text-2xl font-black uppercase tracking-[0.2em] text-[#aef2bc]">Company Total</span>
+      <strong className="relative mt-2 bg-gradient-to-b from-white to-[#cfeed8] bg-clip-text text-8xl font-black tabular-nums text-transparent">{wholeNumber(shown)}</strong>
+      <span className="relative mt-1 text-2xl font-black uppercase tracking-[0.2em] text-white/50">Pallets</span>
     </div>
   );
 }
