@@ -50,7 +50,7 @@ import {
   timeOptions
 } from "@/lib/data";
 import { calculateEntry, currency, getWeekKey, wholeNumber } from "@/lib/payroll";
-import { roleLabels, roleViews, useAuth } from "@/lib/auth";
+import { getAccessToken, roleLabels, roleViews, useAuth } from "@/lib/auth";
 import type { ChangeLogEntry } from "@/lib/cloudChangeLog";
 import AuthGate from "@/components/AuthGate";
 import DropZone from "@/components/DropZone";
@@ -69,7 +69,7 @@ const legacyPalletTypeAliases: Record<string, string> = {
   "no-2": "stacker-grade-b-2"
 };
 
-type View = "entry" | "count-sheets" | "production-grid" | "dashboard" | "payroll" | "cloud" | "settings";
+type View = "entry" | "count-sheets" | "production-grid" | "dashboard" | "payroll" | "cloud" | "users" | "settings";
 type AdminTab = "settings" | "pallets" | "employees" | "locations";
 
 type EntryForm = Omit<DailyEntry, "id" | "createdAt">;
@@ -276,7 +276,7 @@ function classNames(...classes: Array<string | false | undefined>) {
   return classes.filter(Boolean).join(" ");
 }
 
-const allViews: View[] = ["entry", "count-sheets", "production-grid", "dashboard", "payroll", "cloud", "settings"];
+const allViews: View[] = ["entry", "count-sheets", "production-grid", "dashboard", "payroll", "cloud", "users", "settings"];
 
 export default function Home() {
   const { configured, profile, signOut } = useAuth();
@@ -867,7 +867,7 @@ export default function Home() {
           <div className="flex items-center gap-2">
             {configured && profile && (
               <div className="hidden text-right sm:block">
-                <p className="text-sm font-black leading-tight">{profile.username || profile.fullName}</p>
+                <p className="text-sm font-black leading-tight">{profile.fullName || profile.username}</p>
                 <p className="text-xs font-bold uppercase tracking-wide text-workshop-700">{roleLabels[profile.role]}</p>
               </div>
             )}
@@ -902,6 +902,7 @@ export default function Home() {
           {allowedViews.includes("dashboard") && <NavButton icon={<BarChart3 size={19} />} label="Dashboard" active={view === "dashboard"} onClick={() => setView("dashboard")} />}
           {allowedViews.includes("payroll") && <NavButton icon={<FileSpreadsheet size={19} />} label="Payroll" active={view === "payroll"} onClick={() => setView("payroll")} />}
           {allowedViews.includes("cloud") && <NavButton icon={<Database size={19} />} label="Cloud" active={view === "cloud"} onClick={() => setView("cloud")} />}
+          {allowedViews.includes("users") && <NavButton icon={<UserRound size={19} />} label="Users" active={view === "users"} onClick={() => setView("users")} />}
           {allowedViews.includes("settings") && <NavButton icon={<ShieldCheck size={19} />} label="Admin" active={view === "settings"} onClick={() => setView("settings")} />}
         </nav>
 
@@ -980,6 +981,7 @@ export default function Home() {
               onViewEntry={setViewingEntry}
             />
           )}
+          {view === "users" && <UsersAdmin />}
           {view === "settings" && (
             <Settings
               darkMode={darkMode}
@@ -3826,6 +3828,185 @@ function CloudBrowser({
               </div>
             ))}
           </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+type UserRow = {
+  id: string;
+  email: string;
+  username: string;
+  fullName: string;
+  role: string;
+  active: boolean;
+};
+
+const userRoleOptions: Array<{ value: string; label: string }> = [
+  { value: "admin", label: "Admin" },
+  { value: "supervisor", label: "Manager" },
+  { value: "employee", label: "Counter" }
+];
+
+function UsersAdmin() {
+  const [users, setUsers] = useState<UserRow[]>([]);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [form, setForm] = useState({ fullName: "", login: "", password: "", role: "employee" });
+
+  async function authedFetch(url: string, options: RequestInit = {}) {
+    const token = await getAccessToken();
+    return fetch(url, {
+      ...options,
+      headers: { ...(options.headers ?? {}), "Content-Type": "application/json", Authorization: `Bearer ${token}` }
+    });
+  }
+
+  async function load() {
+    try {
+      const response = await authedFetch("/api/admin/users");
+      const data = await response.json();
+      if (data.error) {
+        setError(data.error);
+        return;
+      }
+      setUsers(data.users ?? []);
+    } catch {
+      setError("Could not load users.");
+    }
+  }
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  async function addUser(event: React.FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      const response = await authedFetch("/api/admin/users", { method: "POST", body: JSON.stringify(form) });
+      const data = await response.json();
+      if (!data.ok) {
+        setError(data.error ?? "Could not add user.");
+        return;
+      }
+      setMessage(`Added ${form.fullName || form.login}.`);
+      setForm({ fullName: "", login: "", password: "", role: "employee" });
+      load();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function patchUser(id: string, patch: Record<string, unknown>, successMessage: string) {
+    setError("");
+    const response = await authedFetch(`/api/admin/users/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
+    const data = await response.json();
+    if (!data.ok) {
+      setError(data.error ?? "Update failed.");
+      return;
+    }
+    setMessage(successMessage);
+    load();
+  }
+
+  function renameUser(user: UserRow) {
+    const name = window.prompt("New name:", user.fullName);
+    if (name === null) return;
+    patchUser(user.id, { fullName: name }, `Renamed to ${name}.`);
+  }
+
+  function resetPassword(user: UserRow) {
+    const password = window.prompt(`New password for ${user.fullName || user.username} (min 6 characters):`);
+    if (!password) return;
+    patchUser(user.id, { password }, `Password reset for ${user.fullName || user.username}.`);
+  }
+
+  async function deleteUser(user: UserRow) {
+    if (!window.confirm(`Delete ${user.fullName || user.username}? This permanently removes their login.`)) return;
+    setError("");
+    const response = await authedFetch(`/api/admin/users/${user.id}`, { method: "DELETE" });
+    const data = await response.json();
+    if (!data.ok) {
+      setError(data.error ?? "Delete failed.");
+      return;
+    }
+    setMessage("User deleted.");
+    load();
+  }
+
+  return (
+    <div className="grid gap-4 text-steel-900">
+      <div>
+        <h2 className="text-2xl font-black">Users</h2>
+        <p className="text-sm text-steel-500">Add logins, rename people, change roles, reset passwords. Admins only.</p>
+      </div>
+
+      {(message || error) && (
+        <div className={classNames("rounded border p-3 text-sm font-bold", error ? "border-red-200 bg-red-50 text-red-700" : "border-steel-100 bg-workshop-100 text-steel-900")}>
+          {error || message}
+        </div>
+      )}
+
+      <form onSubmit={addUser} className="grid gap-3 rounded border border-steel-100 bg-white p-4 md:grid-cols-[1fr_1fr_1fr_140px_auto] md:items-end">
+        <Label title="Full Name" icon={<UserRound size={16} />}>
+          <input className="field" value={form.fullName} onChange={(event) => setForm((current) => ({ ...current, fullName: event.target.value }))} placeholder="Moses Macias" />
+        </Label>
+        <Label title="Username or Email" icon={<UserRound size={16} />}>
+          <input className="field" value={form.login} onChange={(event) => setForm((current) => ({ ...current, login: event.target.value }))} placeholder="moses or moses@email.com" autoCapitalize="none" />
+        </Label>
+        <Label title="Password" icon={<ShieldCheck size={16} />}>
+          <input className="field" value={form.password} onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))} placeholder="min 6 characters" />
+        </Label>
+        <Label title="Role" icon={<ShieldCheck size={16} />}>
+          <select className="field" value={form.role} onChange={(event) => setForm((current) => ({ ...current, role: event.target.value }))}>
+            {userRoleOptions.map((option) => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
+          </select>
+        </Label>
+        <button type="submit" disabled={busy} className="touch-target flex items-center justify-center gap-2 rounded bg-workshop-500 px-4 font-black text-white disabled:bg-steel-300">
+          <Check size={18} />
+          {busy ? "Adding…" : "Add User"}
+        </button>
+      </form>
+
+      <div className="grid gap-2">
+        {users.map((user) => (
+          <div key={user.id} className="grid gap-3 rounded border border-steel-100 bg-white p-3 md:grid-cols-[1fr_160px_auto] md:items-center">
+            <div className="min-w-0">
+              <p className="truncate text-lg font-black">{user.fullName || user.username || user.email}</p>
+              <p className="truncate text-sm text-steel-500">{user.email}{user.username ? ` · @${user.username}` : ""}</p>
+            </div>
+            <select
+              className="field"
+              value={user.role}
+              onChange={(event) => patchUser(user.id, { role: event.target.value }, `Role updated for ${user.fullName || user.username}.`)}
+            >
+              {userRoleOptions.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" className="rounded bg-steel-100 px-3 py-2 text-sm font-black text-steel-900" onClick={() => renameUser(user)}>Rename</button>
+              <button type="button" className="rounded bg-steel-100 px-3 py-2 text-sm font-black text-steel-900" onClick={() => resetPassword(user)}>Reset Password</button>
+              <button
+                type="button"
+                className={classNames("rounded px-3 py-2 text-sm font-black", user.active ? "bg-workshop-500 text-white" : "bg-steel-200 text-steel-700")}
+                onClick={() => patchUser(user.id, { active: !user.active }, `${user.fullName || user.username} ${user.active ? "deactivated" : "activated"}.`)}
+              >
+                {user.active ? "Active" : "Inactive"}
+              </button>
+              <button type="button" className="rounded bg-red-700 px-3 py-2 text-sm font-black text-white" onClick={() => deleteUser(user)}>Delete</button>
+            </div>
+          </div>
+        ))}
+        {users.length === 0 && (
+          <div className="rounded border border-steel-100 bg-white p-5 text-center font-bold text-steel-500">No users loaded yet.</div>
         )}
       </div>
     </div>

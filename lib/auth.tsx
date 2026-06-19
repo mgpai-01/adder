@@ -208,10 +208,18 @@ export function useAuth(): AuthState {
   return context;
 }
 
+// Current session token, for authenticating admin API calls from the browser.
+export async function getAccessToken(): Promise<string> {
+  const supabase = getBrowserSupabase();
+  if (!supabase) return "";
+  const { data } = await supabase.auth.getSession();
+  return data.session?.access_token ?? "";
+}
+
 // Which app views each role may open. Admin sees everything; Manager runs
 // production and reports; Counter only handles count sheets.
 export const roleViews: Record<AppRole, string[]> = {
-  admin: ["entry", "count-sheets", "production-grid", "dashboard", "payroll", "cloud", "settings"],
+  admin: ["entry", "count-sheets", "production-grid", "dashboard", "payroll", "cloud", "users", "settings"],
   supervisor: ["entry", "count-sheets", "production-grid", "dashboard"],
   employee: ["count-sheets"]
 };
