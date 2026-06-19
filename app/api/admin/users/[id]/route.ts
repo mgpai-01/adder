@@ -22,7 +22,12 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   }
 
   const profilePatch: Record<string, unknown> = {};
-  if (body.fullName !== undefined) profilePatch.full_name = body.fullName.trim();
+  if (body.fullName !== undefined) {
+    const cleanName = body.fullName.trim();
+    profilePatch.full_name = cleanName;
+    // Keep the @handle in sync as the name with spaces removed (e.g. KurrenBajwa).
+    profilePatch.username = cleanName.replace(/\s+/g, "");
+  }
   if (body.role !== undefined) profilePatch.role = body.role;
   if (body.active !== undefined) profilePatch.active = body.active;
 

@@ -42,7 +42,8 @@ export async function POST(request: Request) {
   }
 
   const email = toEmail(login);
-  const username = login.includes("@") ? login.split("@")[0] : login.toLowerCase();
+  const derivedFromName = (body.fullName ?? "").trim().replace(/\s+/g, "");
+  const username = derivedFromName || (login.includes("@") ? login.split("@")[0] : login.toLowerCase());
 
   const { data: created, error: createError } = await auth.supabase.auth.admin.createUser({
     email,
