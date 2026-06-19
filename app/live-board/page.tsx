@@ -1,6 +1,6 @@
 "use client";
 
-import { Expand, RefreshCw } from "lucide-react";
+import { Crown, Expand, MapPin, RefreshCw, Target, Trophy, Users } from "lucide-react";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { employees, locations, payrollSettings, shifts } from "@/lib/data";
@@ -197,83 +197,100 @@ export default function LiveBoardPage() {
 
   const maxQuantity = repairerRows[0]?.quantity || 1;
   const clockLabel = now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
-  const controlClass = "h-11 rounded-lg border border-white/10 bg-white/[0.03] px-3 text-base font-semibold text-white/90 outline-none";
+  const control = "h-11 rounded-xl border border-white/10 bg-white/[0.04] px-3 text-base font-semibold text-white/90 outline-none backdrop-blur";
 
   return (
-    <main className={`min-h-screen bg-[#0b0f0e] text-white ${cursorHidden ? "cursor-none" : ""}`}>
+    <main
+      className={`min-h-screen text-white ${cursorHidden ? "cursor-none" : ""}`}
+      style={{
+        background:
+          "radial-gradient(1000px 600px at 85% -15%, rgba(146,214,161,0.12), transparent 60%), radial-gradient(800px 600px at -10% 110%, rgba(42,107,64,0.16), transparent 60%), linear-gradient(180deg, #0b1410 0%, #070d0a 100%)"
+      }}
+    >
       <header className="flex flex-wrap items-center justify-between gap-6 px-10 pt-8">
         <div className="flex items-center gap-4">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo.svg" alt="Manufacturing Green Products" className="h-14 w-14 shrink-0 rounded-full bg-white" />
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-1.5 shadow-lg backdrop-blur">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/logo.svg" alt="Manufacturing Green Products" className="h-16 w-16 rounded-full bg-white" />
+          </div>
           <div>
             <div className="flex items-center gap-3">
-              <h1 className="text-3xl font-bold tracking-tight">Live Pallet Tracker</h1>
-              <span className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-[0.2em] text-[#92d6a1]">
-                <span className="h-2 w-2 rounded-full bg-[#92d6a1] [animation:board-pulse-dot_1.8s_ease-in-out_infinite]" />
+              <h1 className="text-4xl font-black tracking-tight">
+                Live <span className="bg-gradient-to-r from-[#92d6a1] to-[#aef2bc] bg-clip-text text-transparent">Pallet Tracker</span>
+              </h1>
+              <span className="flex items-center gap-1.5 rounded-full border border-[#92d6a1]/40 bg-[#92d6a1]/10 px-3 py-1 text-xs font-bold uppercase tracking-[0.2em] text-[#aef2bc]">
+                <span className="h-2 w-2 rounded-full bg-[#92d6a1] [animation:board-pulse-dot_1.6s_ease-in-out_infinite]" />
                 Live
               </span>
             </div>
-            <p className="mt-1 text-base font-medium text-white/45">
-              {periodLabel} · {clockLabel} · {selectedLocationLabel} · {selectedShiftLabel}
-            </p>
+            <p className="mt-1.5 text-lg font-medium text-white/50">{periodLabel} · {clockLabel} · {selectedLocationLabel} · {selectedShiftLabel}</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <button type="button" aria-label="Refresh" className="flex h-11 w-11 items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] text-white/70 transition-colors hover:text-white" onClick={() => loadData().catch(() => undefined)}>
+          <button type="button" aria-label="Refresh" className="flex h-12 w-12 items-center justify-center rounded-xl border border-white/10 bg-white/[0.05] text-white/70 backdrop-blur transition-colors hover:text-white" onClick={() => loadData().catch(() => undefined)}>
             <RefreshCw size={20} />
           </button>
-          <button type="button" aria-label="Fullscreen" className="flex h-11 w-11 items-center justify-center rounded-lg border border-[#92d6a1]/40 bg-[#92d6a1]/10 text-[#aef2bc] transition-colors hover:bg-[#92d6a1]/20" onClick={enterFullscreen}>
+          <button type="button" className="flex h-12 items-center gap-2 rounded-xl bg-gradient-to-r from-[#2a6b40] to-[#3f8a55] px-5 font-bold text-white shadow-lg shadow-[#2a6b40]/25 transition-transform hover:scale-[1.03]" onClick={enterFullscreen}>
             <Expand size={20} />
+            Fullscreen
           </button>
         </div>
       </header>
 
       <div className="flex flex-wrap gap-2 px-10 pt-5">
-        <select className={controlClass} value={locationFilter} onChange={(event) => setLocationFilter(event.target.value)}>
+        <select className={control} value={locationFilter} onChange={(event) => setLocationFilter(event.target.value)}>
           <option className="text-steel-900" value="all">All Locations</option>
           {locations.map((location) => <option className="text-steel-900" key={location.id} value={location.id}>{location.name}</option>)}
         </select>
-        <select className={controlClass} value={shiftFilter} onChange={(event) => setShiftFilter(event.target.value)}>
+        <select className={control} value={shiftFilter} onChange={(event) => setShiftFilter(event.target.value)}>
           <option className="text-steel-900" value="all">All Shifts</option>
           {shifts.map((shift) => <option className="text-steel-900" key={shift} value={shift}>{shift}</option>)}
         </select>
-        <select className={controlClass} value={periodMode} onChange={(event) => setPeriodMode(event.target.value as PeriodMode)}>
+        <select className={control} value={periodMode} onChange={(event) => setPeriodMode(event.target.value as PeriodMode)}>
           <option className="text-steel-900" value="today">Today</option>
           <option className="text-steel-900" value="date">Specific Date</option>
           <option className="text-steel-900" value="current-week">Current Week</option>
           <option className="text-steel-900" value="previous-week">Previous Week</option>
           <option className="text-steel-900" value="custom-week">Custom Week</option>
         </select>
-        <input className={controlClass} type="date" value={periodMode === "custom-week" ? selectedWeek : selectedDate} onChange={(event) => periodMode === "custom-week" ? setSelectedWeek(getWeekKey(event.target.value)) : setSelectedDate(event.target.value)} disabled={periodMode !== "date" && periodMode !== "custom-week"} />
-        <button type="button" className={controlClass} onClick={() => setRotationEnabled((value) => !value)}>Rotation: {rotationEnabled ? "On" : "Off"}</button>
+        <input className={control} type="date" value={periodMode === "custom-week" ? selectedWeek : selectedDate} onChange={(event) => periodMode === "custom-week" ? setSelectedWeek(getWeekKey(event.target.value)) : setSelectedDate(event.target.value)} disabled={periodMode !== "date" && periodMode !== "custom-week"} />
+        <button type="button" className={control} onClick={() => setRotationEnabled((value) => !value)}>Rotation: {rotationEnabled ? "On" : "Off"}</button>
       </div>
 
-      <section className="grid gap-10 px-10 py-8 pb-20">
+      <section className="grid gap-8 px-10 py-8 pb-20">
         {rotationScreen === 0 && (
-          <div className="grid gap-10 xl:grid-cols-[1.4fr_0.6fr]">
-            <div>
-              <SectionLabel>Ranking</SectionLabel>
+          <div className="grid gap-8 xl:grid-cols-[1.42fr_0.58fr]">
+            <GlassCard>
+              <SectionLabel icon={<Trophy size={22} />}>Ranking</SectionLabel>
               {repairerRows.length === 0 ? (
                 <EmptyBoardMessage />
               ) : (
                 <div className="grid gap-6">
                   <Podium rows={repairerRows.slice(0, 3)} />
                   {repairerRows.length > 3 && (
-                    <div className="divide-y divide-white/5 overflow-hidden rounded-2xl border border-white/10">
-                      {repairerRows.slice(3, 12).map((row, position) => (
-                        <div key={row.employeeId} className="flex items-center gap-5 px-6 py-4">
-                          <span className="w-8 text-2xl font-bold tabular-nums text-white/30">{position + 4}</span>
-                          <BoardAvatar name={row.name} size={48} />
-                          <span className="flex-1 truncate text-3xl font-semibold">{row.name}</span>
-                          <span className="text-4xl font-bold tabular-nums">{wholeNumber(row.quantity)}</span>
-                        </div>
-                      ))}
+                    <div className="divide-y divide-white/5">
+                      {repairerRows.slice(3, 12).map((row, position) => {
+                        const pct = Math.round((row.quantity / maxQuantity) * 100);
+                        return (
+                          <div key={row.employeeId} className="flex items-center gap-5 py-4">
+                            <span className="w-8 text-2xl font-bold tabular-nums text-white/30">{position + 4}</span>
+                            <BoardAvatar name={row.name} size={48} />
+                            <div className="min-w-0 flex-1">
+                              <span className="block truncate text-2xl font-bold">{row.name}</span>
+                              <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-white/5">
+                                <div className="h-full rounded-full bg-gradient-to-r from-[#2a6b40] to-[#92d6a1] transition-all duration-700" style={{ width: `${pct}%` }} />
+                              </div>
+                            </div>
+                            <span className="text-4xl font-black tabular-nums">{wholeNumber(row.quantity)}</span>
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
               )}
-            </div>
-            <div className="grid content-start gap-6">
+            </GlassCard>
+            <div className="grid content-start gap-8">
               <GrandTotal total={companyTotal} />
               <GoalTracker actual={companyTotal} goal={goal} percent={goalPercent} />
             </div>
@@ -281,20 +298,28 @@ export default function LiveBoardPage() {
         )}
 
         {rotationScreen === 1 && (
-          <div className="grid gap-10 xl:grid-cols-2">
-            <div>
-              <SectionLabel>Location Totals</SectionLabel>
-              <div className="divide-y divide-white/5 overflow-hidden rounded-2xl border border-white/10">
-                {locationRows.map((location) => (
-                  <div key={location.id} className="flex items-center justify-between px-8 py-8">
-                    <span className="text-5xl font-semibold">{location.name}</span>
-                    <span className="text-6xl font-bold tabular-nums text-[#aef2bc]">{wholeNumber(location.quantity)}</span>
-                  </div>
-                ))}
+          <div className="grid gap-8 xl:grid-cols-2">
+            <GlassCard>
+              <SectionLabel icon={<MapPin size={22} />}>Location Totals</SectionLabel>
+              <div className="grid gap-4">
+                {locationRows.map((location) => {
+                  const pct = Math.round((location.quantity / (locationRows[0]?.quantity || 1)) * 100);
+                  return (
+                    <div key={location.id} className="rounded-2xl border border-white/10 bg-white/[0.03] px-7 py-6">
+                      <div className="flex items-center justify-between">
+                        <span className="text-4xl font-bold">{location.name}</span>
+                        <span className="text-5xl font-black tabular-nums text-[#aef2bc]">{wholeNumber(location.quantity)}</span>
+                      </div>
+                      <div className="mt-4 h-2 w-full overflow-hidden rounded-full bg-white/5">
+                        <div className="h-full rounded-full bg-gradient-to-r from-[#2a6b40] to-[#92d6a1] transition-all duration-700" style={{ width: `${pct}%` }} />
+                      </div>
+                    </div>
+                  );
+                })}
                 {locationRows.length === 0 && <EmptyBoardMessage />}
               </div>
-            </div>
-            <div className="grid content-start gap-6">
+            </GlassCard>
+            <div className="grid content-start gap-8">
               <GoalTracker actual={companyTotal} goal={goal} percent={goalPercent} />
               <GrandTotal total={companyTotal} />
             </div>
@@ -302,43 +327,41 @@ export default function LiveBoardPage() {
         )}
 
         {rotationScreen === 2 && (
-          <div>
-            <SectionLabel>Repairer Detail</SectionLabel>
-            <div className="overflow-hidden rounded-2xl border border-white/10">
-              <table className="w-full text-left">
-                <thead className="text-base font-semibold uppercase tracking-widest text-white/40">
-                  <tr className="border-b border-white/10">
-                    <th className="px-6 py-4">Rank</th>
-                    <th className="px-6 py-4">Repairer</th>
-                    <th className="px-6 py-4">Location</th>
-                    <th className="px-6 py-4">Shift</th>
-                    <th className="px-6 py-4 text-right">Qty</th>
+          <GlassCard>
+            <SectionLabel icon={<Users size={22} />}>Repairer Detail</SectionLabel>
+            <table className="w-full text-left">
+              <thead className="text-base font-bold uppercase tracking-widest text-white/40">
+                <tr className="border-b border-white/10">
+                  <th className="px-4 py-4">Rank</th>
+                  <th className="px-4 py-4">Repairer</th>
+                  <th className="px-4 py-4">Location</th>
+                  <th className="px-4 py-4">Shift</th>
+                  <th className="px-4 py-4 text-right">Qty</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/5">
+                {repairerRows.map((row, index) => (
+                  <tr key={row.employeeId} className="text-3xl font-semibold">
+                    <td className="px-4 py-4 tabular-nums text-white/30">{index + 1}</td>
+                    <td className="px-4 py-4">
+                      <div className="flex items-center gap-3">
+                        <BoardAvatar name={row.name} size={44} />
+                        {row.name}
+                      </div>
+                    </td>
+                    <td className="px-4 py-4 text-white/60">{getLocationName(row.locationId)}</td>
+                    <td className="px-4 py-4 text-white/60">{row.shift}</td>
+                    <td className="px-4 py-4 text-right font-black tabular-nums text-[#aef2bc]">{wholeNumber(row.quantity)}</td>
                   </tr>
-                </thead>
-                <tbody className="divide-y divide-white/5">
-                  {repairerRows.map((row, index) => (
-                    <tr key={row.employeeId} className="text-3xl font-semibold">
-                      <td className="px-6 py-4 tabular-nums text-white/30">{index + 1}</td>
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-3">
-                          <BoardAvatar name={row.name} size={44} />
-                          {row.name}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 text-white/60">{getLocationName(row.locationId)}</td>
-                      <td className="px-6 py-4 text-white/60">{row.shift}</td>
-                      <td className="px-6 py-4 text-right tabular-nums text-[#aef2bc]">{wholeNumber(row.quantity)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {repairerRows.length === 0 && <EmptyBoardMessage />}
-            </div>
-          </div>
+                ))}
+              </tbody>
+            </table>
+            {repairerRows.length === 0 && <EmptyBoardMessage />}
+          </GlassCard>
         )}
       </section>
 
-      <footer className="fixed bottom-0 left-0 right-0 flex items-center justify-between border-t border-white/10 bg-[#0b0f0e]/90 px-10 py-3 text-sm font-medium text-white/40 backdrop-blur">
+      <footer className="fixed bottom-0 left-0 right-0 flex items-center justify-between border-t border-white/10 bg-black/30 px-10 py-3 text-sm font-medium text-white/40 backdrop-blur-xl">
         <span>Updated live · Screen {rotationScreen + 1} of 3</span>
         <span>{lastUpdated ? `Last updated ${lastUpdated.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit" })}` : "Loading…"}</span>
       </footer>
@@ -368,8 +391,17 @@ function useCountUp(value: number, duration = 900) {
   return display;
 }
 
-function SectionLabel({ children }: { children: ReactNode }) {
-  return <p className="mb-5 text-sm font-bold uppercase tracking-[0.25em] text-white/40">{children}</p>;
+function GlassCard({ children }: { children: ReactNode }) {
+  return <div className="rounded-3xl border border-white/10 bg-white/[0.045] p-7 shadow-[0_10px_40px_rgba(0,0,0,0.45)] backdrop-blur-xl">{children}</div>;
+}
+
+function SectionLabel({ icon, children }: { icon: ReactNode; children: ReactNode }) {
+  return (
+    <div className="mb-6 flex items-center gap-2.5">
+      <span className="text-[#92d6a1]">{icon}</span>
+      <h2 className="text-xl font-black uppercase tracking-[0.2em] text-white/80">{children}</h2>
+    </div>
+  );
 }
 
 type BoardRow = { employeeId: string; name: string; locationId: string; shift: Shift; quantity: number };
@@ -382,7 +414,7 @@ function Podium({ rows }: { rows: BoardRow[] }) {
     { row: third, rank: 3 }
   ];
   return (
-    <div className="grid grid-cols-3 gap-5">
+    <div className="grid grid-cols-3 items-end gap-5">
       {order.map((slot, index) => (slot.row ? <PodiumCard key={slot.row.employeeId} row={slot.row} rank={slot.rank} /> : <div key={index} />))}
     </div>
   );
@@ -391,15 +423,22 @@ function Podium({ rows }: { rows: BoardRow[] }) {
 function PodiumCard({ row, rank }: { row: BoardRow; rank: number }) {
   const isFirst = rank === 1;
   return (
-    <div className={`flex flex-col items-center rounded-2xl border px-5 py-7 text-center ${isFirst ? "border-[#92d6a1]/40 bg-[#92d6a1]/[0.06]" : "border-white/10"}`}>
-      <span className={`text-sm font-bold uppercase tracking-[0.2em] ${isFirst ? "text-[#aef2bc]" : "text-white/35"}`}>
-        {rank === 1 ? "1st" : rank === 2 ? "2nd" : "3rd"}
+    <div
+      style={isFirst ? { animation: "board-glow 3.4s ease-in-out infinite" } : undefined}
+      className={`relative flex flex-col items-center rounded-3xl border text-center backdrop-blur-xl ${
+        isFirst
+          ? "border-[#92d6a1]/50 bg-gradient-to-b from-[#92d6a1]/[0.16] to-white/[0.02] px-6 pb-8 pt-9"
+          : "border-white/10 bg-white/[0.05] px-5 pb-6 pt-8"
+      }`}
+    >
+      <span className={`absolute -top-3.5 rounded-full border px-3 py-1 text-xs font-black uppercase tracking-[0.2em] ${isFirst ? "border-[#92d6a1]/50 bg-[#0c1512] text-[#aef2bc]" : "border-white/15 bg-[#0c1512] text-white/50"}`}>
+        {rank === 1 ? "Leader" : rank === 2 ? "2nd" : "3rd"}
       </span>
-      <div className="mt-4">
-        <BoardAvatar name={row.name} size={isFirst ? 104 : 80} />
-      </div>
-      <span className={`mt-4 w-full truncate font-semibold ${isFirst ? "text-3xl" : "text-2xl"}`}>{row.name}</span>
-      <span className={`mt-1 font-bold tabular-nums ${isFirst ? "text-7xl text-[#aef2bc]" : "text-6xl"}`}>{wholeNumber(row.quantity)}</span>
+      {isFirst && <Crown size={30} className="mb-1 text-[#aef2bc]" />}
+      <BoardAvatar name={row.name} size={isFirst ? 104 : 80} ring />
+      <span className={`mt-4 w-full truncate font-bold ${isFirst ? "text-3xl" : "text-2xl"}`}>{row.name}</span>
+      <span className={`mt-1 font-black tabular-nums ${isFirst ? "bg-gradient-to-b from-white to-[#aef2bc] bg-clip-text text-7xl text-transparent" : "text-6xl text-[#aef2bc]"}`}>{wholeNumber(row.quantity)}</span>
+      <span className="text-sm font-bold uppercase tracking-[0.2em] text-white/35">pallets</span>
     </div>
   );
 }
@@ -407,10 +446,12 @@ function PodiumCard({ row, rank }: { row: BoardRow; rank: number }) {
 function GrandTotal({ total }: { total: number }) {
   const shown = useCountUp(total);
   return (
-    <div className="rounded-2xl border border-white/10 p-8 text-center">
-      <span className="text-sm font-bold uppercase tracking-[0.25em] text-white/40">Company Total</span>
-      <p className="mt-3 text-8xl font-bold tabular-nums">{wholeNumber(shown)}</p>
-      <span className="mt-1 block text-base font-semibold uppercase tracking-[0.2em] text-[#92d6a1]">Pallets</span>
+    <div className="relative overflow-hidden rounded-3xl border border-[#92d6a1]/25 bg-gradient-to-b from-[#92d6a1]/[0.12] to-white/[0.02] p-8 text-center shadow-[0_10px_40px_rgba(0,0,0,0.4)] backdrop-blur-xl">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src="/logo.svg" alt="" className="pointer-events-none absolute -right-10 -top-10 h-44 w-44 opacity-[0.05]" />
+      <span className="relative text-sm font-black uppercase tracking-[0.25em] text-[#aef2bc]">Company Total</span>
+      <p className="relative mt-3 bg-gradient-to-b from-white to-[#cfeed8] bg-clip-text text-8xl font-black tabular-nums text-transparent">{wholeNumber(shown)}</p>
+      <span className="relative mt-1 block text-base font-bold uppercase tracking-[0.2em] text-white/45">Pallets</span>
     </div>
   );
 }
@@ -419,20 +460,29 @@ function GoalTracker({ actual, goal, percent }: { actual: number; goal: number; 
   const radius = 56;
   const circumference = 2 * Math.PI * radius;
   return (
-    <div className="rounded-2xl border border-white/10 p-8">
-      <span className="text-sm font-bold uppercase tracking-[0.25em] text-white/40">Today&apos;s Goal</span>
+    <div className="rounded-3xl border border-white/10 bg-white/[0.045] p-8 shadow-[0_10px_40px_rgba(0,0,0,0.4)] backdrop-blur-xl">
+      <div className="flex items-center gap-2.5">
+        <Target size={22} className="text-[#92d6a1]" />
+        <h2 className="text-xl font-black uppercase tracking-[0.2em] text-white/80">Today&apos;s Goal</h2>
+      </div>
       <div className="mt-6 flex items-center justify-center gap-8">
         <div className="relative h-44 w-44">
           <svg viewBox="0 0 130 130" className="h-full w-full -rotate-90">
-            <circle cx="65" cy="65" r={radius} fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="8" />
-            <circle cx="65" cy="65" r={radius} fill="none" stroke="#92d6a1" strokeWidth="8" strokeLinecap="round" strokeDasharray={circumference} strokeDashoffset={circumference * (1 - percent / 100)} className="transition-all duration-700" />
+            <defs>
+              <linearGradient id="goalGrad" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0" stopColor="#2a6b40" />
+                <stop offset="1" stopColor="#aef2bc" />
+              </linearGradient>
+            </defs>
+            <circle cx="65" cy="65" r={radius} fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="9" />
+            <circle cx="65" cy="65" r={radius} fill="none" stroke="url(#goalGrad)" strokeWidth="9" strokeLinecap="round" strokeDasharray={circumference} strokeDashoffset={circumference * (1 - percent / 100)} className="transition-all duration-700" />
           </svg>
           <div className="absolute inset-0 flex items-center justify-center">
-            <span className="text-5xl font-bold tabular-nums">{percent}%</span>
+            <span className="text-5xl font-black tabular-nums">{percent}%</span>
           </div>
         </div>
         <div className="text-right">
-          <p className="text-4xl font-bold tabular-nums">{wholeNumber(actual)}</p>
+          <p className="text-4xl font-black tabular-nums">{wholeNumber(actual)}</p>
           <p className="text-base font-semibold text-white/40">of {wholeNumber(goal)}</p>
         </div>
       </div>
@@ -440,15 +490,18 @@ function GoalTracker({ actual, goal, percent }: { actual: number; goal: number; 
   );
 }
 
-function BoardAvatar({ name, size = 56 }: { name: string; size?: number }) {
+function BoardAvatar({ name, size = 56, ring = false }: { name: string; size?: number; ring?: boolean }) {
   const initials = name.split(/\s+/).filter(Boolean).map((part) => part[0]).slice(0, 2).join("").toUpperCase();
   return (
-    <div style={{ height: size, width: size, fontSize: size * 0.36 }} className="flex shrink-0 items-center justify-center rounded-full bg-[#1f2a25] font-bold text-[#aef2bc]">
+    <div
+      style={{ height: size, width: size, fontSize: size * 0.36 }}
+      className={`flex shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#2a6b40] to-[#92d6a1] font-black text-white ${ring ? "ring-4 ring-white/10" : "ring-1 ring-white/15"}`}
+    >
       {initials || "?"}
     </div>
   );
 }
 
 function EmptyBoardMessage() {
-  return <div className="rounded-2xl border border-white/10 p-10 text-center text-2xl font-semibold text-white/40">No production entries for this selection.</div>;
+  return <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-10 text-center text-2xl font-semibold text-white/40">No production entries for this selection.</div>;
 }
