@@ -84,11 +84,22 @@ export default function LiveBoardPage() {
   const [rotationScreen, setRotationScreen] = useState<RotationScreen>(0);
   const [rotationEnabled, setRotationEnabled] = useState(true);
   const [cursorHidden, setCursorHidden] = useState(false);
+  const [roster, setRoster] = useState<Record<string, { name: string; photo?: string }>>({});
 
   async function loadData() {
-    const [entryResponse, settingsResponse] = await Promise.all([fetch("/api/entries", { cache: "no-store" }), fetch("/api/settings", { cache: "no-store" })]);
+    const [entryResponse, settingsResponse, employeesResponse] = await Promise.all([
+      fetch("/api/entries", { cache: "no-store" }),
+      fetch("/api/settings", { cache: "no-store" }),
+      fetch("/api/employees", { cache: "no-store" })
+    ]);
     const entryResult = (await entryResponse.json()) as { entries: DailyEntry[] };
     const settingsResult = (await settingsResponse.json()) as { settings: PayrollSettings };
+    const employeesResult = (await employeesResponse.json()) as { employees?: Array<{ id: string; name: string; photoDataUrl?: string }> };
+    const rosterMap: Record<string, { name: string; photo?: string }> = {};
+    for (const employee of employeesResult.employees ?? []) {
+      rosterMap[employee.id] = { name: employee.name, photo: employee.photoDataUrl || undefined };
+    }
+    setRoster(rosterMap);
     setEntries(entryResult.entries ?? []);
     setSettings({ ...payrollSettings, ...settingsResult.settings });
     setLastUpdated(new Date());
@@ -153,11 +164,12 @@ export default function LiveBoardPage() {
   }, [entries, locationFilter, periodMode, selectedDate, selectedWeek, shiftFilter]);
 
   const repairerRows = useMemo(() => {
-    const totals = new Map<string, { employeeId: string; name: string; locationId: string; shift: Shift; quantity: number }>();
+    const totals = new Map<string, { employeeId: string; name: string; photo?: string; locationId: string; shift: Shift; quantity: number }>();
     for (const entry of filteredEntries) {
       const row = totals.get(entry.employeeId) ?? {
         employeeId: entry.employeeId,
-        name: getEmployeeName(entry.employeeId),
+        name: roster[entry.employeeId]?.name ?? getEmployeeName(entry.employeeId),
+        photo: roster[entry.employeeId]?.photo,
         locationId: entry.locationId,
         shift: entry.shift,
         quantity: 0
@@ -166,7 +178,7 @@ export default function LiveBoardPage() {
       totals.set(entry.employeeId, row);
     }
     return Array.from(totals.values()).sort((a, b) => b.quantity - a.quantity || a.name.localeCompare(b.name));
-  }, [filteredEntries]);
+  }, [filteredEntries, roster]);
 
   const locationRows = useMemo(() => {
     const totals = new Map<string, number>();
@@ -274,7 +286,7 @@ export default function LiveBoardPage() {
                         return (
                           <div key={row.employeeId} className="flex items-center gap-5 py-4">
                             <span className="w-8 text-2xl font-bold tabular-nums text-white/30">{position + 4}</span>
-                            <BoardAvatar name={row.name} size={48} />
+                            <BoardAvatar name={row.name} photo={row.photo} size={48} />
                             <div className="min-w-0 flex-1">
                               <span className="block truncate text-2xl font-bold">{row.name}</span>
                               <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-white/5">
@@ -345,7 +357,7 @@ export default function LiveBoardPage() {
                     <td className="px-4 py-4 tabular-nums text-white/30">{index + 1}</td>
                     <td className="px-4 py-4">
                       <div className="flex items-center gap-3">
-                        <BoardAvatar name={row.name} size={44} />
+                        <BoardAvatar name={row.name} photo={row.photo} size={44} />
                         {row.name}
                       </div>
                     </td>
@@ -404,7 +416,7 @@ function SectionLabel({ icon, children }: { icon: ReactNode; children: ReactNode
   );
 }
 
-type BoardRow = { employeeId: string; name: string; locationId: string; shift: Shift; quantity: number };
+type BoardRow = { employeeId: string; name: string; photo?: string; locationId: string; shift: Shift; quantity: number };
 
 function Podium({ rows }: { rows: BoardRow[] }) {
   const [first, second, third] = rows;
@@ -435,7 +447,7 @@ function PodiumCard({ row, rank }: { row: BoardRow; rank: number }) {
         {rank === 1 ? "Leader" : rank === 2 ? "2nd" : "3rd"}
       </span>
       {isFirst && <Crown size={30} className="mb-1 text-[#aef2bc]" />}
-      <BoardAvatar name={row.name} size={isFirst ? 104 : 80} ring />
+      <BoardAvatar name={row.name} photo={row.photo} size={isFirst ? 104 : 80} ring />
       <span className={`mt-4 w-full truncate font-bold ${isFirst ? "text-3xl" : "text-2xl"}`}>{row.name}</span>
       <span className={`mt-1 font-black tabular-nums ${isFirst ? "bg-gradient-to-b from-white to-[#aef2bc] bg-clip-text text-7xl text-transparent" : "text-6xl text-[#aef2bc]"}`}>{wholeNumber(row.quantity)}</span>
       <span className="text-sm font-bold uppercase tracking-[0.2em] text-white/35">pallets</span>
@@ -490,12 +502,24 @@ function GoalTracker({ actual, goal, percent }: { actual: number; goal: number; 
   );
 }
 
-function BoardAvatar({ name, size = 56, ring = false }: { name: string; size?: number; ring?: boolean }) {
+function BoardAvatar({ name, photo, size = 56, ring = false }: { name: string; photo?: string; size?: number; ring?: boolean }) {
+  const ringClass = ring ? "ring-4 ring-white/10" : "ring-1 ring-white/15";
+  if (photo) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={photo}
+        alt={name}
+        style={{ height: size, width: size }}
+        className={`shrink-0 rounded-full object-cover ${ringClass}`}
+      />
+    );
+  }
   const initials = name.split(/\s+/).filter(Boolean).map((part) => part[0]).slice(0, 2).join("").toUpperCase();
   return (
     <div
       style={{ height: size, width: size, fontSize: size * 0.36 }}
-      className={`flex shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#2a6b40] to-[#92d6a1] font-black text-white ${ring ? "ring-4 ring-white/10" : "ring-1 ring-white/15"}`}
+      className={`flex shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#2a6b40] to-[#92d6a1] font-black text-white ${ringClass}`}
     >
       {initials || "?"}
     </div>
