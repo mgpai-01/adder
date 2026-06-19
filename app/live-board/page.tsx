@@ -1,6 +1,6 @@
 "use client";
 
-import { Expand, Factory, Medal, RefreshCw, Target, Trophy, Users } from "lucide-react";
+import { Crown, Expand, Factory, Medal, RefreshCw, Target, Trophy, Users } from "lucide-react";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { employees, locations, payrollSettings, shifts } from "@/lib/data";
@@ -212,9 +212,15 @@ export default function LiveBoardPage() {
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/logo.svg" alt="Manufacturing Green Products" className="h-20 w-20 shrink-0 rounded-full bg-white ring-2 ring-[#92d6a1]/40" />
             <div>
-              <h1 className="text-5xl font-black tracking-tight text-white">
-                LIVE <span className="bg-gradient-to-r from-[#92d6a1] to-[#aef2bc] bg-clip-text text-transparent">PALLET TRACKER</span>
-              </h1>
+              <div className="flex items-center gap-3">
+                <h1 className="text-5xl font-black tracking-tight text-white">
+                  LIVE <span className="bg-gradient-to-r from-[#92d6a1] to-[#aef2bc] bg-clip-text text-transparent">PALLET TRACKER</span>
+                </h1>
+                <span className="inline-flex items-center gap-2 rounded-full border border-[#92d6a1]/40 bg-[#92d6a1]/10 px-3 py-1 text-sm font-black uppercase tracking-widest text-[#aef2bc]">
+                  <span className="h-2.5 w-2.5 rounded-full bg-[#92d6a1] [animation:board-pulse-dot_1.4s_ease-in-out_infinite]" />
+                  Live
+                </span>
+              </div>
               <p className="mt-1 text-xl font-bold text-white/70">{periodLabel} · {clockLabel}</p>
               <span className="mt-2 inline-flex items-center gap-2 rounded-full bg-[#92d6a1]/15 px-4 py-1 text-lg font-black text-[#aef2bc]">
                 {selectedLocationLabel} · {selectedShiftLabel}
@@ -264,13 +270,30 @@ export default function LiveBoardPage() {
               <div className="grid gap-3">
                 {repairerRows.slice(0, 12).map((row, index) => {
                   const top3 = index < 3;
+                  const leader = index === 0;
                   const pct = Math.round((row.quantity / maxQuantity) * 100);
                   return (
-                    <div key={row.employeeId} className={`relative overflow-hidden rounded-2xl border px-5 py-4 ${top3 ? "border-[#92d6a1]/40 bg-[#92d6a1]/[0.08]" : "border-white/10 bg-white/[0.04]"}`}>
+                    <div
+                      key={row.employeeId}
+                      style={{
+                        animation: leader
+                          ? "board-rise 0.5s ease-out both, board-glow 2.8s ease-in-out 0.7s infinite"
+                          : "board-rise 0.5s ease-out both",
+                        animationDelay: `${index * 55}ms`
+                      }}
+                      className={`relative overflow-hidden rounded-2xl border px-5 py-4 ${top3 ? "border-[#92d6a1]/50 bg-gradient-to-r from-[#92d6a1]/[0.16] to-transparent" : "border-white/10 bg-white/[0.04]"}`}
+                    >
                       <div className="relative z-10 flex items-center gap-4">
-                        <div className="flex w-14 items-center justify-center">
-                          {top3 ? <Medal size={40} className={index === 0 ? "text-[#aef2bc]" : index === 1 ? "text-slate-200" : "text-[#4aa666]"} /> : <span className="text-3xl font-black text-white/40">{index + 1}</span>}
+                        <div className="flex w-12 items-center justify-center">
+                          {leader ? (
+                            <Crown size={40} className="text-[#aef2bc]" />
+                          ) : top3 ? (
+                            <Medal size={38} className={index === 1 ? "text-slate-200" : "text-[#4aa666]"} />
+                          ) : (
+                            <span className="text-3xl font-black text-white/40">{index + 1}</span>
+                          )}
                         </div>
+                        <BoardAvatar name={row.name} />
                         <span className="flex-1 truncate text-4xl font-black">{row.name}</span>
                         <span className="text-5xl font-black tabular-nums text-[#aef2bc]">{wholeNumber(row.quantity)}</span>
                       </div>
@@ -335,7 +358,12 @@ export default function LiveBoardPage() {
                   {repairerRows.map((row, index) => (
                     <tr key={row.employeeId} className={`border-t border-white/10 text-3xl font-black ${index % 2 === 0 ? "bg-white/[0.03]" : "bg-transparent"}`}>
                       <td className="p-4 text-white/40">{index + 1}</td>
-                      <td className="p-4">{row.name}</td>
+                      <td className="p-4">
+                        <div className="flex items-center gap-3">
+                          <BoardAvatar name={row.name} size={44} />
+                          {row.name}
+                        </div>
+                      </td>
                       <td className="p-4 text-white/70">{getLocationName(row.locationId)}</td>
                       <td className="p-4 text-white/70">{row.shift}</td>
                       <td className="p-4 text-right text-4xl tabular-nums text-[#aef2bc]">{wholeNumber(row.quantity)}</td>
@@ -371,7 +399,7 @@ function BoardPanel({ title, icon, children }: { title: string; icon: ReactNode;
 
 function GrandTotal({ total }: { total: number }) {
   return (
-    <div className="relative flex flex-col items-center justify-center overflow-hidden rounded-3xl border border-[#92d6a1]/30 bg-gradient-to-b from-[#92d6a1]/[0.14] to-transparent p-8 text-center">
+    <div className="relative flex flex-col items-center justify-center overflow-hidden rounded-3xl border border-[#92d6a1]/30 bg-gradient-to-b from-[#92d6a1]/[0.14] to-transparent p-8 text-center [animation:board-glow_3.4s_ease-in-out_infinite]">
       <span className="text-2xl font-black uppercase tracking-[0.2em] text-[#aef2bc]">Company Total</span>
       <strong className="mt-2 bg-gradient-to-b from-white to-[#cfeed8] bg-clip-text text-8xl font-black tabular-nums text-transparent">{wholeNumber(total)}</strong>
       <span className="mt-1 text-2xl font-black uppercase tracking-[0.2em] text-white/50">Pallets</span>
@@ -410,4 +438,22 @@ function GoalTracker({ actual, goal, percent }: { actual: number; goal: number; 
 
 function EmptyBoardMessage() {
   return <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-8 text-center text-3xl font-black text-white/50">No production entries for this selection.</div>;
+}
+
+function BoardAvatar({ name, size = 56 }: { name: string; size?: number }) {
+  const initials = name
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((part) => part[0])
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
+  return (
+    <div
+      style={{ height: size, width: size, fontSize: size * 0.38 }}
+      className="flex shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#2a6b40] to-[#92d6a1] font-black text-white ring-1 ring-white/20"
+    >
+      {initials || "?"}
+    </div>
+  );
 }
