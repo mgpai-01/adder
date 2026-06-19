@@ -51,6 +51,7 @@ import {
 } from "@/lib/data";
 import { calculateEntry, currency, getWeekKey, wholeNumber } from "@/lib/payroll";
 import { roleLabels, roleViews, useAuth } from "@/lib/auth";
+import type { ChangeLogEntry } from "@/lib/cloudChangeLog";
 import AuthGate from "@/components/AuthGate";
 import type { BreakProfile, CountSheet, CountSheetStatus, DailyEntry, Employee, Location, PalletCategory, PalletType, PayrollSettings, ProductionLine, Role, Shift } from "@/lib/types";
 
@@ -100,6 +101,24 @@ function createLines(palletTypes: PalletType[]): ProductionLine[] {
 
 function isManager(employee?: Employee): boolean {
   return employee?.role === "supervisor";
+}
+
+function rosterRoleName(role?: string): string {
+  return role === "supervisor" ? "Yard Manager" : "Repairer";
+}
+
+// Build a human-readable summary of what changed on a profile, for the change log.
+function describeEmployeeChanges(before: Employee, patch: Partial<Employee>, locations: Location[]): string {
+  const locName = (id?: string) => locations.find((location) => location.id === id)?.name ?? id ?? "";
+  const parts: string[] = [];
+  if (patch.name !== undefined && patch.name !== before.name) parts.push(`name "${before.name}" → "${patch.name}"`);
+  if (patch.role !== undefined && patch.role !== before.role) parts.push(`job title ${rosterRoleName(before.role)} → ${rosterRoleName(patch.role)}`);
+  if (patch.locationId !== undefined && patch.locationId !== before.locationId) parts.push(`yard ${locName(before.locationId)} → ${locName(patch.locationId)}`);
+  if (patch.shift !== undefined && patch.shift !== before.shift) parts.push(`shift ${before.shift} → ${patch.shift}`);
+  if (patch.active !== undefined && patch.active !== before.active) parts.push(patch.active ? "set Active" : "set Inactive");
+  if (patch.photoDataUrl !== undefined && patch.photoDataUrl !== before.photoDataUrl) parts.push(patch.photoDataUrl ? "updated photo" : "removed photo");
+  if (patch.notes !== undefined && patch.notes !== before.notes) parts.push("updated notes");
+  return parts.join(", ");
 }
 
 // Preferred default yard managers, promoted automatically when a yard has none.
@@ -281,6 +300,7 @@ export default function Home() {
   const [entriesLoaded, setEntriesLoaded] = useState(false);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [toast, setToast] = useState("");
+  const [changeLog, setChangeLog] = useState<ChangeLogEntry[]>([]);
   const toastTimer = useRef<number | undefined>(undefined);
 
   function showToast(message: string) {
@@ -348,11 +368,38 @@ export default function Home() {
     }
 
     const savedEmployees = window.localStorage.getItem(employeeStorageKey);
-    if (savedEmployees) {
-      setEmployeeList(ensureYardManagers(JSON.parse(savedEmployees), effectiveLocations));
-    } else {
-      setEmployeeList((current) => ensureYardManagers(current, effectiveLocations));
-    }
+    const localRoster = ensureYardManagers(
+      savedEmployees ? (JSON.parse(savedEmployees) as Employee[]) : defaultEmployees,
+      effectiveLocations
+    );
+    setEmployeeList(localRoster);
+
+    // Pull the shared roster from the cloud; if the cloud is empty, seed it from
+    // this device so existing repairers move up.
+    fetch("/api/employees")
+      .then((response) => response.json())
+      .then(async (result: { employees: Employee[]; storage?: string }) => {
+        if (result.storage !== "cloud") return;
+        if (result.employees.length > 0) {
+          setEmployeeList(ensureYardManagers(result.employees, effectiveLocations));
+        } else {
+          await Promise.all(
+            localRoster.map((employee) =>
+              fetch("/api/employees", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(employee)
+              }).catch(() => undefined)
+            )
+          );
+        }
+      })
+      .catch(() => undefined);
+
+    fetch("/api/change-log")
+      .then((response) => response.json())
+      .then((result: { entries: ChangeLogEntry[] }) => setChangeLog(result.entries ?? []))
+      .catch(() => undefined);
 
     const savedShifts = window.localStorage.getItem(shiftStorageKey);
     if (savedShifts) {
@@ -697,18 +744,55 @@ export default function Home() {
     }
   }
 
+  function logChange(action: string, targetName: string, summary: string) {
+    if (!summary) return;
+    const entry: ChangeLogEntry = {
+      actor: profile?.username || profile?.fullName || "admin",
+      action,
+      targetType: "employee",
+      targetName,
+      summary
+    };
+    setChangeLog((current) => [{ ...entry, at: new Date().toISOString() }, ...current]);
+    fetch("/api/change-log", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(entry)
+    }).catch(() => undefined);
+  }
+
+  function saveEmployeeToCloud(employee: Employee) {
+    fetch("/api/employees", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(employee)
+    }).catch(() => undefined);
+  }
+
   function createEmployee(employee: Omit<Employee, "id">) {
-    setEmployeeList((current) => [...current, { ...employee, id: `employee-${Date.now()}` }]);
-    setAdminStatus("Repairer saved locally.");
+    const newEmployee: Employee = { ...employee, id: `employee-${Date.now()}` };
+    setEmployeeList((current) => [...current, newEmployee]);
+    setAdminStatus("Repairer saved to the cloud.");
+    saveEmployeeToCloud(newEmployee);
+    logChange("created", newEmployee.name, `Added ${rosterRoleName(newEmployee.role)} ${newEmployee.name}`);
   }
 
   function updateEmployee(id: string, patch: Partial<Employee>) {
+    const before = employeeList.find((employee) => employee.id === id);
     setEmployeeList((current) => current.map((employee) => (employee.id === id ? { ...employee, ...patch } : employee)));
-    setAdminStatus("Repairer updated locally.");
+    setAdminStatus("Repairer updated in the cloud.");
+    if (before) {
+      const updated = { ...before, ...patch };
+      saveEmployeeToCloud(updated);
+      logChange("updated", updated.name, describeEmployeeChanges(before, patch, locationList));
+    }
   }
 
   function deleteEmployee(id: string) {
+    const before = employeeList.find((employee) => employee.id === id);
     setEmployeeList((current) => current.filter((item) => item.id !== id));
+    fetch(`/api/employees/${id}`, { method: "DELETE" }).catch(() => undefined);
+    if (before) logChange("deleted", before.name, `Removed ${before.name}`);
   }
 
   function exportCsv(filteredEntries = entries) {
@@ -892,6 +976,7 @@ export default function Home() {
               locations={locationList}
               palletTypes={palletTypes}
               settings={settings}
+              changeLog={changeLog}
               onViewEntry={setViewingEntry}
             />
           )}
@@ -3495,6 +3580,7 @@ function CloudBrowser({
   locations,
   palletTypes,
   settings,
+  changeLog,
   onViewEntry
 }: {
   entries: DailyEntry[];
@@ -3502,6 +3588,7 @@ function CloudBrowser({
   locations: Location[];
   palletTypes: PalletType[];
   settings: PayrollSettings;
+  changeLog: ChangeLogEntry[];
   onViewEntry: (entry: DailyEntry) => void;
 }) {
   const employeeName = (id: string) => employees.find((employee) => employee.id === id)?.name ?? id;
@@ -3600,6 +3687,31 @@ function CloudBrowser({
           </div>
         );
       })}
+
+      <div className="mt-2 rounded border border-steel-100 bg-white p-4 text-steel-900">
+        <div className="mb-3 flex items-center gap-2">
+          <Clock size={18} className="text-workshop-700" />
+          <h3 className="text-lg font-black">Change Log</h3>
+          <span className="text-sm font-bold text-steel-500">· profile changes, newest first</span>
+        </div>
+        {changeLog.length === 0 ? (
+          <p className="text-sm font-bold text-steel-500">No changes recorded yet. Edits to repairer profiles will show here.</p>
+        ) : (
+          <div className="grid gap-2">
+            {changeLog.map((log, index) => (
+              <div key={log.id ?? index} className="rounded border border-steel-100 bg-steel-50 p-3 text-sm">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <strong>
+                    {log.actor} {log.action} {log.targetName}
+                  </strong>
+                  <span className="text-xs font-bold text-steel-500">{log.at ? new Date(log.at).toLocaleString() : ""}</span>
+                </div>
+                {log.summary && <p className="mt-1 text-steel-700">{log.summary}</p>}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
