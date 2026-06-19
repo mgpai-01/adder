@@ -3,6 +3,7 @@
 import { Camera, CheckCircle2, CloudOff, Factory, ImagePlus, RefreshCw, Save, Search, UserRound } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import AuthGate from "@/components/AuthGate";
+import DropZone from "@/components/DropZone";
 import { defaultPalletTypes, employees as defaultEmployees, shifts } from "@/lib/data";
 import type { DailyEntry, Employee, Location, PalletType, ProductionLine, Shift } from "@/lib/types";
 
@@ -362,7 +363,7 @@ export default function CounterPage() {
     setEditMode(false);
   }
 
-  function addPhotoFiles(files: FileList | null) {
+  function addPhotoFiles(files: FileList | File[] | null) {
     if (!files) return;
     const images = Array.from(files).filter((file) => file.type.startsWith("image/"));
     setPhotoFiles((current) => [...current, ...images]);
@@ -522,6 +523,9 @@ export default function CounterPage() {
                 Upload Photos
                 <input className="hidden" type="file" accept="image/*" multiple onChange={(event) => addPhotoFiles(event.target.files)} />
               </label>
+            </div>
+            <div className="mt-3">
+              <DropZone onFiles={addPhotoFiles} label="Drag & drop count sheet photos here" />
             </div>
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
               <label className="grid gap-1 text-sm font-black text-slate-600">

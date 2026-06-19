@@ -53,6 +53,7 @@ import { calculateEntry, currency, getWeekKey, wholeNumber } from "@/lib/payroll
 import { roleLabels, roleViews, useAuth } from "@/lib/auth";
 import type { ChangeLogEntry } from "@/lib/cloudChangeLog";
 import AuthGate from "@/components/AuthGate";
+import DropZone from "@/components/DropZone";
 import type { BreakProfile, CountSheet, CountSheetStatus, DailyEntry, Employee, Location, PalletCategory, PalletType, PayrollSettings, ProductionLine, Role, Shift } from "@/lib/types";
 
 const entryStorageKey = "mgp-daily-entries-v2";
@@ -1341,7 +1342,7 @@ function CountSheetsModule({
   const selectedSheet = countSheets.find((sheet) => sheet.id === selectedSheetId) ?? null;
   const linkedEntries = selectedSheet ? getLinkedEntries(entries, selectedSheet) : [];
 
-  function handleFiles(selected: FileList | null) {
+  function handleFiles(selected: FileList | File[] | null) {
     if (!selected) return;
     setFiles((current) => [...current, ...Array.from(selected).filter((file) => file.type.startsWith("image/"))]);
   }
@@ -1446,6 +1447,7 @@ function CountSheetsModule({
               <input className="hidden" type="file" accept="image/*" multiple onChange={(event) => handleFiles(event.target.files)} />
             </label>
           </div>
+          <DropZone onFiles={handleFiles} label="Drag & drop count sheet photos here" />
           {files.length > 0 && (
             <div className="rounded border border-steel-100 bg-steel-50 p-3">
               <div className="mb-2 flex items-center justify-between gap-2">
@@ -2855,7 +2857,9 @@ function EmployeeAdmin({
           </span>
           <div className="flex items-center gap-3">
             <Avatar employee={{ ...draft, id: "draft" }} size="lg" />
-            <input className="field" type="file" accept="image/*" onChange={(event) => handlePhoto(event.target.files?.[0])} />
+            <div className="flex-1">
+              <DropZone onFiles={(dropped) => handlePhoto(dropped[0])} label="Drag & drop or tap to add a photo" multiple={false} />
+            </div>
           </div>
           {draft.photoDataUrl && (
             <button type="button" className="touch-target rounded bg-red-700 px-3 py-2 font-black text-white" onClick={() => setDraft((current) => ({ ...current, photoDataUrl: "", photoPath: "" }))}>
@@ -2957,7 +2961,7 @@ function EmployeeAdmin({
                   Photo
                 </span>
                 <Avatar employee={editDraft} size="lg" />
-                <input className="field" type="file" accept="image/*" onChange={(event) => handlePhoto(event.target.files?.[0], "edit")} />
+                <DropZone onFiles={(dropped) => handlePhoto(dropped[0], "edit")} label="Drag & drop or tap to add a photo" multiple={false} />
                 {editDraft.photoDataUrl && (
                   <button type="button" className="touch-target rounded bg-red-700 px-3 py-2 font-black text-white" onClick={() => setEditDraft((current) => current ? { ...current, photoDataUrl: "", photoPath: "" } : current)}>
                     Remove Photo
