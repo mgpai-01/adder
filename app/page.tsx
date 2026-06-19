@@ -1295,6 +1295,8 @@ function CountSheetsModule({
   const [uploadedBy, setUploadedBy] = useState("Counter");
   const [notes, setNotes] = useState("");
   const [files, setFiles] = useState<File[]>([]);
+  const filePreviews = useMemo(() => files.map((file) => ({ file, url: URL.createObjectURL(file) })), [files]);
+  useEffect(() => () => filePreviews.forEach((preview) => URL.revokeObjectURL(preview.url)), [filePreviews]);
   const [statusMessage, setStatusMessage] = useState("Ready for count sheet photos.");
   const [isSaving, setIsSaving] = useState(false);
   const [selectedSheetId, setSelectedSheetId] = useState<string | null>(null);
@@ -1454,9 +1456,20 @@ function CountSheetsModule({
                 <strong>{files.length} photo{files.length === 1 ? "" : "s"} ready</strong>
                 <button type="button" className="rounded bg-steel-200 px-3 py-1 text-sm font-black" onClick={() => setFiles([])}>Clear</button>
               </div>
-              <div className="grid grid-cols-3 gap-2">
-                {files.slice(0, 6).map((file) => (
-                  <div key={`${file.name}-${file.size}`} className="truncate rounded bg-white p-2 text-xs font-bold">{file.name}</div>
+              <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+                {filePreviews.map(({ file, url }, index) => (
+                  <div key={`${file.name}-${index}`} className="relative overflow-hidden rounded border border-steel-100 bg-white">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={url} alt={file.name} className="h-24 w-full object-cover" />
+                    <button
+                      type="button"
+                      aria-label={`Remove ${file.name}`}
+                      className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-steel-900/80 text-white"
+                      onClick={() => setFiles((current) => current.filter((_, position) => position !== index))}
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
                 ))}
               </div>
             </div>
@@ -2268,17 +2281,29 @@ function EntryHistory({
                     <td className="p-3 font-black">{currency(calc.totalPay)}</td>
                     <td className="p-3">
                       {linkedSheets.length > 0 ? (
-                        <button
-                          type="button"
-                          className="inline-flex items-center gap-1.5 rounded bg-workshop-100 px-2 py-1 text-xs font-black text-workshop-700"
-                          onClick={() => {
-                            setViewerSheets(linkedSheets);
-                            setViewerPhotoIndex(0);
-                          }}
-                        >
-                          <Camera size={15} />
-                          {linkedSheets.length} attached
-                        </button>
+                        (() => {
+                          const linkedPhotos = linkedSheets.flatMap((sheet) => sheet.photos);
+                          return (
+                            <button
+                              type="button"
+                              className="flex items-center gap-2"
+                              onClick={() => {
+                                setViewerSheets(linkedSheets);
+                                setViewerPhotoIndex(0);
+                              }}
+                            >
+                              {linkedPhotos[0] ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img src={linkedPhotos[0].url} alt="Count sheet" className="h-12 w-12 shrink-0 rounded border border-steel-200 object-cover" />
+                              ) : (
+                                <Camera size={18} className="text-workshop-700" />
+                              )}
+                              <span className="text-xs font-black text-workshop-700">
+                                {linkedPhotos.length || linkedSheets.length} photo{(linkedPhotos.length || linkedSheets.length) === 1 ? "" : "s"}
+                              </span>
+                            </button>
+                          );
+                        })()
                       ) : (
                         <span className="rounded bg-steel-200 px-2 py-1 text-xs font-black text-steel-700">Missing</span>
                       )}
