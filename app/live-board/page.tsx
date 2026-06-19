@@ -195,67 +195,91 @@ export default function LiveBoardPage() {
     await document.documentElement.requestFullscreen?.();
   }
 
+  const maxQuantity = repairerRows[0]?.quantity || 1;
+  const clockLabel = now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+
   return (
-    <main className={`min-h-screen bg-[#071017] text-white ${cursorHidden ? "cursor-none" : ""}`}>
-      <header className="border-b border-white/10 bg-[#0d1a22] px-8 py-5">
-        <div className="flex items-center justify-between gap-6">
+    <main
+      className={`min-h-screen text-white ${cursorHidden ? "cursor-none" : ""}`}
+      style={{
+        backgroundImage:
+          "radial-gradient(1200px 600px at 50% -15%, rgba(146,214,161,0.12), transparent 60%), linear-gradient(180deg, #0b1a16 0%, #06120f 60%, #050d0b 100%)"
+      }}
+    >
+      <header className="border-b border-white/10 bg-white/[0.03] px-8 py-5 backdrop-blur">
+        <div className="flex flex-wrap items-center justify-between gap-6">
           <div className="flex items-center gap-5">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/logo.svg" alt="Manufacturing Green Products" className="h-16 w-16 shrink-0 rounded-full bg-white" />
+            <img src="/logo.svg" alt="Manufacturing Green Products" className="h-20 w-20 shrink-0 rounded-full bg-white ring-2 ring-[#92d6a1]/40" />
             <div>
-              <h1 className="text-4xl font-black text-white">LIVE PALLET TRACKER</h1>
-              <p className="mt-1 text-xl font-bold text-[#aef2bc]">{periodLabel} · {now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}</p>
-              <p className="text-xl font-black text-safety-400">{selectedLocationLabel} · {selectedShiftLabel}</p>
+              <h1 className="text-5xl font-black tracking-tight text-white">
+                LIVE <span className="bg-gradient-to-r from-[#92d6a1] to-[#aef2bc] bg-clip-text text-transparent">PALLET TRACKER</span>
+              </h1>
+              <p className="mt-1 text-xl font-bold text-white/70">{periodLabel} · {clockLabel}</p>
+              <span className="mt-2 inline-flex items-center gap-2 rounded-full bg-[#92d6a1]/15 px-4 py-1 text-lg font-black text-[#aef2bc]">
+                {selectedLocationLabel} · {selectedShiftLabel}
+              </span>
             </div>
           </div>
           <div className="flex items-center gap-3">
-            <button type="button" className="flex h-14 items-center gap-2 rounded bg-white/10 px-4 text-lg font-black text-white" onClick={() => loadData().catch(() => undefined)}>
+            <button type="button" className="flex h-14 items-center gap-2 rounded-xl border border-white/10 bg-white/[0.06] px-5 text-lg font-black text-white transition-colors hover:bg-white/10" onClick={() => loadData().catch(() => undefined)}>
               <RefreshCw size={22} />
               Refresh
             </button>
-            <button type="button" className="flex h-14 items-center gap-2 rounded bg-safety-400 px-4 text-lg font-black text-steel-900" onClick={enterFullscreen}>
+            <button type="button" className="flex h-14 items-center gap-2 rounded-xl bg-gradient-to-r from-[#2a6b40] to-[#3f8a55] px-5 text-lg font-black text-white shadow-lg shadow-[#2a6b40]/30 transition-transform hover:scale-[1.03]" onClick={enterFullscreen}>
               <Expand size={22} />
               Fullscreen
             </button>
           </div>
         </div>
         <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-5">
-          <select className="h-14 rounded border border-white/20 bg-white/10 px-4 text-lg font-black text-white" value={locationFilter} onChange={(event) => setLocationFilter(event.target.value)}>
-            <option className="text-steel-900" value="all">All Locations</option>
-            {locations.map((location) => <option className="text-steel-900" key={location.id} value={location.id}>{location.name}</option>)}
-          </select>
-          <select className="h-14 rounded border border-white/20 bg-white/10 px-4 text-lg font-black text-white" value={shiftFilter} onChange={(event) => setShiftFilter(event.target.value)}>
-            <option className="text-steel-900" value="all">All Shifts</option>
-            {shifts.map((shift) => <option className="text-steel-900" key={shift} value={shift}>{shift}</option>)}
-          </select>
-          <select className="h-14 rounded border border-white/20 bg-white/10 px-4 text-lg font-black text-white" value={periodMode} onChange={(event) => setPeriodMode(event.target.value as PeriodMode)}>
-            <option className="text-steel-900" value="today">Today</option>
-            <option className="text-steel-900" value="date">Specific Date</option>
-            <option className="text-steel-900" value="current-week">Current Week</option>
-            <option className="text-steel-900" value="previous-week">Previous Week</option>
-            <option className="text-steel-900" value="custom-week">Custom Week</option>
-          </select>
-          <input className="h-14 rounded border border-white/20 bg-white/10 px-4 text-lg font-black text-white" type="date" value={periodMode === "custom-week" ? selectedWeek : selectedDate} onChange={(event) => periodMode === "custom-week" ? setSelectedWeek(getWeekKey(event.target.value)) : setSelectedDate(event.target.value)} disabled={periodMode !== "date" && periodMode !== "custom-week"} />
-          <button type="button" className="h-14 rounded bg-white/10 px-4 text-lg font-black text-white" onClick={() => setRotationEnabled((value) => !value)}>
-            Rotation: {rotationEnabled ? "On" : "Off"}
-          </button>
+          {[
+            <select key="loc" className="h-14 rounded-xl border border-white/15 bg-white/[0.06] px-4 text-lg font-black text-white" value={locationFilter} onChange={(event) => setLocationFilter(event.target.value)}>
+              <option className="text-steel-900" value="all">All Locations</option>
+              {locations.map((location) => <option className="text-steel-900" key={location.id} value={location.id}>{location.name}</option>)}
+            </select>,
+            <select key="shift" className="h-14 rounded-xl border border-white/15 bg-white/[0.06] px-4 text-lg font-black text-white" value={shiftFilter} onChange={(event) => setShiftFilter(event.target.value)}>
+              <option className="text-steel-900" value="all">All Shifts</option>
+              {shifts.map((shift) => <option className="text-steel-900" key={shift} value={shift}>{shift}</option>)}
+            </select>,
+            <select key="period" className="h-14 rounded-xl border border-white/15 bg-white/[0.06] px-4 text-lg font-black text-white" value={periodMode} onChange={(event) => setPeriodMode(event.target.value as PeriodMode)}>
+              <option className="text-steel-900" value="today">Today</option>
+              <option className="text-steel-900" value="date">Specific Date</option>
+              <option className="text-steel-900" value="current-week">Current Week</option>
+              <option className="text-steel-900" value="previous-week">Previous Week</option>
+              <option className="text-steel-900" value="custom-week">Custom Week</option>
+            </select>,
+            <input key="date" className="h-14 rounded-xl border border-white/15 bg-white/[0.06] px-4 text-lg font-black text-white" type="date" value={periodMode === "custom-week" ? selectedWeek : selectedDate} onChange={(event) => periodMode === "custom-week" ? setSelectedWeek(getWeekKey(event.target.value)) : setSelectedDate(event.target.value)} disabled={periodMode !== "date" && periodMode !== "custom-week"} />,
+            <button key="rot" type="button" className="h-14 rounded-xl border border-white/15 bg-white/[0.06] px-4 text-lg font-black text-white" onClick={() => setRotationEnabled((value) => !value)}>
+              Rotation: {rotationEnabled ? "On" : "Off"}
+            </button>
+          ]}
         </div>
       </header>
 
       <section className="grid min-h-[calc(100vh-245px)] gap-6 p-8">
         {rotationScreen === 0 && (
           <div className="grid gap-6 xl:grid-cols-[1.35fr_0.65fr]">
-            <BoardPanel title="LIVE RANKING" icon={<Trophy size={34} className="text-safety-400" />}>
+            <BoardPanel title="LIVE RANKING" icon={<Trophy size={34} className="text-[#92d6a1]" />}>
               <div className="grid gap-3">
-                {repairerRows.slice(0, 12).map((row, index) => (
-                  <div key={row.employeeId} className={`grid grid-cols-[70px_1fr_auto] items-center gap-4 rounded border px-5 py-3 ${index < 3 ? "border-safety-400/60 bg-safety-400/10" : "border-white/10 bg-white/[0.04]"}`}>
-                    <div className="flex items-center justify-center">
-                      {index < 3 ? <Medal size={42} className={index === 0 ? "text-[#92d6a1]" : index === 1 ? "text-slate-200" : "text-[#4aa666]"} /> : <span className="text-3xl font-black text-[#aef2bc]">{index + 1}</span>}
+                {repairerRows.slice(0, 12).map((row, index) => {
+                  const top3 = index < 3;
+                  const pct = Math.round((row.quantity / maxQuantity) * 100);
+                  return (
+                    <div key={row.employeeId} className={`relative overflow-hidden rounded-2xl border px-5 py-4 ${top3 ? "border-[#92d6a1]/40 bg-[#92d6a1]/[0.08]" : "border-white/10 bg-white/[0.04]"}`}>
+                      <div className="relative z-10 flex items-center gap-4">
+                        <div className="flex w-14 items-center justify-center">
+                          {top3 ? <Medal size={40} className={index === 0 ? "text-[#aef2bc]" : index === 1 ? "text-slate-200" : "text-[#4aa666]"} /> : <span className="text-3xl font-black text-white/40">{index + 1}</span>}
+                        </div>
+                        <span className="flex-1 truncate text-4xl font-black">{row.name}</span>
+                        <span className="text-5xl font-black tabular-nums text-[#aef2bc]">{wholeNumber(row.quantity)}</span>
+                      </div>
+                      <div className="absolute inset-x-0 bottom-0 h-1.5 bg-white/5">
+                        <div className="h-full bg-gradient-to-r from-[#2a6b40] to-[#92d6a1] transition-all duration-700" style={{ width: `${pct}%` }} />
+                      </div>
                     </div>
-                    <span className="truncate text-4xl font-black">{row.name}</span>
-                    <span className="text-5xl font-black text-safety-400">{wholeNumber(row.quantity)}</span>
-                  </div>
-                ))}
+                  );
+                })}
                 {repairerRows.length === 0 && <EmptyBoardMessage />}
               </div>
             </BoardPanel>
@@ -270,12 +294,21 @@ export default function LiveBoardPage() {
           <div className="grid gap-6 xl:grid-cols-2">
             <BoardPanel title="LOCATION TOTALS" icon={<Factory size={34} className="text-[#92d6a1]" />}>
               <div className="grid gap-5">
-                {locationRows.map((location) => (
-                  <div key={location.id} className="flex items-center justify-between rounded border border-white/10 bg-white/[0.04] px-8 py-7">
-                    <span className="text-5xl font-black">{location.name}</span>
-                    <span className="text-6xl font-black text-[#92d6a1]">{wholeNumber(location.quantity)}</span>
-                  </div>
-                ))}
+                {locationRows.map((location) => {
+                  const pct = Math.round((location.quantity / (locationRows[0]?.quantity || 1)) * 100);
+                  return (
+                    <div key={location.id} className="relative overflow-hidden rounded-2xl border border-white/10 bg-white/[0.04] px-8 py-7">
+                      <div className="flex items-center justify-between">
+                        <span className="text-5xl font-black">{location.name}</span>
+                        <span className="text-6xl font-black tabular-nums text-[#aef2bc]">{wholeNumber(location.quantity)}</span>
+                      </div>
+                      <div className="absolute inset-x-0 bottom-0 h-1.5 bg-white/5">
+                        <div className="h-full bg-gradient-to-r from-[#2a6b40] to-[#92d6a1] transition-all duration-700" style={{ width: `${pct}%` }} />
+                      </div>
+                    </div>
+                  );
+                })}
+                {locationRows.length === 0 && <EmptyBoardMessage />}
               </div>
             </BoardPanel>
             <div className="grid gap-6">
@@ -287,9 +320,9 @@ export default function LiveBoardPage() {
 
         {rotationScreen === 2 && (
           <BoardPanel title="REPAIRER DETAIL" icon={<Users size={34} className="text-[#92d6a1]" />}>
-            <div className="overflow-hidden rounded border border-white/10">
+            <div className="overflow-hidden rounded-2xl border border-white/10">
               <table className="w-full text-left">
-                <thead className="bg-white/10 text-2xl uppercase text-[#aef2bc]">
+                <thead className="bg-[#92d6a1]/10 text-2xl uppercase text-[#aef2bc]">
                   <tr>
                     <th className="p-4">Rank</th>
                     <th className="p-4">Repairer</th>
@@ -300,12 +333,12 @@ export default function LiveBoardPage() {
                 </thead>
                 <tbody>
                   {repairerRows.map((row, index) => (
-                    <tr key={row.employeeId} className="border-t border-white/10 bg-white/[0.03] text-3xl font-black">
-                      <td className="p-4 text-[#aef2bc]">{index + 1}</td>
+                    <tr key={row.employeeId} className={`border-t border-white/10 text-3xl font-black ${index % 2 === 0 ? "bg-white/[0.03]" : "bg-transparent"}`}>
+                      <td className="p-4 text-white/40">{index + 1}</td>
                       <td className="p-4">{row.name}</td>
-                      <td className="p-4">{getLocationName(row.locationId)}</td>
-                      <td className="p-4">{row.shift}</td>
-                      <td className="p-4 text-right text-4xl text-safety-400">{wholeNumber(row.quantity)}</td>
+                      <td className="p-4 text-white/70">{getLocationName(row.locationId)}</td>
+                      <td className="p-4 text-white/70">{row.shift}</td>
+                      <td className="p-4 text-right text-4xl tabular-nums text-[#aef2bc]">{wholeNumber(row.quantity)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -316,7 +349,7 @@ export default function LiveBoardPage() {
         )}
       </section>
 
-      <footer className="fixed bottom-0 left-0 right-0 flex items-center justify-between border-t border-white/10 bg-[#0d1a22] px-8 py-3 text-lg font-bold text-white/60">
+      <footer className="fixed bottom-0 left-0 right-0 flex items-center justify-between border-t border-white/10 bg-white/[0.03] px-8 py-3 text-lg font-bold text-white/50 backdrop-blur">
         <span>Auto-refresh every 15 seconds · Screen {rotationScreen + 1} of 3</span>
         <span>{lastUpdated ? `Last updated ${lastUpdated.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit" })}` : "Loading production data..."}</span>
       </footer>
@@ -326,10 +359,10 @@ export default function LiveBoardPage() {
 
 function BoardPanel({ title, icon, children }: { title: string; icon: ReactNode; children: ReactNode }) {
   return (
-    <div className="rounded border border-white/10 bg-[#0d1a22] p-6 shadow-2xl">
+    <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-6 shadow-2xl backdrop-blur">
       <div className="mb-5 flex items-center gap-3 border-b border-white/10 pb-4">
         {icon}
-        <h2 className="text-3xl font-black tracking-normal text-white">{title}</h2>
+        <h2 className="text-3xl font-black tracking-wide text-white">{title}</h2>
       </div>
       {children}
     </div>
@@ -338,32 +371,43 @@ function BoardPanel({ title, icon, children }: { title: string; icon: ReactNode;
 
 function GrandTotal({ total }: { total: number }) {
   return (
-    <div className="flex flex-col items-center justify-center rounded border border-safety-400/50 bg-safety-400/10 p-8 text-center">
-      <span className="text-3xl font-black text-safety-400">COMPANY TOTAL</span>
-      <strong className="mt-3 text-8xl font-black text-white">{wholeNumber(total)}</strong>
-      <span className="mt-2 text-3xl font-black text-[#aef2bc]">PALLETS</span>
+    <div className="relative flex flex-col items-center justify-center overflow-hidden rounded-3xl border border-[#92d6a1]/30 bg-gradient-to-b from-[#92d6a1]/[0.14] to-transparent p-8 text-center">
+      <span className="text-2xl font-black uppercase tracking-[0.2em] text-[#aef2bc]">Company Total</span>
+      <strong className="mt-2 bg-gradient-to-b from-white to-[#cfeed8] bg-clip-text text-8xl font-black tabular-nums text-transparent">{wholeNumber(total)}</strong>
+      <span className="mt-1 text-2xl font-black uppercase tracking-[0.2em] text-white/50">Pallets</span>
     </div>
   );
 }
 
 function GoalTracker({ actual, goal, percent }: { actual: number; goal: number; percent: number }) {
+  const radius = 54;
+  const circumference = 2 * Math.PI * radius;
   return (
-    <div className="rounded border border-white/10 bg-[#0d1a22] p-8">
+    <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-8">
       <div className="flex items-center gap-3">
-        <Target size={36} className="text-safety-400" />
+        <Target size={36} className="text-[#92d6a1]" />
         <h2 className="text-3xl font-black">TODAY&apos;S GOAL</h2>
       </div>
-      <div className="mt-8 h-16 overflow-hidden rounded bg-white/10">
-        <div className="h-full bg-workshop-500 transition-all duration-700" style={{ width: `${percent}%` }} />
-      </div>
-      <div className="mt-5 flex items-end justify-between">
-        <span className="text-6xl font-black text-safety-400">{percent}%</span>
-        <span className="text-3xl font-black text-[#aef2bc]">{wholeNumber(actual)} / {wholeNumber(goal)}</span>
+      <div className="mt-6 flex items-center justify-center gap-8">
+        <div className="relative h-44 w-44">
+          <svg viewBox="0 0 120 120" className="h-full w-full -rotate-90">
+            <circle cx="60" cy="60" r={radius} fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="12" />
+            <circle cx="60" cy="60" r={radius} fill="none" stroke="#92d6a1" strokeWidth="12" strokeLinecap="round" strokeDasharray={circumference} strokeDashoffset={circumference * (1 - percent / 100)} className="transition-all duration-700" />
+          </svg>
+          <div className="absolute inset-0 flex flex-col items-center justify-center">
+            <span className="text-5xl font-black tabular-nums text-[#aef2bc]">{percent}%</span>
+          </div>
+        </div>
+        <div className="text-right">
+          <p className="text-2xl font-bold text-white/50">Progress</p>
+          <p className="text-4xl font-black tabular-nums">{wholeNumber(actual)}</p>
+          <p className="text-2xl font-bold text-white/40">of {wholeNumber(goal)}</p>
+        </div>
       </div>
     </div>
   );
 }
 
 function EmptyBoardMessage() {
-  return <div className="rounded border border-white/10 bg-white/[0.04] p-8 text-center text-3xl font-black text-white/50">No production entries for this selection.</div>;
+  return <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-8 text-center text-3xl font-black text-white/50">No production entries for this selection.</div>;
 }
