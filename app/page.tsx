@@ -516,7 +516,6 @@ export default function Home() {
     });
   }, [activePalletTypes]);
 
-  const report = useMemo(() => buildReport(entries, palletTypes, employeeList, locationList, settings), [employeeList, entries, locationList, palletTypes, settings]);
 
   function updateForm<T extends keyof EntryForm>(key: T, value: EntryForm[T]) {
     setForm((current) => ({ ...current, [key]: value }));
@@ -951,7 +950,7 @@ export default function Home() {
               onDeleteEntry={deleteSavedEntry}
             />
           )}
-          {view === "dashboard" && <Dashboard report={report} settings={settings} darkMode={darkMode} countSheets={countSheets} entries={entries} locations={locationList} shifts={shiftList} onSelectEmployee={setProfileEmployeeId} />}
+          {view === "dashboard" && <Dashboard settings={settings} darkMode={darkMode} countSheets={countSheets} entries={entries} locations={locationList} shifts={shiftList} palletTypes={palletTypes} employees={employeeList} onSelectEmployee={setProfileEmployeeId} />}
           {view === "payroll" && (
             <Payroll
               entries={entries}
@@ -1690,31 +1689,76 @@ function CountSheetViewer({
 }
 
 function Dashboard({
-  report,
   settings,
   darkMode,
   countSheets,
   entries,
   locations,
   shifts,
+  palletTypes,
+  employees,
   onSelectEmployee
 }: {
-  report: ReturnType<typeof buildReport>;
   settings: PayrollSettings;
   darkMode: boolean;
   countSheets: CountSheet[];
   entries: DailyEntry[];
   locations: Location[];
   shifts: Shift[];
+  palletTypes: PalletType[];
+  employees: Employee[];
   onSelectEmployee: (employeeId: string) => void;
 }) {
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+
+  const filteredEntries = useMemo(
+    () => entries.filter((entry) => (!from || entry.date >= from) && (!to || entry.date <= to)),
+    [entries, from, to]
+  );
+  const report = useMemo(
+    () => buildReport(filteredEntries, palletTypes, employees, locations, settings),
+    [filteredEntries, palletTypes, employees, locations, settings]
+  );
   const countSheetStats = buildCountSheetStats(countSheets, entries, locations, shifts);
+
+  function applyPreset(preset: number | "month" | "all") {
+    if (preset === "all") {
+      setFrom("");
+      setTo("");
+      return;
+    }
+    const end = new Date();
+    const start = new Date();
+    if (preset === "month") start.setDate(1);
+    else start.setDate(end.getDate() - (preset - 1));
+    setFrom(start.toISOString().slice(0, 10));
+    setTo(end.toISOString().slice(0, 10));
+  }
+
+  const rangeLabel = from || to ? `${from || "start"} → ${to || "today"}` : "All time";
 
   return (
     <div className="grid gap-5">
-      <div>
-        <h2 className="text-2xl font-black">Dashboard</h2>
-        <p className={classNames("text-sm", darkMode ? "text-steel-100" : "text-steel-500")}>Daily and weekly totals from the production grid.</p>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h2 className="text-2xl font-black">Dashboard</h2>
+          <p className={classNames("text-sm", darkMode ? "text-steel-100" : "text-steel-500")}>Showing: {rangeLabel}</p>
+        </div>
+        <div className="flex flex-wrap items-end gap-2">
+          <Label title="From" icon={<CalendarDays size={16} />}>
+            <input className="field" type="date" value={from} max={to || undefined} onChange={(event) => setFrom(event.target.value)} />
+          </Label>
+          <Label title="To" icon={<CalendarDays size={16} />}>
+            <input className="field" type="date" value={to} min={from || undefined} onChange={(event) => setTo(event.target.value)} />
+          </Label>
+          <div className="flex flex-wrap gap-1">
+            <button type="button" className="touch-target rounded bg-steel-900 px-3 text-sm font-black text-white" onClick={() => applyPreset(7)}>7d</button>
+            <button type="button" className="touch-target rounded bg-steel-900 px-3 text-sm font-black text-white" onClick={() => applyPreset(30)}>30d</button>
+            <button type="button" className="touch-target rounded bg-steel-900 px-3 text-sm font-black text-white" onClick={() => applyPreset("month")}>Month</button>
+            <button type="button" className="touch-target rounded bg-workshop-500 px-3 text-sm font-black text-white" onClick={() => applyPreset("all")}>All</button>
+          </div>
+        </div>
       </div>
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Metric label="Total Quantity" value={wholeNumber(report.summary.quantity)} />
@@ -1744,13 +1788,13 @@ function Dashboard({
               <XAxis dataKey="label" hide />
               <YAxis />
               <Tooltip />
-              <Bar dataKey="quantity" fill="#2d7d71" name="Quantity" />
+              <Bar dataKey="quantity" fill="#2a6b40" name="Quantity" />
             </BarChart>
           </ResponsiveContainer>
         </div>
         <Leaderboard rows={report.byEmployee} onSelectEmployee={onSelectEmployee} />
       </div>
-      <BreakdownTable title="Weekly Totals by Pallet Type" rows={report.byPallet} />
+      <BreakdownTable title="Totals by Pallet Type" rows={report.byPallet} />
     </div>
   );
 }
@@ -1944,6 +1988,19 @@ function ProductionGrid({
   const activePallets = palletTypes.filter((pallet) => pallet.active || weekEntries.some((entry) => entry.lines.some((line) => line.palletTypeId === pallet.id)));
   const weekReport = buildReport(weekEntries, palletTypes, employees, locations, settings);
 
+  const weekStart = weekDays[0];
+  const weekEnd = weekDays[weekDays.length - 1];
+  const [photoFrom, setPhotoFrom] = useState(weekStart);
+  const [photoTo, setPhotoTo] = useState(weekEnd);
+  useEffect(() => {
+    setPhotoFrom(weekStart);
+    setPhotoTo(weekEnd);
+  }, [weekStart, weekEnd]);
+
+  const photoLocationName = (id: string) => locations.find((location) => location.id === id)?.name ?? id;
+  const rangeSheets = countSheets.filter((sheet) => (!photoFrom || sheet.date >= photoFrom) && (!photoTo || sheet.date <= photoTo));
+  const rangePhotos = rangeSheets.flatMap((sheet) => sheet.photos.map((photo) => ({ photo, sheet })));
+
   return (
     <div className="grid gap-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -2067,6 +2124,36 @@ function ProductionGrid({
           No production entries found for this week.
         </div>
       )}
+
+      <div className="rounded border border-steel-100 bg-white p-4 text-steel-900">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h3 className="text-lg font-black">Count Sheet Photos</h3>
+            <p className="text-sm font-bold text-steel-500">{rangeSheets.length} count sheet{rangeSheets.length === 1 ? "" : "s"} · {rangePhotos.length} photo{rangePhotos.length === 1 ? "" : "s"} in range</p>
+          </div>
+          <div className="flex flex-wrap items-end gap-2">
+            <Label title="From" icon={<CalendarDays size={16} />}>
+              <input className="field" type="date" value={photoFrom} max={photoTo || undefined} onChange={(event) => setPhotoFrom(event.target.value)} />
+            </Label>
+            <Label title="To" icon={<CalendarDays size={16} />}>
+              <input className="field" type="date" value={photoTo} min={photoFrom || undefined} onChange={(event) => setPhotoTo(event.target.value)} />
+            </Label>
+          </div>
+        </div>
+        {rangePhotos.length === 0 ? (
+          <p className="mt-3 text-sm font-bold text-steel-500">No count sheet photos in this date range.</p>
+        ) : (
+          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-6">
+            {rangePhotos.map(({ photo, sheet }) => (
+              <a key={photo.id} href={photo.url} target="_blank" rel="noreferrer" className="block overflow-hidden rounded border border-steel-100">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={photo.url} alt={photo.fileName} className="h-28 w-full bg-steel-50 object-cover" />
+                <span className="block truncate bg-steel-50 px-2 py-1 text-xs font-bold">{photoLocationName(sheet.locationId)} · {sheet.shift} · {sheet.date}</span>
+              </a>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
