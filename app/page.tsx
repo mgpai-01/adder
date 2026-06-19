@@ -300,6 +300,7 @@ export default function Home() {
   const [profileEmployeeId, setProfileEmployeeId] = useState<string | null>(null);
   const [entriesLoaded, setEntriesLoaded] = useState(false);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
+  const [rosterLoaded, setRosterLoaded] = useState(false);
   const [toast, setToast] = useState("");
   const [changeLog, setChangeLog] = useState<ChangeLogEntry[]>([]);
   const toastTimer = useRef<number | undefined>(undefined);
@@ -316,6 +317,34 @@ export default function Home() {
       setView(allowedViews[0]);
     }
   }, [allowedViews, view]);
+
+  // One-time correction of the yard managers to the real people, applied once
+  // per browser after the roster loads and saved to the cloud for everyone.
+  useEffect(() => {
+    if (!rosterLoaded) return;
+    if (window.localStorage.getItem("mgp-manager-fix-v1")) return;
+    window.localStorage.setItem("mgp-manager-fix-v1", "1");
+
+    for (const name of ["Lupita Reyes", "Marco", "Axel"]) {
+      const placeholder = employeeList.find((employee) => employee.name === name && employee.role === "supervisor");
+      if (placeholder) updateEmployee(placeholder.id, { role: "employee" });
+    }
+
+    const correctManagers = [
+      { name: "Adrian Baeza", locationId: "fontana" },
+      { name: "Ernesto Fernandez", locationId: "citrus" },
+      { name: "Luis Soriano", locationId: "mesa" }
+    ];
+    for (const manager of correctManagers) {
+      const existing = employeeList.find((employee) => employee.name === manager.name);
+      if (existing) {
+        if (existing.role !== "supervisor") updateEmployee(existing.id, { role: "supervisor" });
+      } else {
+        createEmployee({ name: manager.name, locationId: manager.locationId, shift: "AM", active: true, role: "supervisor", notes: "", photoDataUrl: "" });
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rosterLoaded]);
 
   useEffect(() => {
     const savedEntries = window.localStorage.getItem(entryStorageKey) ?? window.localStorage.getItem("mgp-daily-entries");
@@ -395,7 +424,8 @@ export default function Home() {
           );
         }
       })
-      .catch(() => undefined);
+      .catch(() => undefined)
+      .finally(() => setRosterLoaded(true));
 
     fetch("/api/change-log")
       .then((response) => response.json())
