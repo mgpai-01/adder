@@ -566,7 +566,7 @@ export default function Home() {
       manualHours: Number(form.manualHours),
       lines: form.lines.filter((line) => line.quantity !== 0),
       createdAt: new Date().toISOString(),
-      submittedBy: profile?.username || profile?.fullName || undefined,
+      submittedBy: profile?.fullName || profile?.username || undefined,
       submittedById: profile?.id
     };
 
@@ -747,7 +747,7 @@ export default function Home() {
   function logChange(action: string, targetName: string, summary: string) {
     if (!summary) return;
     const entry: ChangeLogEntry = {
-      actor: profile?.username || profile?.fullName || "admin",
+      actor: profile?.fullName || profile?.username || "admin",
       action,
       targetType: "employee",
       targetName,
