@@ -14,13 +14,13 @@ function yardForRole(role: string, locationId?: string | null): string | null {
   return value || null;
 }
 
-// Upsert a profile row, retrying without location_id if that column does not
+// Upsert a profile row, retrying without manager_yard if that column does not
 // exist yet (older databases before the migration is run).
 async function upsertProfile(supabase: SupabaseClient, row: Record<string, unknown>): Promise<string | null> {
   let { error } = await supabase.from("profiles").upsert(row);
-  if (error && /location_id/i.test(error.message)) {
-    const { location_id, ...rest } = row;
-    void location_id;
+  if (error && /manager_yard/i.test(error.message)) {
+    const { manager_yard, ...rest } = row;
+    void manager_yard;
     ({ error } = await supabase.from("profiles").upsert(rest));
   }
   return error?.message ?? null;
@@ -33,18 +33,18 @@ export async function GET(request: Request) {
   const { data: list, error: listError } = await auth.supabase.auth.admin.listUsers({ perPage: 1000 });
   if (listError) return NextResponse.json({ users: [], error: listError.message });
 
-  // location_id may not exist on older databases; fall back without it.
+  // manager_yard may not exist on older databases; fall back without it.
   let { data: profiles, error: profilesError } = await auth.supabase
     .from("profiles")
-    .select("id, username, full_name, role, active, location_id");
-  if (profilesError && /location_id/i.test(profilesError.message)) {
+    .select("id, username, full_name, role, active, manager_yard");
+  if (profilesError && /manager_yard/i.test(profilesError.message)) {
     ({ data: profiles } = await auth.supabase.from("profiles").select("id, username, full_name, role, active"));
   }
   const profileMap = new Map((profiles ?? []).map((profile) => [profile.id, profile]));
 
   const users = (list?.users ?? []).map((user) => {
     const profile = profileMap.get(user.id) as
-      | { username?: string; full_name?: string; role?: string; active?: boolean; location_id?: string | null }
+      | { username?: string; full_name?: string; role?: string; active?: boolean; manager_yard?: string | null }
       | undefined;
     return {
       id: user.id,
@@ -53,7 +53,7 @@ export async function GET(request: Request) {
       fullName: profile?.full_name ?? "",
       role: profile?.role ?? "employee",
       active: profile?.active ?? true,
-      locationId: profile?.location_id ?? null
+      locationId: profile?.manager_yard ?? null
     };
   });
 
@@ -91,7 +91,7 @@ export async function POST(request: Request) {
     full_name: body.fullName?.trim() || username,
     role,
     active: true,
-    location_id: yardForRole(role, body.locationId)
+    manager_yard: yardForRole(role, body.locationId)
   });
   if (profileError) {
     return NextResponse.json({ ok: false, error: profileError });

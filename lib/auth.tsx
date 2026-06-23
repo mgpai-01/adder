@@ -91,7 +91,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         full_name: string;
         role: string;
         active: boolean;
-        location_id?: string | null;
+        manager_yard?: string | null;
       };
       let data: ProfileRow | null;
       let profileError: { message: string } | null;
@@ -99,15 +99,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         () =>
           supabase
             .from("profiles")
-            .select(`${baseColumns}, location_id`)
+            .select(`${baseColumns}, manager_yard`)
             .eq("id", user.id)
             .maybeSingle<ProfileRow>(),
         12000
       ));
 
-      // The location_id column may not exist yet on older databases. Fall back to
+      // The manager_yard column may not exist yet on older databases. Fall back to
       // the base columns so logins keep working before the migration is run.
-      if (profileError && /location_id/i.test(profileError.message)) {
+      if (profileError && /manager_yard/i.test(profileError.message)) {
         ({ data, error: profileError } = await withTimeoutRetry(
           () => supabase.from("profiles").select(baseColumns).eq("id", user.id).maybeSingle<ProfileRow>(),
           12000
@@ -137,7 +137,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         fullName: data.full_name,
         role: data.role as AppRole,
         active: data.active,
-        locationId: data.location_id ?? null
+        locationId: data.manager_yard ?? null
       });
       setError("");
     } catch (caught) {
