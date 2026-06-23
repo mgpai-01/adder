@@ -266,7 +266,7 @@ export function getAccessToken(): string {
 // production and reports; Counter only handles count sheets.
 export const roleViews: Record<AppRole, string[]> = {
   admin: ["entry", "count-sheets", "production-grid", "dashboard", "payroll", "cloud", "users", "settings"],
-  supervisor: ["entry", "count-sheets", "production-grid", "dashboard"],
+  supervisor: ["entry", "count-sheets", "production-grid"],
   employee: ["count-sheets"]
 };
 
