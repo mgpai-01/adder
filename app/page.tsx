@@ -100,6 +100,11 @@ function createLines(palletTypes: PalletType[]): ProductionLine[] {
   return palletTypes.map((pallet) => ({ palletTypeId: pallet.id, quantity: 0 }));
 }
 
+// Toggle the Shift / Clock In / Clock Out / Hours / Break-Lunch row on the Daily
+// Production Grid. Hidden for now per request, but kept here so it can be turned
+// back on by flipping this to true (the form still tracks sensible defaults).
+const SHOW_TIME_FIELDS = false;
+
 // Each yard only makes certain pallets. Fontana (the main yard) makes them all,
 // so it is left out of this map and shows every pallet. Citrus and Mesa show only
 // the pallets they actually make, in the order from the managers' PDF.
@@ -1244,6 +1249,7 @@ function ProductionEntry({
         </Label>
       </div>
 
+      {SHOW_TIME_FIELDS && (
       <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5">
         <Label title="Shift" icon={<Clock size={17} />}>
           <select className="field" value={form.shift} onChange={(event) => onFormChange("shift", event.target.value as Shift)}>
@@ -1283,6 +1289,7 @@ function ProductionEntry({
           </select>
         </Label>
       </div>
+      )}
 
       <div className="overflow-hidden rounded border border-steel-100 bg-white text-steel-900">
         <div className="overflow-x-auto">
