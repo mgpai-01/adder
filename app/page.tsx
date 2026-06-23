@@ -1322,7 +1322,7 @@ function ProductionEntry({
                         <button type="button" className="touch-target flex items-center justify-center rounded bg-steel-800 text-white" onClick={() => onQuantityChange(pallet.id, quantity - 1)}>
                           <Minus size={18} />
                         </button>
-                        <input className="field text-center font-black" inputMode="numeric" type="number" min="0" value={quantity} onChange={(event) => onQuantityChange(pallet.id, Number(event.target.value))} />
+                        <input className="field text-center font-black" inputMode="numeric" type="number" min="0" placeholder="0" value={quantity === 0 ? "" : quantity} onChange={(event) => onQuantityChange(pallet.id, Number(event.target.value))} />
                         <button type="button" className="touch-target flex items-center justify-center rounded bg-safety-400 text-steel-900" onClick={() => onQuantityChange(pallet.id, quantity + 1)}>
                           <Plus size={18} />
                         </button>
@@ -3331,7 +3331,7 @@ function EntryEditorModal({
                       <td className="p-3"><strong>{pallet.code}</strong><span className="block text-steel-500">{pallet.description}</span></td>
                       <td className="p-3">{currency(pallet.rate)}</td>
                       <td className="p-3">
-                        <input disabled={readOnly} className="field max-w-28 text-center font-black" type="number" min="0" value={quantity} onChange={(event) => updateQuantity(pallet.id, Number(event.target.value))} />
+                        <input disabled={readOnly} className="field max-w-28 text-center font-black" type="number" min="0" placeholder="0" value={quantity === 0 ? "" : quantity} onChange={(event) => updateQuantity(pallet.id, Number(event.target.value))} />
                       </td>
                       <td className="p-3 font-black">{currency(quantity * pallet.rate)}</td>
                     </tr>
