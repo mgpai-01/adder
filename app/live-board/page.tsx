@@ -85,6 +85,7 @@ export default function LiveBoardPage() {
   const [rotationEnabled, setRotationEnabled] = useState(true);
   const [cursorHidden, setCursorHidden] = useState(false);
   const [roster, setRoster] = useState<Record<string, { name: string; photo?: string }>>({});
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
   async function loadData() {
     const [entryResponse, settingsResponse, employeesResponse] = await Promise.all([
@@ -113,6 +114,12 @@ export default function LiveBoardPage() {
       window.clearInterval(refreshTimer);
       window.clearInterval(clockTimer);
     };
+  }, []);
+
+  useEffect(() => {
+    const onChange = () => setIsFullscreen(Boolean(document.fullscreenElement));
+    document.addEventListener("fullscreenchange", onChange);
+    return () => document.removeEventListener("fullscreenchange", onChange);
   }, []);
 
   useEffect(() => {
@@ -213,13 +220,13 @@ export default function LiveBoardPage() {
 
   return (
     <main
-      className={`min-h-screen text-white ${cursorHidden ? "cursor-none" : ""}`}
+      className={`flex h-screen flex-col overflow-hidden text-white ${cursorHidden ? "cursor-none" : ""}`}
       style={{
         background:
           "radial-gradient(1000px 600px at 85% -15%, rgba(146,214,161,0.12), transparent 60%), radial-gradient(800px 600px at -10% 110%, rgba(42,107,64,0.16), transparent 60%), linear-gradient(180deg, #0b1410 0%, #070d0a 100%)"
       }}
     >
-      <header className="flex flex-wrap items-center justify-between gap-6 px-10 pt-8">
+      <header className="flex shrink-0 flex-wrap items-center justify-between gap-6 px-10 pt-6">
         <div className="flex items-center gap-4">
           <div className="rounded-2xl border border-white/10 bg-white/5 p-1.5 shadow-lg backdrop-blur">
             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -227,7 +234,7 @@ export default function LiveBoardPage() {
           </div>
           <div>
             <div className="flex items-center gap-3">
-              <h1 className="text-4xl font-black tracking-tight">
+              <h1 className="text-4xl font-black tracking-tight 2xl:text-5xl">
                 Live <span className="bg-gradient-to-r from-[#92d6a1] to-[#aef2bc] bg-clip-text text-transparent">Pallet Tracker</span>
               </h1>
               <span className="flex items-center gap-1.5 rounded-full border border-[#92d6a1]/40 bg-[#92d6a1]/10 px-3 py-1 text-xs font-bold uppercase tracking-[0.2em] text-[#aef2bc]">
@@ -235,7 +242,7 @@ export default function LiveBoardPage() {
                 Live
               </span>
             </div>
-            <p className="mt-1.5 text-lg font-medium text-white/50">{periodLabel} · {clockLabel} · {selectedLocationLabel} · {selectedShiftLabel}</p>
+            <p className="mt-1.5 text-lg font-medium text-white/50 2xl:text-xl">{periodLabel} · {clockLabel} · {selectedLocationLabel} · {selectedShiftLabel}</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -249,38 +256,40 @@ export default function LiveBoardPage() {
         </div>
       </header>
 
-      <div className="flex flex-wrap gap-2 px-10 pt-5">
-        <select className={control} value={locationFilter} onChange={(event) => setLocationFilter(event.target.value)}>
-          <option className="text-steel-900" value="all">All Locations</option>
-          {locations.map((location) => <option className="text-steel-900" key={location.id} value={location.id}>{location.name}</option>)}
-        </select>
-        <select className={control} value={shiftFilter} onChange={(event) => setShiftFilter(event.target.value)}>
-          <option className="text-steel-900" value="all">All Shifts</option>
-          {shifts.map((shift) => <option className="text-steel-900" key={shift} value={shift}>{shift}</option>)}
-        </select>
-        <select className={control} value={periodMode} onChange={(event) => setPeriodMode(event.target.value as PeriodMode)}>
-          <option className="text-steel-900" value="today">Today</option>
-          <option className="text-steel-900" value="date">Specific Date</option>
-          <option className="text-steel-900" value="current-week">Current Week</option>
-          <option className="text-steel-900" value="previous-week">Previous Week</option>
-          <option className="text-steel-900" value="custom-week">Custom Week</option>
-        </select>
-        <input className={control} type="date" value={periodMode === "custom-week" ? selectedWeek : selectedDate} onChange={(event) => periodMode === "custom-week" ? setSelectedWeek(getWeekKey(event.target.value)) : setSelectedDate(event.target.value)} disabled={periodMode !== "date" && periodMode !== "custom-week"} />
-        <button type="button" className={control} onClick={() => setRotationEnabled((value) => !value)}>Rotation: {rotationEnabled ? "On" : "Off"}</button>
-      </div>
+      {!isFullscreen && (
+        <div className="flex shrink-0 flex-wrap gap-2 px-10 pt-4">
+          <select className={control} value={locationFilter} onChange={(event) => setLocationFilter(event.target.value)}>
+            <option className="text-steel-900" value="all">All Locations</option>
+            {locations.map((location) => <option className="text-steel-900" key={location.id} value={location.id}>{location.name}</option>)}
+          </select>
+          <select className={control} value={shiftFilter} onChange={(event) => setShiftFilter(event.target.value)}>
+            <option className="text-steel-900" value="all">All Shifts</option>
+            {shifts.map((shift) => <option className="text-steel-900" key={shift} value={shift}>{shift}</option>)}
+          </select>
+          <select className={control} value={periodMode} onChange={(event) => setPeriodMode(event.target.value as PeriodMode)}>
+            <option className="text-steel-900" value="today">Today</option>
+            <option className="text-steel-900" value="date">Specific Date</option>
+            <option className="text-steel-900" value="current-week">Current Week</option>
+            <option className="text-steel-900" value="previous-week">Previous Week</option>
+            <option className="text-steel-900" value="custom-week">Custom Week</option>
+          </select>
+          <input className={control} type="date" value={periodMode === "custom-week" ? selectedWeek : selectedDate} onChange={(event) => periodMode === "custom-week" ? setSelectedWeek(getWeekKey(event.target.value)) : setSelectedDate(event.target.value)} disabled={periodMode !== "date" && periodMode !== "custom-week"} />
+          <button type="button" className={control} onClick={() => setRotationEnabled((value) => !value)}>Rotation: {rotationEnabled ? "On" : "Off"}</button>
+        </div>
+      )}
 
-      <section className="grid gap-8 px-10 py-8 pb-20">
+      <section className="min-h-0 flex-1 overflow-hidden px-10 pb-3 pt-4">
         {rotationScreen === 0 && (
-          <div className="grid gap-8 xl:grid-cols-[1.42fr_0.58fr]">
-            <GlassCard>
+          <div className="grid h-full gap-8 xl:grid-cols-[1.42fr_0.58fr]">
+            <GlassCard className="flex min-h-0 flex-col">
               <SectionLabel icon={<Trophy size={22} />}>Ranking</SectionLabel>
               {repairerRows.length === 0 ? (
                 <EmptyBoardMessage />
               ) : (
-                <div className="grid gap-6">
+                <div className="flex min-h-0 flex-1 flex-col gap-6">
                   <Podium rows={repairerRows.slice(0, 3)} />
                   {repairerRows.length > 3 && (
-                    <div className="divide-y divide-white/5">
+                    <div className="min-h-0 flex-1 divide-y divide-white/5 overflow-hidden">
                       {repairerRows.slice(3, 12).map((row, position) => {
                         const pct = Math.round((row.quantity / maxQuantity) * 100);
                         return (
@@ -310,10 +319,10 @@ export default function LiveBoardPage() {
         )}
 
         {rotationScreen === 1 && (
-          <div className="grid gap-8 xl:grid-cols-2">
-            <GlassCard>
+          <div className="grid h-full gap-8 xl:grid-cols-2">
+            <GlassCard className="flex min-h-0 flex-col">
               <SectionLabel icon={<MapPin size={22} />}>Location Totals</SectionLabel>
-              <div className="grid gap-4">
+              <div className="grid min-h-0 flex-1 content-center gap-4 overflow-hidden">
                 {locationRows.map((location) => {
                   const pct = Math.round((location.quantity / (locationRows[0]?.quantity || 1)) * 100);
                   return (
@@ -339,8 +348,9 @@ export default function LiveBoardPage() {
         )}
 
         {rotationScreen === 2 && (
-          <GlassCard>
+          <GlassCard className="flex h-full min-h-0 flex-col">
             <SectionLabel icon={<Users size={22} />}>Repairer Detail</SectionLabel>
+            <div className="min-h-0 flex-1 overflow-hidden">
             <table className="w-full text-left">
               <thead className="text-base font-bold uppercase tracking-widest text-white/40">
                 <tr className="border-b border-white/10">
@@ -369,11 +379,12 @@ export default function LiveBoardPage() {
               </tbody>
             </table>
             {repairerRows.length === 0 && <EmptyBoardMessage />}
+            </div>
           </GlassCard>
         )}
       </section>
 
-      <footer className="fixed bottom-0 left-0 right-0 flex items-center justify-between border-t border-white/10 bg-black/30 px-10 py-3 text-sm font-medium text-white/40 backdrop-blur-xl">
+      <footer className="flex shrink-0 items-center justify-between border-t border-white/10 bg-black/30 px-10 py-2.5 text-sm font-medium text-white/40 backdrop-blur-xl">
         <span>Updated live · Screen {rotationScreen + 1} of 3</span>
         <span>{lastUpdated ? `Last updated ${lastUpdated.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit" })}` : "Loading…"}</span>
       </footer>
@@ -403,8 +414,8 @@ function useCountUp(value: number, duration = 900) {
   return display;
 }
 
-function GlassCard({ children }: { children: ReactNode }) {
-  return <div className="rounded-3xl border border-white/10 bg-white/[0.045] p-7 shadow-[0_10px_40px_rgba(0,0,0,0.45)] backdrop-blur-xl">{children}</div>;
+function GlassCard({ children, className = "" }: { children: ReactNode; className?: string }) {
+  return <div className={`rounded-3xl border border-white/10 bg-white/[0.045] p-7 shadow-[0_10px_40px_rgba(0,0,0,0.45)] backdrop-blur-xl ${className}`}>{children}</div>;
 }
 
 function SectionLabel({ icon, children }: { icon: ReactNode; children: ReactNode }) {
