@@ -7,7 +7,7 @@ import { employees, locations, payrollSettings, shifts } from "@/lib/data";
 import { getWeekKey, wholeNumber } from "@/lib/payroll";
 import type { DailyEntry, PayrollSettings, Shift } from "@/lib/types";
 
-type PeriodMode = "today" | "date" | "current-week" | "previous-week" | "custom-week";
+type PeriodMode = "today" | "date" | "current-week" | "previous-week" | "custom-week" | "custom-range";
 
 const refreshInterval = 15_000;
 
@@ -47,7 +47,9 @@ function readUrlFilters() {
       shift: "all",
       period: "today" as PeriodMode,
       date: getToday(),
-      week: getWeekKey(getToday())
+      week: getWeekKey(getToday()),
+      rangeStart: getToday(),
+      rangeEnd: getToday()
     };
   }
 
@@ -58,13 +60,25 @@ function readUrlFilters() {
   const periodParam = params.get("period") as PeriodMode | null;
   const dateParam = params.get("date") ?? getToday();
   const weekParam = params.get("week") ?? getWeekKey(getToday());
+  const fromParam = params.get("from") ?? getToday();
+  const toParam = params.get("to") ?? getToday();
 
   return {
     location: matchedLocation?.id ?? "all",
     shift: shifts.includes(shiftParam as Shift) ? shiftParam : "all",
-    period: periodParam ?? (params.has("date") ? "date" : params.has("week") ? "custom-week" : "today"),
+    period:
+      periodParam ??
+      (params.has("from") || params.has("to")
+        ? "custom-range"
+        : params.has("date")
+          ? "date"
+          : params.has("week")
+            ? "custom-week"
+            : "today"),
     date: dateParam,
-    week: getWeekKey(weekParam)
+    week: getWeekKey(weekParam),
+    rangeStart: fromParam,
+    rangeEnd: toParam
   };
 }
 
@@ -77,6 +91,8 @@ export default function LiveBoardPage() {
   const [periodMode, setPeriodMode] = useState<PeriodMode>(initialFilters.period);
   const [selectedDate, setSelectedDate] = useState(initialFilters.date);
   const [selectedWeek, setSelectedWeek] = useState(initialFilters.week);
+  const [rangeStart, setRangeStart] = useState(initialFilters.rangeStart);
+  const [rangeEnd, setRangeEnd] = useState(initialFilters.rangeEnd);
   const [now, setNow] = useState(new Date());
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [cursorHidden, setCursorHidden] = useState(false);
@@ -151,9 +167,13 @@ export default function LiveBoardPage() {
     if (periodMode !== "today") params.set("period", periodMode);
     if (periodMode === "date") params.set("date", selectedDate);
     if (periodMode === "custom-week") params.set("week", selectedWeek);
+    if (periodMode === "custom-range") {
+      params.set("from", rangeStart);
+      params.set("to", rangeEnd);
+    }
     const query = params.toString();
     window.history.replaceState(null, "", query ? `/live-board?${query}` : "/live-board");
-  }, [locationFilter, periodMode, selectedDate, selectedWeek, shiftFilter]);
+  }, [locationFilter, periodMode, selectedDate, selectedWeek, rangeStart, rangeEnd, shiftFilter]);
 
   const filteredEntries = useMemo(() => {
     const today = getToday();
@@ -161,6 +181,9 @@ export default function LiveBoardPage() {
     const previousWeek = addDays(currentWeek, -7);
     const weekStart = periodMode === "previous-week" ? previousWeek : periodMode === "custom-week" ? selectedWeek : currentWeek;
     const weekEnd = addDays(weekStart, 6);
+    // A custom range can be entered in either order; sort the two ends so the
+    // earlier date is always the start.
+    const [rangeFrom, rangeTo] = rangeStart <= rangeEnd ? [rangeStart, rangeEnd] : [rangeEnd, rangeStart];
 
     return entries.filter((entry) => {
       if (locationFilter !== "all" && entry.locationId !== locationFilter) return false;
@@ -168,9 +191,10 @@ export default function LiveBoardPage() {
       if (periodMode === "today" && entry.date !== today) return false;
       if (periodMode === "date" && entry.date !== selectedDate) return false;
       if ((periodMode === "current-week" || periodMode === "previous-week" || periodMode === "custom-week") && (entry.date < weekStart || entry.date > weekEnd)) return false;
+      if (periodMode === "custom-range" && (entry.date < rangeFrom || entry.date > rangeTo)) return false;
       return true;
     });
-  }, [entries, locationFilter, periodMode, selectedDate, selectedWeek, shiftFilter]);
+  }, [entries, locationFilter, periodMode, selectedDate, selectedWeek, rangeStart, rangeEnd, shiftFilter]);
 
   const repairerRows = useMemo(() => {
     const totals = new Map<string, { employeeId: string; name: string; photo?: string; locationId: string; shift: Shift; quantity: number }>();
@@ -210,7 +234,15 @@ export default function LiveBoardPage() {
       ? new Intl.DateTimeFormat("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" }).format(now)
       : periodMode === "date"
         ? new Intl.DateTimeFormat("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" }).format(new Date(`${selectedDate}T12:00:00`))
-        : `${periodMode === "previous-week" ? "Previous Week" : "Week"} of ${new Intl.DateTimeFormat("en-US", { month: "long", day: "numeric", year: "numeric" }).format(new Date(`${periodMode === "custom-week" ? selectedWeek : getWeekKey(getToday())}T12:00:00`))}`;
+        : periodMode === "custom-range"
+          ? (() => {
+              const [from, to] = rangeStart <= rangeEnd ? [rangeStart, rangeEnd] : [rangeEnd, rangeStart];
+              const fmt = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" });
+              return from === to
+                ? fmt.format(new Date(`${from}T12:00:00`))
+                : `${fmt.format(new Date(`${from}T12:00:00`))} – ${fmt.format(new Date(`${to}T12:00:00`))}`;
+            })()
+          : `${periodMode === "previous-week" ? "Previous Week" : "Week"} of ${new Intl.DateTimeFormat("en-US", { month: "long", day: "numeric", year: "numeric" }).format(new Date(`${periodMode === "custom-week" ? selectedWeek : getWeekKey(getToday())}T12:00:00`))}`;
 
   async function enterFullscreen() {
     await document.documentElement.requestFullscreen?.();
@@ -291,8 +323,17 @@ export default function LiveBoardPage() {
             <option className="text-steel-900" value="current-week">Current Week</option>
             <option className="text-steel-900" value="previous-week">Previous Week</option>
             <option className="text-steel-900" value="custom-week">Custom Week</option>
+            <option className="text-steel-900" value="custom-range">Custom Range</option>
           </select>
-          <input className={control} type="date" value={periodMode === "custom-week" ? selectedWeek : selectedDate} onChange={(event) => periodMode === "custom-week" ? setSelectedWeek(getWeekKey(event.target.value)) : setSelectedDate(event.target.value)} disabled={periodMode !== "date" && periodMode !== "custom-week"} />
+          {periodMode === "custom-range" ? (
+            <div className="flex items-center gap-2">
+              <input className={control} type="date" value={rangeStart} max={rangeEnd} onChange={(event) => setRangeStart(event.target.value)} />
+              <span className="text-white/50">to</span>
+              <input className={control} type="date" value={rangeEnd} min={rangeStart} onChange={(event) => setRangeEnd(event.target.value)} />
+            </div>
+          ) : (
+            <input className={control} type="date" value={periodMode === "custom-week" ? selectedWeek : selectedDate} onChange={(event) => periodMode === "custom-week" ? setSelectedWeek(getWeekKey(event.target.value)) : setSelectedDate(event.target.value)} disabled={periodMode !== "date" && periodMode !== "custom-week"} />
+          )}
         </div>
       )}
 
