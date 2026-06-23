@@ -133,10 +133,14 @@ const yardPalletIds: Record<string, string[]> = {
 function palletsForYard(palletTypes: PalletType[], locationId: string): PalletType[] {
   const allowed = yardPalletIds[locationId];
   if (!allowed) return palletTypes;
-  const byId = new Map(palletTypes.map((pallet) => [pallet.id, pallet]));
-  return allowed
-    .map((id) => byId.get(id))
+  // Match by the same flexible lookup the rest of the app uses (id, code, or
+  // slug) so it works even when the stored pallets carry legacy/cloud IDs.
+  const matched = allowed
+    .map((id) => findPalletType(palletTypes, id))
     .filter((pallet): pallet is PalletType => Boolean(pallet));
+  // If nothing matched (unexpected ID scheme), fall back to showing everything
+  // rather than an empty grid.
+  return matched.length > 0 ? matched : palletTypes;
 }
 
 function isManager(employee?: Employee): boolean {
