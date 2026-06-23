@@ -210,13 +210,18 @@ export default function LiveBoardPage() {
 
   return (
     <main
-      className={`flex h-screen flex-col overflow-hidden text-white ${cursorHidden ? "cursor-none" : ""}`}
+      className={`relative flex h-screen flex-col overflow-hidden text-white ${cursorHidden ? "cursor-none" : ""}`}
       style={{
         fontFamily: "ui-sans-serif, system-ui, -apple-system, 'SF Pro Display', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
         background:
-          "radial-gradient(rgba(255,255,255,0.045) 1px, transparent 1px) 0 0 / 24px 24px, radial-gradient(1100px 720px at 90% -12%, rgba(146,214,161,0.14), transparent 55%), radial-gradient(900px 720px at -10% 112%, rgba(42,107,64,0.18), transparent 55%), radial-gradient(700px 520px at 50% 122%, rgba(63,138,85,0.10), transparent 60%), linear-gradient(180deg, #0b1512 0%, #060d0a 100%)"
+          "radial-gradient(rgba(255,255,255,0.045) 1px, transparent 1px) 0 0 / 24px 24px, linear-gradient(180deg, #0b1512 0%, #060d0a 100%)"
       }}
     >
+      <div className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
+        <span className="absolute -left-40 -top-32 h-[42rem] w-[42rem] rounded-full bg-[#2a6b40]/30 blur-[130px] [animation:aurora-a_20s_ease-in-out_infinite]" />
+        <span className="absolute -bottom-40 -right-40 h-[40rem] w-[40rem] rounded-full bg-[#92d6a1]/18 blur-[130px] [animation:aurora-b_24s_ease-in-out_infinite]" />
+        <span className="absolute bottom-0 left-1/3 h-[30rem] w-[30rem] rounded-full bg-[#3f8a55]/15 blur-[120px] [animation:aurora-c_28s_ease-in-out_infinite]" />
+      </div>
       <header className="flex shrink-0 flex-wrap items-center justify-between gap-6 px-10 pt-6">
         <div className="flex items-center gap-4">
           <div className="rounded-2xl border border-white/10 bg-white/5 p-1.5 shadow-lg backdrop-blur">
