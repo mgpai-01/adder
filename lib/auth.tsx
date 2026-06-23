@@ -40,6 +40,18 @@ function withTimeout<T>(promise: PromiseLike<T>, ms: number): Promise<T> {
   ]);
 }
 
+// Run an operation, retrying once if it times out. A paused (free-tier) database
+// can take a while to cold-start, so the first attempt may be slow while the
+// retry succeeds once it has woken up.
+async function withTimeoutRetry<T>(factory: () => PromiseLike<T>, ms: number): Promise<T> {
+  try {
+    return await withTimeout(factory(), ms);
+  } catch (caught) {
+    if ((caught as Error)?.message !== "timed out") throw caught;
+    return withTimeout(factory(), ms);
+  }
+}
+
 // Wipe Supabase's stored auth session. A corrupted/locked session can make the
 // auth client hang; clearing it and reloading recovers cleanly.
 export function clearStoredSession() {
@@ -69,13 +81,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      const { data, error: profileError } = await withTimeout(
-        supabase
-          .from("profiles")
-          .select("id, username, full_name, role, active")
-          .eq("id", user.id)
-          .maybeSingle(),
-        9000
+      const { data, error: profileError } = await withTimeoutRetry(
+        () =>
+          supabase
+            .from("profiles")
+            .select("id, username, full_name, role, active")
+            .eq("id", user.id)
+            .maybeSingle(),
+        12000
       );
 
       if (profileError) {
@@ -122,7 +135,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         // getSession reads local storage but may try to refresh a stored token;
         // a corrupted/locked session hangs here, so cap it.
-        const { data } = await withTimeout(supabase.auth.getSession(), 5000);
+        const { data } = await withTimeout(supabase.auth.getSession(), 8000);
         if (!active) return;
         window.sessionStorage.removeItem("mgp-auth-reset");
         if (data.session) {
@@ -162,9 +175,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!supabase) return;
       setError("");
       try {
-        const { data, error: signInError } = await withTimeout(
-          supabase.auth.signInWithPassword({ email: toEmail(identifier), password }),
-          9000
+        const { data, error: signInError } = await withTimeoutRetry(
+          () => supabase.auth.signInWithPassword({ email: toEmail(identifier), password }),
+          15000
         );
         if (signInError || !data.session) {
           setError("Wrong username/email or password.");
