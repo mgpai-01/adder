@@ -82,6 +82,18 @@ export default function LiveBoardPage() {
   const [cursorHidden, setCursorHidden] = useState(false);
   const [roster, setRoster] = useState<Record<string, { name: string; photo?: string }>>({});
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [scale, setScale] = useState(1);
+
+  useEffect(() => {
+    const fit = () => setScale(Math.min(window.innerWidth / 1920, window.innerHeight / 1080));
+    fit();
+    window.addEventListener("resize", fit);
+    document.addEventListener("fullscreenchange", fit);
+    return () => {
+      window.removeEventListener("resize", fit);
+      document.removeEventListener("fullscreenchange", fit);
+    };
+  }, []);
 
   async function loadData() {
     const [entryResponse, settingsResponse, employeesResponse] = await Promise.all([
@@ -210,18 +222,22 @@ export default function LiveBoardPage() {
 
   return (
     <main
-      className={`relative flex h-screen flex-col overflow-hidden text-white ${cursorHidden ? "cursor-none" : ""}`}
+      className={`fixed inset-0 flex items-center justify-center overflow-hidden text-white ${cursorHidden ? "cursor-none" : ""}`}
       style={{
         fontFamily: "ui-sans-serif, system-ui, -apple-system, 'SF Pro Display', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
         background:
           "radial-gradient(rgba(255,255,255,0.045) 1px, transparent 1px) 0 0 / 24px 24px, linear-gradient(180deg, #0b1512 0%, #060d0a 100%)"
       }}
     >
-      <div className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
+      <div className="pointer-events-none absolute inset-0 overflow-hidden">
         <span className="absolute -left-40 -top-32 h-[42rem] w-[42rem] rounded-full bg-[#2a6b40]/30 blur-[130px] [animation:aurora-a_20s_ease-in-out_infinite]" />
         <span className="absolute -bottom-40 -right-40 h-[40rem] w-[40rem] rounded-full bg-[#92d6a1]/18 blur-[130px] [animation:aurora-b_24s_ease-in-out_infinite]" />
         <span className="absolute bottom-0 left-1/3 h-[30rem] w-[30rem] rounded-full bg-[#3f8a55]/15 blur-[120px] [animation:aurora-c_28s_ease-in-out_infinite]" />
       </div>
+      <div
+        className="relative flex flex-col overflow-hidden"
+        style={{ width: 1920, height: 1080, transform: `scale(${scale})`, transformOrigin: "center" }}
+      >
       <header className="flex shrink-0 flex-wrap items-center justify-between gap-6 px-10 pt-6">
         <div className="flex items-center gap-4">
           <div className="rounded-2xl border border-white/10 bg-white/5 p-1.5 shadow-lg backdrop-blur">
@@ -280,17 +296,17 @@ export default function LiveBoardPage() {
         </div>
       )}
 
-      <section className="min-h-0 flex-1 overflow-y-auto px-10 pb-6 pt-3">
-        <div className="grid min-h-full gap-6 xl:grid-cols-[1.5fr_0.9fr]">
-          <GlassCard className="flex flex-col">
+      <section className="min-h-0 flex-1 overflow-hidden px-10 pb-5 pt-3">
+        <div className="grid h-full gap-6 xl:grid-cols-[1.5fr_0.9fr]">
+          <GlassCard className="flex min-h-0 flex-col">
             <SectionLabel icon={<Trophy size={22} />}>Ranking</SectionLabel>
             {repairerRows.length === 0 ? (
               <EmptyBoardMessage />
             ) : (
-              <div className="flex flex-1 flex-col gap-6">
+              <div className="flex min-h-0 flex-1 flex-col gap-6">
                 <Podium rows={repairerRows.slice(0, 3)} />
                 {repairerRows.length > 3 && (
-                  <div className="divide-y divide-white/5">
+                  <div className="min-h-0 flex-1 divide-y divide-white/5 overflow-hidden">
                     {repairerRows.slice(3).map((row, position) => {
                       const pct = Math.round((row.quantity / maxQuantity) * 100);
                       return (
@@ -313,12 +329,12 @@ export default function LiveBoardPage() {
             )}
           </GlassCard>
 
-          <div className="grid content-start gap-5">
+          <div className="grid min-h-0 grid-rows-[auto_auto_1fr] gap-5">
             <GrandTotal total={companyTotal} />
             <GoalTracker actual={companyTotal} goal={goal} percent={goalPercent} />
-            <GlassCard className="flex flex-col">
+            <GlassCard className="flex min-h-0 flex-col">
               <SectionLabel icon={<MapPin size={22} />}>Location Totals</SectionLabel>
-              <div className="grid content-start gap-3">
+              <div className="grid min-h-0 flex-1 content-start gap-3 overflow-hidden">
                 {locationRows.map((location) => {
                   const pct = Math.round((location.quantity / (locationRows[0]?.quantity || 1)) * 100);
                   return (
@@ -344,6 +360,7 @@ export default function LiveBoardPage() {
         <span>Live · auto-refresh every 15s</span>
         <span>{lastUpdated ? `Last updated ${lastUpdated.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit" })}` : "Loading…"}</span>
       </footer>
+      </div>
     </main>
   );
 }
