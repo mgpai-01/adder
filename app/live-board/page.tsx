@@ -280,17 +280,17 @@ export default function LiveBoardPage() {
         </div>
       )}
 
-      <section className="min-h-0 flex-1 overflow-hidden px-10 pb-3 pt-4">
-        <div className="grid h-full gap-8 xl:grid-cols-[1.5fr_0.9fr]">
-          <GlassCard className="flex min-h-0 flex-col">
+      <section className="min-h-0 flex-1 overflow-y-auto px-10 pb-6 pt-3">
+        <div className="grid min-h-full gap-6 xl:grid-cols-[1.5fr_0.9fr]">
+          <GlassCard className="flex flex-col">
             <SectionLabel icon={<Trophy size={22} />}>Ranking</SectionLabel>
             {repairerRows.length === 0 ? (
               <EmptyBoardMessage />
             ) : (
-              <div className="flex min-h-0 flex-1 flex-col gap-6">
+              <div className="flex flex-1 flex-col gap-6">
                 <Podium rows={repairerRows.slice(0, 3)} />
                 {repairerRows.length > 3 && (
-                  <div className="min-h-0 flex-1 divide-y divide-white/5 overflow-hidden">
+                  <div className="divide-y divide-white/5">
                     {repairerRows.slice(3).map((row, position) => {
                       const pct = Math.round((row.quantity / maxQuantity) * 100);
                       return (
@@ -313,12 +313,12 @@ export default function LiveBoardPage() {
             )}
           </GlassCard>
 
-          <div className="grid min-h-0 grid-rows-[auto_auto_1fr] gap-6">
+          <div className="grid content-start gap-5">
             <GrandTotal total={companyTotal} />
             <GoalTracker actual={companyTotal} goal={goal} percent={goalPercent} />
-            <GlassCard className="flex min-h-0 flex-col">
+            <GlassCard className="flex flex-col">
               <SectionLabel icon={<MapPin size={22} />}>Location Totals</SectionLabel>
-              <div className="grid min-h-0 flex-1 content-start gap-3 overflow-hidden">
+              <div className="grid content-start gap-3">
                 {locationRows.map((location) => {
                   const pct = Math.round((location.quantity / (locationRows[0]?.quantity || 1)) * 100);
                   return (
@@ -444,13 +444,13 @@ function PodiumCard({ row, rank }: { row: BoardRow; rank: number }) {
 function GrandTotal({ total }: { total: number }) {
   const shown = useCountUp(total);
   return (
-    <div className="relative overflow-hidden rounded-3xl border border-[#92d6a1]/25 bg-gradient-to-b from-[#92d6a1]/[0.12] to-white/[0.02] p-8 text-center shadow-[0_14px_50px_rgba(0,0,0,0.45)] backdrop-blur-xl">
+    <div className="relative overflow-hidden rounded-3xl border border-[#92d6a1]/25 bg-gradient-to-b from-[#92d6a1]/[0.12] to-white/[0.02] p-6 text-center shadow-[0_14px_50px_rgba(0,0,0,0.45)] backdrop-blur-xl">
       <span className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-[#92d6a1]/40 to-transparent" />
       <span className="pointer-events-none absolute left-1/2 top-1/2 h-40 w-40 -translate-x-1/2 -translate-y-1/3 rounded-full bg-[#92d6a1]/20 blur-3xl" />
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src="/logo.svg" alt="" className="pointer-events-none absolute -right-10 -top-10 h-44 w-44 opacity-[0.05]" />
+      <img src="/logo.svg" alt="" className="pointer-events-none absolute -right-10 -top-10 h-40 w-40 opacity-[0.05]" />
       <span className="relative text-sm font-black uppercase tracking-[0.25em] text-[#aef2bc]">Company Total</span>
-      <p className="relative mt-3 bg-gradient-to-b from-white to-[#bdecca] bg-clip-text text-8xl font-black tabular-nums text-transparent">{wholeNumber(shown)}</p>
+      <p className="relative mt-2 bg-gradient-to-b from-white to-[#bdecca] bg-clip-text text-7xl font-black tabular-nums text-transparent">{wholeNumber(shown)}</p>
       <span className="relative mt-1 block text-base font-bold uppercase tracking-[0.2em] text-white/45">Pallets</span>
     </div>
   );
@@ -460,14 +460,14 @@ function GoalTracker({ actual, goal, percent }: { actual: number; goal: number; 
   const radius = 56;
   const circumference = 2 * Math.PI * radius;
   return (
-    <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-white/[0.045] p-8 shadow-[0_14px_50px_rgba(0,0,0,0.45)] backdrop-blur-xl">
+    <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-white/[0.045] p-6 shadow-[0_14px_50px_rgba(0,0,0,0.45)] backdrop-blur-xl">
       <span className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/25 to-transparent" />
       <div className="flex items-center gap-2.5">
         <Target size={22} className="text-[#92d6a1]" />
         <h2 className="text-xl font-black uppercase tracking-[0.2em] text-white/80">Today&apos;s Goal</h2>
       </div>
-      <div className="mt-6 flex items-center justify-center gap-8">
-        <div className="relative h-44 w-44">
+      <div className="mt-4 flex items-center justify-center gap-8">
+        <div className="relative h-36 w-36">
           <svg viewBox="0 0 130 130" className="h-full w-full -rotate-90">
             <defs>
               <linearGradient id="goalGrad" x1="0" y1="0" x2="1" y2="1">
