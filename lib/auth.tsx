@@ -11,6 +11,9 @@ export type Profile = {
   fullName: string;
   role: AppRole;
   active: boolean;
+  // Yard a Manager is restricted to (null = sees all yards). Only meaningful for
+  // the "supervisor" role.
+  locationId: string | null;
 };
 
 type AuthState = {
@@ -81,15 +84,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      const { data, error: profileError } = await withTimeoutRetry(
+      const baseColumns = "id, username, full_name, role, active";
+      type ProfileRow = {
+        id: string;
+        username: string | null;
+        full_name: string;
+        role: string;
+        active: boolean;
+        location_id?: string | null;
+      };
+      let data: ProfileRow | null;
+      let profileError: { message: string } | null;
+      ({ data, error: profileError } = await withTimeoutRetry(
         () =>
           supabase
             .from("profiles")
-            .select("id, username, full_name, role, active")
+            .select(`${baseColumns}, location_id`)
             .eq("id", user.id)
-            .maybeSingle(),
+            .maybeSingle<ProfileRow>(),
         12000
-      );
+      ));
+
+      // The location_id column may not exist yet on older databases. Fall back to
+      // the base columns so logins keep working before the migration is run.
+      if (profileError && /location_id/i.test(profileError.message)) {
+        ({ data, error: profileError } = await withTimeoutRetry(
+          () => supabase.from("profiles").select(baseColumns).eq("id", user.id).maybeSingle<ProfileRow>(),
+          12000
+        ));
+      }
 
       if (profileError) {
         setError(`Could not read your access: ${profileError.message}`);
@@ -113,7 +136,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         username: data.username ?? "",
         fullName: data.full_name,
         role: data.role as AppRole,
-        active: data.active
+        active: data.active,
+        locationId: data.location_id ?? null
       });
       setError("");
     } catch (caught) {

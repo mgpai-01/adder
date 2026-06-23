@@ -583,6 +583,30 @@ export default function Home() {
   const selectedEmployee = employeeList.find((employee) => employee.id === form.employeeId) ?? activeEmployees[0] ?? employeeList[0];
   const currentCalculation = calculateEntry({ ...form, id: "preview", createdAt: new Date().toISOString() }, palletTypes, settings);
 
+  // A Manager pinned to a yard only ever sees that yard's yards/entries/sheets.
+  // Admins, and Managers with no yard assigned, see everything (managerYardId null).
+  const managerYardId = configured && profile?.role === "supervisor" ? profile.locationId : null;
+  const scopedLocationList = useMemo(
+    () => (managerYardId ? locationList.filter((location) => location.id === managerYardId) : locationList),
+    [managerYardId, locationList]
+  );
+  const scopedEntries = useMemo(
+    () => (managerYardId ? entries.filter((entry) => entry.locationId === managerYardId) : entries),
+    [managerYardId, entries]
+  );
+  const scopedCountSheets = useMemo(
+    () => (managerYardId ? countSheets.filter((sheet) => sheet.locationId === managerYardId) : countSheets),
+    [managerYardId, countSheets]
+  );
+
+  // Lock a pinned Manager's entry form to their yard.
+  useEffect(() => {
+    if (managerYardId && form.locationId !== managerYardId) {
+      handleYardChange(managerYardId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [managerYardId]);
+
   useEffect(() => {
     setForm((current) => {
       const currentLines = new Map(current.lines.map((line) => [line.palletTypeId, line.quantity]));
@@ -1002,7 +1026,7 @@ export default function Home() {
               saveStatus={saveStatus}
               selectedEmployee={selectedEmployee}
               employees={activeEmployees}
-              locations={locationList}
+              locations={scopedLocationList}
               shifts={shiftList}
               palletTypes={activePalletTypes}
               calculation={currentCalculation}
@@ -1015,9 +1039,9 @@ export default function Home() {
           )}
           {view === "count-sheets" && (
             <CountSheetsModule
-              countSheets={countSheets}
-              entries={entries}
-              locations={locationList}
+              countSheets={scopedCountSheets}
+              entries={scopedEntries}
+              locations={scopedLocationList}
               shifts={shiftList}
               onCreate={createCountSheet}
               onUpdate={updateCountSheet}
@@ -1026,10 +1050,10 @@ export default function Home() {
           )}
           {view === "production-grid" && (
             <ProductionGrid
-              entries={entries}
-              countSheets={countSheets}
+              entries={scopedEntries}
+              countSheets={scopedCountSheets}
               employees={employeeList}
-              locations={locationList}
+              locations={scopedLocationList}
               palletTypes={palletTypes}
               settings={settings}
               selectedWeek={selectedWeek}
@@ -1040,7 +1064,7 @@ export default function Home() {
               onDeleteEntry={deleteSavedEntry}
             />
           )}
-          {view === "dashboard" && <Dashboard settings={settings} darkMode={darkMode} countSheets={countSheets} entries={entries} locations={locationList} shifts={shiftList} palletTypes={palletTypes} employees={employeeList} onSelectEmployee={setProfileEmployeeId} />}
+          {view === "dashboard" && <Dashboard settings={settings} darkMode={darkMode} countSheets={scopedCountSheets} entries={scopedEntries} locations={scopedLocationList} shifts={shiftList} palletTypes={palletTypes} employees={employeeList} onSelectEmployee={setProfileEmployeeId} />}
           {view === "payroll" && (
             <Payroll
               entries={entries}
@@ -3952,6 +3976,7 @@ type UserRow = {
   fullName: string;
   role: string;
   active: boolean;
+  locationId: string | null;
 };
 
 const userRoleOptions: Array<{ value: string; label: string }> = [
@@ -3960,12 +3985,22 @@ const userRoleOptions: Array<{ value: string; label: string }> = [
   { value: "employee", label: "Counter" }
 ];
 
+// Yard choices for a Manager. Empty value = all yards.
+const userYardOptions: Array<{ value: string; label: string }> = [
+  { value: "", label: "All yards" },
+  ...defaultLocations.filter((location) => location.active).map((location) => ({ value: location.id, label: location.name }))
+];
+
+function userYardLabel(locationId: string | null): string {
+  return userYardOptions.find((option) => option.value === (locationId ?? ""))?.label ?? "All yards";
+}
+
 function UsersAdmin() {
   const [users, setUsers] = useState<UserRow[]>([]);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [form, setForm] = useState({ fullName: "", login: "", password: "", role: "employee" });
+  const [form, setForm] = useState({ fullName: "", login: "", password: "", role: "employee", locationId: "" });
 
   async function authedFetch(url: string, options: RequestInit = {}) {
     const token = getAccessToken();
@@ -4014,7 +4049,7 @@ function UsersAdmin() {
         return;
       }
       setMessage(`Added ${form.fullName || form.login}.`);
-      setForm({ fullName: "", login: "", password: "", role: "employee" });
+      setForm({ fullName: "", login: "", password: "", role: "employee", locationId: "" });
       load();
     } catch (caught) {
       setError((caught as Error)?.name === "AbortError" ? "Request timed out — try again." : "Could not add user.");
@@ -4073,12 +4108,12 @@ function UsersAdmin() {
         </div>
       )}
 
-      <form onSubmit={addUser} className="grid gap-3 rounded border border-steel-100 bg-white p-4 md:grid-cols-[1fr_1fr_1fr_140px_auto] md:items-end">
+      <form onSubmit={addUser} className="grid gap-3 rounded border border-steel-100 bg-white p-4 sm:grid-cols-2 lg:grid-cols-3 lg:items-end">
         <Label title="Full Name" icon={<UserRound size={16} />}>
-          <input className="field" value={form.fullName} onChange={(event) => setForm((current) => ({ ...current, fullName: event.target.value }))} placeholder="Moses Macias" />
+          <input className="field" value={form.fullName} onChange={(event) => setForm((current) => ({ ...current, fullName: event.target.value }))} placeholder="Madison Smith" />
         </Label>
         <Label title="Username or Email" icon={<UserRound size={16} />}>
-          <input className="field" value={form.login} onChange={(event) => setForm((current) => ({ ...current, login: event.target.value }))} placeholder="moses or moses@email.com" autoCapitalize="none" />
+          <input className="field" value={form.login} onChange={(event) => setForm((current) => ({ ...current, login: event.target.value }))} placeholder="madison or madison@email.com" autoCapitalize="none" />
         </Label>
         <Label title="Password" icon={<ShieldCheck size={16} />}>
           <input className="field" value={form.password} onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))} placeholder="min 6 characters" />
@@ -4090,6 +4125,13 @@ function UsersAdmin() {
             ))}
           </select>
         </Label>
+        <Label title="Manager Yard" icon={<MapPin size={16} />}>
+          <select className="field" value={form.locationId} disabled={form.role !== "supervisor"} onChange={(event) => setForm((current) => ({ ...current, locationId: event.target.value }))}>
+            {userYardOptions.map((option) => (
+              <option key={option.value || "all"} value={option.value}>{option.label}</option>
+            ))}
+          </select>
+        </Label>
         <button type="submit" disabled={busy} className="touch-target flex items-center justify-center gap-2 rounded bg-workshop-500 px-4 font-black text-white disabled:bg-steel-300">
           <Check size={18} />
           {busy ? "Adding…" : "Add User"}
@@ -4098,10 +4140,13 @@ function UsersAdmin() {
 
       <div className="grid gap-2">
         {users.map((user) => (
-          <div key={user.id} className="grid gap-3 rounded border border-steel-100 bg-white p-3 md:grid-cols-[1fr_160px_auto] md:items-center">
+          <div key={user.id} className="grid gap-3 rounded border border-steel-100 bg-white p-3 md:grid-cols-[1fr_150px_150px_auto] md:items-center">
             <div className="min-w-0">
               <p className="truncate text-lg font-black">{user.fullName || user.username || user.email}</p>
-              <p className="truncate text-sm text-steel-500">{user.email}{user.username ? ` · @${user.username}` : ""}</p>
+              <p className="truncate text-sm text-steel-500">
+                {user.email}{user.username ? ` · @${user.username}` : ""}
+                {user.role === "supervisor" ? ` · ${userYardLabel(user.locationId)}` : ""}
+              </p>
             </div>
             <select
               className="field"
@@ -4110,6 +4155,17 @@ function UsersAdmin() {
             >
               {userRoleOptions.map((option) => (
                 <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+            <select
+              className="field"
+              value={user.locationId ?? ""}
+              disabled={user.role !== "supervisor"}
+              title={user.role === "supervisor" ? "Yard this manager is limited to" : "Only Managers can be limited to a yard"}
+              onChange={(event) => patchUser(user.id, { locationId: event.target.value }, `Yard updated for ${user.fullName || user.username}.`)}
+            >
+              {userYardOptions.map((option) => (
+                <option key={option.value || "all"} value={option.value}>{option.label}</option>
               ))}
             </select>
             <div className="flex flex-wrap gap-2">
