@@ -100,6 +100,45 @@ function createLines(palletTypes: PalletType[]): ProductionLine[] {
   return palletTypes.map((pallet) => ({ palletTypeId: pallet.id, quantity: 0 }));
 }
 
+// Each yard only makes certain pallets. Fontana (the main yard) makes them all,
+// so it is left out of this map and shows every pallet. Citrus and Mesa show only
+// the pallets they actually make, in the order from the managers' PDF.
+const yardPalletIds: Record<string, string[]> = {
+  citrus: [
+    "stack-by-hand-cambiar-barrote",
+    "repair-60x40",
+    "extend-60x40",
+    "cut-60x40",
+    "outside-block",
+    "outside-grade-b-2",
+    "outside-regular",
+    "outside-grade-a-1",
+    "quality-control-rejects"
+  ],
+  mesa: [
+    "stack-by-hand-cambiar-barrote",
+    "repair-60x40",
+    "extend-60x40",
+    "cut-60x40",
+    "outside-block",
+    "outside-grade-b-2",
+    "outside-regular",
+    "outside-grade-a-1",
+    "quality-control-rejects"
+  ]
+};
+
+// Returns the pallets a given yard makes, in the right order. Yards not listed
+// in yardPalletIds (e.g. Fontana) get the full list unchanged.
+function palletsForYard(palletTypes: PalletType[], locationId: string): PalletType[] {
+  const allowed = yardPalletIds[locationId];
+  if (!allowed) return palletTypes;
+  const byId = new Map(palletTypes.map((pallet) => [pallet.id, pallet]));
+  return allowed
+    .map((id) => byId.get(id))
+    .filter((pallet): pallet is PalletType => Boolean(pallet));
+}
+
 function isManager(employee?: Employee): boolean {
   return employee?.role === "supervisor";
 }
@@ -1146,6 +1185,7 @@ function ProductionEntry({
 }) {
   const yardRepairers = employees.filter((employee) => employee.locationId === form.locationId && employee.role !== "supervisor");
   const yardManagers = employees.filter((employee) => employee.locationId === form.locationId && employee.role === "supervisor");
+  const displayedPallets = palletsForYard(palletTypes, form.locationId);
 
   return (
     <div className="grid gap-4">
@@ -1253,7 +1293,7 @@ function ProductionEntry({
               </tr>
             </thead>
             <tbody>
-              {palletTypes.map((pallet) => {
+              {displayedPallets.map((pallet) => {
                 const line = form.lines.find((item) => item.palletTypeId === pallet.id);
                 const quantity = line?.quantity ?? 0;
                 const earned = quantity * pallet.rate;
