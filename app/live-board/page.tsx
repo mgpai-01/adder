@@ -1,6 +1,6 @@
 "use client";
 
-import { Crown, Expand, MapPin, RefreshCw, Target, Trophy, Users } from "lucide-react";
+import { Crown, Expand, MapPin, RefreshCw, Target, Trophy } from "lucide-react";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { employees, locations, payrollSettings, shifts } from "@/lib/data";
@@ -8,10 +8,8 @@ import { getWeekKey, wholeNumber } from "@/lib/payroll";
 import type { DailyEntry, PayrollSettings, Shift } from "@/lib/types";
 
 type PeriodMode = "today" | "date" | "current-week" | "previous-week" | "custom-week";
-type RotationScreen = 0 | 1 | 2;
 
 const refreshInterval = 15_000;
-const rotationInterval = 20_000;
 
 function addDays(dateValue: string, days: number) {
   const date = new Date(`${dateValue}T12:00:00`);
@@ -81,8 +79,6 @@ export default function LiveBoardPage() {
   const [selectedWeek, setSelectedWeek] = useState(initialFilters.week);
   const [now, setNow] = useState(new Date());
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-  const [rotationScreen, setRotationScreen] = useState<RotationScreen>(0);
-  const [rotationEnabled, setRotationEnabled] = useState(true);
   const [cursorHidden, setCursorHidden] = useState(false);
   const [roster, setRoster] = useState<Record<string, { name: string; photo?: string }>>({});
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -121,12 +117,6 @@ export default function LiveBoardPage() {
     document.addEventListener("fullscreenchange", onChange);
     return () => document.removeEventListener("fullscreenchange", onChange);
   }, []);
-
-  useEffect(() => {
-    if (!rotationEnabled) return;
-    const timer = window.setInterval(() => setRotationScreen((screen) => ((screen + 1) % 3) as RotationScreen), rotationInterval);
-    return () => window.clearInterval(timer);
-  }, [rotationEnabled]);
 
   useEffect(() => {
     let cursorTimer = window.setTimeout(() => setCursorHidden(true), 5_000);
@@ -274,64 +264,57 @@ export default function LiveBoardPage() {
             <option className="text-steel-900" value="custom-week">Custom Week</option>
           </select>
           <input className={control} type="date" value={periodMode === "custom-week" ? selectedWeek : selectedDate} onChange={(event) => periodMode === "custom-week" ? setSelectedWeek(getWeekKey(event.target.value)) : setSelectedDate(event.target.value)} disabled={periodMode !== "date" && periodMode !== "custom-week"} />
-          <button type="button" className={control} onClick={() => setRotationEnabled((value) => !value)}>Rotation: {rotationEnabled ? "On" : "Off"}</button>
         </div>
       )}
 
       <section className="min-h-0 flex-1 overflow-hidden px-10 pb-3 pt-4">
-        {rotationScreen === 0 && (
-          <div className="grid h-full gap-8 xl:grid-cols-[1.42fr_0.58fr]">
-            <GlassCard className="flex min-h-0 flex-col">
-              <SectionLabel icon={<Trophy size={22} />}>Ranking</SectionLabel>
-              {repairerRows.length === 0 ? (
-                <EmptyBoardMessage />
-              ) : (
-                <div className="flex min-h-0 flex-1 flex-col gap-6">
-                  <Podium rows={repairerRows.slice(0, 3)} />
-                  {repairerRows.length > 3 && (
-                    <div className="min-h-0 flex-1 divide-y divide-white/5 overflow-hidden">
-                      {repairerRows.slice(3, 12).map((row, position) => {
-                        const pct = Math.round((row.quantity / maxQuantity) * 100);
-                        return (
-                          <div key={row.employeeId} className="flex items-center gap-5 py-4">
-                            <span className="w-8 text-2xl font-bold tabular-nums text-white/30">{position + 4}</span>
-                            <BoardAvatar name={row.name} photo={row.photo} size={48} />
-                            <div className="min-w-0 flex-1">
-                              <span className="block truncate text-2xl font-bold">{row.name}</span>
-                              <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-white/5">
-                                <div className="h-full rounded-full bg-gradient-to-r from-[#2a6b40] to-[#92d6a1] transition-all duration-700" style={{ width: `${pct}%` }} />
-                              </div>
+        <div className="grid h-full gap-8 xl:grid-cols-[1.5fr_0.9fr]">
+          <GlassCard className="flex min-h-0 flex-col">
+            <SectionLabel icon={<Trophy size={22} />}>Ranking</SectionLabel>
+            {repairerRows.length === 0 ? (
+              <EmptyBoardMessage />
+            ) : (
+              <div className="flex min-h-0 flex-1 flex-col gap-6">
+                <Podium rows={repairerRows.slice(0, 3)} />
+                {repairerRows.length > 3 && (
+                  <div className="min-h-0 flex-1 divide-y divide-white/5 overflow-hidden">
+                    {repairerRows.slice(3).map((row, position) => {
+                      const pct = Math.round((row.quantity / maxQuantity) * 100);
+                      return (
+                        <div key={row.employeeId} className="flex items-center gap-5 py-3">
+                          <span className="w-8 text-2xl font-bold tabular-nums text-white/30">{position + 4}</span>
+                          <BoardAvatar name={row.name} photo={row.photo} size={44} />
+                          <div className="min-w-0 flex-1">
+                            <span className="block truncate text-2xl font-bold">{row.name}</span>
+                            <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-white/5">
+                              <div className="h-full rounded-full bg-gradient-to-r from-[#2a6b40] to-[#92d6a1] transition-all duration-700" style={{ width: `${pct}%` }} />
                             </div>
-                            <span className="text-4xl font-black tabular-nums">{wholeNumber(row.quantity)}</span>
                           </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              )}
-            </GlassCard>
-            <div className="grid content-start gap-8">
-              <GrandTotal total={companyTotal} />
-              <GoalTracker actual={companyTotal} goal={goal} percent={goalPercent} />
-            </div>
-          </div>
-        )}
+                          <span className="text-3xl font-black tabular-nums">{wholeNumber(row.quantity)}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+          </GlassCard>
 
-        {rotationScreen === 1 && (
-          <div className="grid h-full gap-8 xl:grid-cols-2">
+          <div className="grid min-h-0 grid-rows-[auto_auto_1fr] gap-6">
+            <GrandTotal total={companyTotal} />
+            <GoalTracker actual={companyTotal} goal={goal} percent={goalPercent} />
             <GlassCard className="flex min-h-0 flex-col">
               <SectionLabel icon={<MapPin size={22} />}>Location Totals</SectionLabel>
-              <div className="grid min-h-0 flex-1 content-center gap-4 overflow-hidden">
+              <div className="grid min-h-0 flex-1 content-start gap-3 overflow-hidden">
                 {locationRows.map((location) => {
                   const pct = Math.round((location.quantity / (locationRows[0]?.quantity || 1)) * 100);
                   return (
-                    <div key={location.id} className="rounded-2xl border border-white/10 bg-white/[0.03] px-7 py-6">
+                    <div key={location.id} className="rounded-2xl border border-white/10 bg-white/[0.03] px-6 py-4">
                       <div className="flex items-center justify-between">
-                        <span className="text-4xl font-bold">{location.name}</span>
-                        <span className="text-5xl font-black tabular-nums text-[#aef2bc]">{wholeNumber(location.quantity)}</span>
+                        <span className="text-3xl font-bold">{location.name}</span>
+                        <span className="text-4xl font-black tabular-nums text-[#aef2bc]">{wholeNumber(location.quantity)}</span>
                       </div>
-                      <div className="mt-4 h-2 w-full overflow-hidden rounded-full bg-white/5">
+                      <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-white/5">
                         <div className="h-full rounded-full bg-gradient-to-r from-[#2a6b40] to-[#92d6a1] transition-all duration-700" style={{ width: `${pct}%` }} />
                       </div>
                     </div>
@@ -340,52 +323,12 @@ export default function LiveBoardPage() {
                 {locationRows.length === 0 && <EmptyBoardMessage />}
               </div>
             </GlassCard>
-            <div className="grid content-start gap-8">
-              <GoalTracker actual={companyTotal} goal={goal} percent={goalPercent} />
-              <GrandTotal total={companyTotal} />
-            </div>
           </div>
-        )}
-
-        {rotationScreen === 2 && (
-          <GlassCard className="flex h-full min-h-0 flex-col">
-            <SectionLabel icon={<Users size={22} />}>Repairer Detail</SectionLabel>
-            <div className="min-h-0 flex-1 overflow-hidden">
-            <table className="w-full text-left">
-              <thead className="text-base font-bold uppercase tracking-widest text-white/40">
-                <tr className="border-b border-white/10">
-                  <th className="px-4 py-4">Rank</th>
-                  <th className="px-4 py-4">Repairer</th>
-                  <th className="px-4 py-4">Location</th>
-                  <th className="px-4 py-4">Shift</th>
-                  <th className="px-4 py-4 text-right">Qty</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-white/5">
-                {repairerRows.map((row, index) => (
-                  <tr key={row.employeeId} className="text-3xl font-semibold">
-                    <td className="px-4 py-4 tabular-nums text-white/30">{index + 1}</td>
-                    <td className="px-4 py-4">
-                      <div className="flex items-center gap-3">
-                        <BoardAvatar name={row.name} photo={row.photo} size={44} />
-                        {row.name}
-                      </div>
-                    </td>
-                    <td className="px-4 py-4 text-white/60">{getLocationName(row.locationId)}</td>
-                    <td className="px-4 py-4 text-white/60">{row.shift}</td>
-                    <td className="px-4 py-4 text-right font-black tabular-nums text-[#aef2bc]">{wholeNumber(row.quantity)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {repairerRows.length === 0 && <EmptyBoardMessage />}
-            </div>
-          </GlassCard>
-        )}
+        </div>
       </section>
 
       <footer className="flex shrink-0 items-center justify-between border-t border-white/10 bg-black/30 px-10 py-2.5 text-sm font-medium text-white/40 backdrop-blur-xl">
-        <span>Updated live · Screen {rotationScreen + 1} of 3</span>
+        <span>Live · auto-refresh every 15s</span>
         <span>{lastUpdated ? `Last updated ${lastUpdated.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit" })}` : "Loading…"}</span>
       </footer>
     </main>
