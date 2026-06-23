@@ -375,11 +375,14 @@ export default function LiveBoardPage() {
             <GoalTracker actual={companyTotal} goal={goal} percent={goalPercent} />
             <GlassCard className="flex min-h-0 flex-col">
               <SectionLabel icon={<MapPin size={22} />}>Location Totals</SectionLabel>
-              <div className="grid min-h-0 flex-1 content-start gap-3 overflow-hidden">
+              <div
+                className="grid min-h-0 flex-1 gap-3 overflow-hidden"
+                style={{ gridTemplateRows: `repeat(${Math.max(locationRows.length, 1)}, minmax(0, 1fr))` }}
+              >
                 {locationRows.map((location) => {
                   const pct = Math.round((location.quantity / (locationRows[0]?.quantity || 1)) * 100);
                   return (
-                    <div key={location.id} className="rounded-2xl border border-white/10 bg-white/[0.03] px-6 py-4">
+                    <div key={location.id} className="flex min-h-0 flex-col justify-center rounded-2xl border border-white/10 bg-white/[0.03] px-6 py-3">
                       <div className="flex items-center justify-between">
                         <span className="text-3xl font-bold">{location.name}</span>
                         <span className="text-4xl font-black tabular-nums text-[#aef2bc]">{wholeNumber(location.quantity)}</span>
