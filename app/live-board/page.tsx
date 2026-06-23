@@ -246,12 +246,19 @@ export default function LiveBoardPage() {
         </div>
       </header>
 
+      <div className="flex shrink-0 px-10 pt-4">
+        <div className="flex flex-wrap gap-1 rounded-2xl border border-white/10 bg-white/[0.04] p-1.5 backdrop-blur">
+          <YardTab active={locationFilter === "all"} onClick={() => setLocationFilter("all")}>All Yards</YardTab>
+          {locations.map((location) => (
+            <YardTab key={location.id} active={locationFilter === location.id} onClick={() => setLocationFilter(location.id)}>
+              {location.name}
+            </YardTab>
+          ))}
+        </div>
+      </div>
+
       {!isFullscreen && (
         <div className="flex shrink-0 flex-wrap gap-2 px-10 pt-4">
-          <select className={control} value={locationFilter} onChange={(event) => setLocationFilter(event.target.value)}>
-            <option className="text-steel-900" value="all">All Locations</option>
-            {locations.map((location) => <option className="text-steel-900" key={location.id} value={location.id}>{location.name}</option>)}
-          </select>
           <select className={control} value={shiftFilter} onChange={(event) => setShiftFilter(event.target.value)}>
             <option className="text-steel-900" value="all">All Shifts</option>
             {shifts.map((shift) => <option className="text-steel-900" key={shift} value={shift}>{shift}</option>)}
@@ -367,6 +374,20 @@ function SectionLabel({ icon, children }: { icon: ReactNode; children: ReactNode
       <span className="text-[#92d6a1]">{icon}</span>
       <h2 className="text-xl font-black uppercase tracking-[0.2em] text-white/80">{children}</h2>
     </div>
+  );
+}
+
+function YardTab({ active, onClick, children }: { active: boolean; onClick: () => void; children: ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-xl px-5 py-2.5 text-lg font-bold transition-colors ${
+        active ? "bg-gradient-to-r from-[#2a6b40] to-[#3f8a55] text-white shadow" : "text-white/55 hover:text-white"
+      }`}
+    >
+      {children}
+    </button>
   );
 }
 
