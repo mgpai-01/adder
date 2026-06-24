@@ -1342,7 +1342,7 @@ function PhaseTracker({
 
         {/* Inputs for the selected phase. */}
         <div className="grid gap-3 rounded-lg bg-steel-50 p-3 sm:grid-cols-[1fr_auto]">
-          <Label title={`Phase ${selected + 1} amount`} icon={<FileSpreadsheet size={16} />}>
+          <Label title={`Phase ${selected + 1} pallets`} icon={<FileSpreadsheet size={16} />}>
             <input
               className="field text-center font-black"
               inputMode="numeric"
@@ -1393,7 +1393,7 @@ function PhaseTracker({
           </div>
         ))}
         <div className="mt-1 flex items-center justify-between border-t border-white/10 px-3 pt-2">
-          <span className="text-sm font-black">Total</span>
+          <span className="text-sm font-black">Total pallets</span>
           <span className="text-xl font-black tabular-nums text-safety-400">
             {wholeNumber(phases.reduce((sum, phase) => sum + (phase.bypassed ? 0 : phase.amount), 0))}
           </span>
