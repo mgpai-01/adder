@@ -889,11 +889,17 @@ export default function Home() {
   }
 
   function logChange(action: string, targetName: string, summary: string) {
+    logChangeTo("employee", action, targetName, summary);
+  }
+
+  // Generic cloud audit-log writer. Optimistically prepends to the local log so
+  // the Cloud tab shows it immediately, then persists to the shared cloud table.
+  function logChangeTo(targetType: string, action: string, targetName: string, summary: string) {
     if (!summary) return;
     const entry: ChangeLogEntry = {
       actor: profile?.fullName || profile?.username || "admin",
       action,
-      targetType: "employee",
+      targetType,
       targetName,
       summary
     };
@@ -1136,7 +1142,7 @@ export default function Home() {
               onViewEntry={setViewingEntry}
             />
           )}
-          {view === "users" && <UsersAdmin />}
+          {view === "users" && <UsersAdmin onLogChange={(targetName, summary) => logChangeTo("user", "updated permissions", targetName, summary)} />}
           {view === "settings" && (
             <Settings
               darkMode={darkMode}
@@ -4076,12 +4082,34 @@ function YardAccessPicker({ value, disabled, onChange }: { value: string[]; disa
   );
 }
 
-function UsersAdmin() {
+function UsersAdmin({ onLogChange }: { onLogChange: (targetName: string, summary: string) => void }) {
   const [users, setUsers] = useState<UserRow[]>([]);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState<{ fullName: string; login: string; password: string; role: string; allowedYards: string[] }>({ fullName: "", login: "", password: "", role: "employee", allowedYards: [] });
+  // Per-user permissions editor (role + yards + active) staged until "Save".
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [permDraft, setPermDraft] = useState<{ role: string; allowedYards: string[]; active: boolean }>({ role: "employee", allowedYards: [], active: true });
+  const [savingPerms, setSavingPerms] = useState(false);
+
+  function openPermissions(user: UserRow) {
+    setEditingId(user.id);
+    setPermDraft({ role: user.role, allowedYards: user.allowedYards, active: user.active });
+    setError("");
+    setMessage("");
+  }
+
+  function describePermissions(user: UserRow, draft: { role: string; allowedYards: string[]; active: boolean }): string {
+    const roleLabel = (value: string) => userRoleOptions.find((option) => option.value === value)?.label ?? value;
+    const parts: string[] = [];
+    if (draft.role !== user.role) parts.push(`role ${roleLabel(user.role)} → ${roleLabel(draft.role)}`);
+    const beforeYards = draft.role === "supervisor" ? allowedYardsLabel(user.allowedYards) : "All yards";
+    const afterYards = draft.role === "supervisor" ? allowedYardsLabel(draft.allowedYards) : "All yards";
+    if (afterYards !== beforeYards) parts.push(`yards ${beforeYards} → ${afterYards}`);
+    if (draft.active !== user.active) parts.push(draft.active ? "set Active" : "set Inactive");
+    return parts.join(", ");
+  }
 
   async function authedFetch(url: string, options: RequestInit = {}) {
     const token = getAccessToken();
@@ -4151,25 +4179,34 @@ function UsersAdmin() {
     load();
   }
 
-  // Update a manager's yards instantly in the UI, then save in the background.
-  // No refetch on success, so the checkboxes respond on the first click.
-  function setUserYards(user: UserRow, nextYards: string[]) {
+  // Save the staged permissions for one user and record it on the cloud audit log.
+  async function savePermissions(user: UserRow) {
+    const summary = describePermissions(user, permDraft);
+    if (!summary) {
+      setEditingId(null);
+      return;
+    }
+    setSavingPerms(true);
     setError("");
-    setUsers((current) => current.map((item) => (item.id === user.id ? { ...item, allowedYards: nextYards } : item)));
-    authedFetch(`/api/admin/users/${user.id}`, { method: "PATCH", body: JSON.stringify({ allowedYards: nextYards }) })
-      .then((response) => response.json())
-      .then((data) => {
-        if (!data.ok) {
-          setError(data.error ?? "Update failed.");
-          load(); // revert to the server's truth
-        } else {
-          setMessage(`Yards updated for ${user.fullName || user.username}.`);
-        }
-      })
-      .catch(() => {
-        setError("Update failed.");
-        load();
+    try {
+      const response = await authedFetch(`/api/admin/users/${user.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ role: permDraft.role, allowedYards: permDraft.allowedYards, active: permDraft.active })
       });
+      const data = await response.json();
+      if (!data.ok) {
+        setError(data.error ?? "Could not save permissions.");
+        return;
+      }
+      onLogChange(user.fullName || user.username || user.email, summary);
+      setMessage(`Permissions saved for ${user.fullName || user.username} and logged to the cloud.`);
+      setEditingId(null);
+      load();
+    } catch {
+      setError("Could not save permissions. Try again.");
+    } finally {
+      setSavingPerms(false);
+    }
   }
 
   function renameUser(user: UserRow) {
@@ -4242,40 +4279,71 @@ function UsersAdmin() {
 
       <div className="grid gap-2">
         {users.map((user) => (
-          <div key={user.id} className="grid gap-3 rounded border border-steel-100 bg-white p-3 md:grid-cols-[1fr_150px_150px_auto] md:items-center">
-            <div className="min-w-0">
-              <p className="truncate text-lg font-black">{user.fullName || user.username || user.email}</p>
-              <p className="truncate text-sm text-steel-500">
-                {user.email}{user.username ? ` · @${user.username}` : ""}
-                {user.role === "supervisor" ? ` · ${allowedYardsLabel(user.allowedYards)}` : ""}
-              </p>
+          <div key={user.id} className="rounded border border-steel-100 bg-white p-3">
+            <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-center">
+              <div className="min-w-0">
+                <p className="truncate text-lg font-black">{user.fullName || user.username || user.email}</p>
+                <p className="truncate text-sm text-steel-500">
+                  {user.email}{user.username ? ` · @${user.username}` : ""}
+                  {` · ${userRoleOptions.find((option) => option.value === user.role)?.label ?? user.role}`}
+                  {user.role === "supervisor" ? ` · ${allowedYardsLabel(user.allowedYards)}` : ""}
+                  {!user.active ? " · Inactive" : ""}
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className={classNames("rounded px-3 py-2 text-sm font-black", editingId === user.id ? "bg-steel-900 text-white" : "bg-workshop-100 text-workshop-700")}
+                  onClick={() => (editingId === user.id ? setEditingId(null) : openPermissions(user))}
+                >
+                  {editingId === user.id ? "Close" : "Permissions"}
+                </button>
+                <button type="button" className="rounded bg-steel-100 px-3 py-2 text-sm font-black text-steel-900" onClick={() => renameUser(user)}>Rename</button>
+                <button type="button" className="rounded bg-steel-100 px-3 py-2 text-sm font-black text-steel-900" onClick={() => resetPassword(user)}>Reset Password</button>
+                <button type="button" className="rounded bg-red-700 px-3 py-2 text-sm font-black text-white" onClick={() => deleteUser(user)}>Delete</button>
+              </div>
             </div>
-            <select
-              className="field"
-              value={user.role}
-              onChange={(event) => patchUser(user.id, { role: event.target.value }, `Role updated for ${user.fullName || user.username}.`)}
-            >
-              {userRoleOptions.map((option) => (
-                <option key={option.value} value={option.value}>{option.label}</option>
-              ))}
-            </select>
-            <YardAccessPicker
-              value={user.allowedYards}
-              disabled={user.role !== "supervisor"}
-              onChange={(next) => setUserYards(user, next)}
-            />
-            <div className="flex flex-wrap gap-2">
-              <button type="button" className="rounded bg-steel-100 px-3 py-2 text-sm font-black text-steel-900" onClick={() => renameUser(user)}>Rename</button>
-              <button type="button" className="rounded bg-steel-100 px-3 py-2 text-sm font-black text-steel-900" onClick={() => resetPassword(user)}>Reset Password</button>
-              <button
-                type="button"
-                className={classNames("rounded px-3 py-2 text-sm font-black", user.active ? "bg-workshop-500 text-white" : "bg-steel-200 text-steel-700")}
-                onClick={() => patchUser(user.id, { active: !user.active }, `${user.fullName || user.username} ${user.active ? "deactivated" : "activated"}.`)}
-              >
-                {user.active ? "Active" : "Inactive"}
-              </button>
-              <button type="button" className="rounded bg-red-700 px-3 py-2 text-sm font-black text-white" onClick={() => deleteUser(user)}>Delete</button>
-            </div>
+
+            {editingId === user.id && (
+              <div className="mt-3 grid gap-3 rounded border border-steel-100 bg-steel-50 p-3 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_auto_auto] lg:items-end">
+                <Label title="Role" icon={<ShieldCheck size={16} />}>
+                  <select
+                    className="field"
+                    value={permDraft.role}
+                    onChange={(event) => setPermDraft((current) => ({ ...current, role: event.target.value }))}
+                  >
+                    {userRoleOptions.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </select>
+                </Label>
+                <Label title="Manager Yards" icon={<MapPin size={16} />}>
+                  <YardAccessPicker
+                    value={permDraft.allowedYards}
+                    disabled={permDraft.role !== "supervisor"}
+                    onChange={(next) => setPermDraft((current) => ({ ...current, allowedYards: next }))}
+                  />
+                </Label>
+                <Label title="Status" icon={<UserRound size={16} />}>
+                  <button
+                    type="button"
+                    onClick={() => setPermDraft((current) => ({ ...current, active: !current.active }))}
+                    className={classNames("field font-black", permDraft.active ? "bg-workshop-100 text-workshop-700" : "bg-steel-200 text-steel-700")}
+                  >
+                    {permDraft.active ? "Active" : "Inactive"}
+                  </button>
+                </Label>
+                <button
+                  type="button"
+                  disabled={savingPerms}
+                  onClick={() => savePermissions(user)}
+                  className="touch-target flex items-center justify-center gap-2 rounded bg-workshop-500 px-4 font-black text-white disabled:bg-steel-300"
+                >
+                  <Save size={18} />
+                  {savingPerms ? "Saving…" : "Save"}
+                </button>
+              </div>
+            )}
           </div>
         ))}
         {users.length === 0 && (
