@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Eye, EyeOff } from "lucide-react";
 import { clearStoredSession, useAuth } from "@/lib/auth";
+import { warmupSupabase } from "@/lib/supabaseBrowser";
 
 export default function LoginScreen() {
   const { signIn, error } = useAuth();
@@ -10,6 +11,12 @@ export default function LoginScreen() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
+
+  // Warm the Supabase connection as soon as the login screen appears so the
+  // first sign-in request does not pay for DNS/TLS/cold-start.
+  useEffect(() => {
+    warmupSupabase();
+  }, []);
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();

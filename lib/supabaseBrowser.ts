@@ -32,3 +32,25 @@ export function getBrowserSupabase(): SupabaseClient | null {
 
   return browserClient;
 }
+
+// Fire-and-forget pings that open the DNS/TLS connection and wake the auth
+// server + database so they are hot by the time the user submits the login
+// form. Safe to call repeatedly; only the first call does work.
+let warmed = false;
+export function warmupSupabase() {
+  if (warmed || typeof fetch === "undefined") return;
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!url || !anonKey) return;
+  warmed = true;
+  const opts: RequestInit = {
+    method: "GET",
+    headers: { apikey: anonKey },
+    cache: "no-store",
+    keepalive: true
+  };
+  // Auth server handles signInWithPassword; REST root warms PostgREST + the DB
+  // connection used by the profile lookup. Ignore all errors — this is a warmup.
+  fetch(`${url}/auth/v1/health`, opts).catch(() => {});
+  fetch(`${url}/rest/v1/`, opts).catch(() => {});
+}

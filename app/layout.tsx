@@ -36,8 +36,17 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   return (
     <html lang="en">
+      {supabaseUrl && (
+        <head>
+          {/* Warm DNS + TLS to Supabase before any JS runs so the first
+              sign-in request is as fast as possible. */}
+          <link rel="preconnect" href={supabaseUrl} crossOrigin="anonymous" />
+          <link rel="dns-prefetch" href={supabaseUrl} />
+        </head>
+      )}
       <body>
         <AuthProvider>{children}</AuthProvider>
       </body>

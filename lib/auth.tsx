@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import type { Session } from "@supabase/supabase-js";
-import { getBrowserSupabase, isSupabaseConfigured } from "./supabaseBrowser";
+import { getBrowserSupabase, isSupabaseConfigured, warmupSupabase } from "./supabaseBrowser";
 
 export type AppRole = "admin" | "supervisor" | "employee";
 
@@ -170,6 +170,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     let active = true;
+
+    // Open the connection to Supabase immediately so it is hot before the user
+    // submits the login form.
+    warmupSupabase();
 
     (async () => {
       try {
