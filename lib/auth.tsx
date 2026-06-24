@@ -1,6 +1,7 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import type { Session } from "@supabase/supabase-js";
 import { getBrowserSupabase, isSupabaseConfigured } from "./supabaseBrowser";
 
 export type AppRole = "admin" | "supervisor" | "employee";
@@ -72,17 +73,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(isSupabaseConfigured);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [error, setError] = useState("");
+  // The user id whose profile is currently loaded. Used to skip duplicate
+  // profile fetches (e.g. the SIGNED_IN auth event that fires right after we
+  // already loaded the profile during sign-in, or hourly token refreshes).
+  const loadedUserId = useRef("");
 
-  const loadProfile = useCallback(async () => {
+  // Load the signed-in user's profile. Pass the session from sign-in/getSession
+  // to skip an extra getSession round trip; omit it to look the session up.
+  const loadProfile = useCallback(async (knownSession?: Session | null) => {
     if (!supabase) return;
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      setCachedAccessToken(sessionData.session?.access_token ?? "");
-      const user = sessionData.session?.user;
+      let session = knownSession;
+      if (session === undefined) {
+        const { data: sessionData } = await supabase.auth.getSession();
+        session = sessionData.session;
+      }
+      setCachedAccessToken(session?.access_token ?? "");
+      const user = session?.user;
       if (!user) {
+        loadedUserId.current = "";
         setProfile(null);
         return;
       }
+      loadedUserId.current = user.id;
 
       const baseColumns = "id, username, full_name, role, active";
       type ProfileRow = {
@@ -166,7 +179,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (!active) return;
         window.sessionStorage.removeItem("mgp-auth-reset");
         if (data.session) {
-          await loadProfile();
+          await loadProfile(data.session);
         }
         if (active) setLoading(false);
       } catch {
@@ -184,11 +197,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const { data: subscription } = supabase.auth.onAuthStateChange(async (_event, session) => {
       setCachedAccessToken(session?.access_token ?? "");
-      if (session) {
-        await loadProfile();
-      } else {
+      if (!session) {
+        loadedUserId.current = "";
         setProfile(null);
+        return;
       }
+      // Skip refetching when we already have this user's profile — avoids a
+      // duplicate query on the SIGNED_IN event after sign-in and on token
+      // refreshes (which keep the same user).
+      if (session.user.id === loadedUserId.current) return;
+      await loadProfile(session);
     });
 
     return () => {
@@ -211,7 +229,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           throw signInError ?? new Error("Sign in failed.");
         }
         setCachedAccessToken(data.session.access_token);
-        await loadProfile();
+        await loadProfile(data.session);
       } catch (caught) {
         if ((caught as Error)?.message === "timed out") {
           setError("Slow connection — please try again.");
