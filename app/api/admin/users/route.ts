@@ -14,13 +14,14 @@ function yardForRole(role: string, locationId?: string | null): string | null {
   return value || null;
 }
 
-// Upsert a profile row, retrying without manager_yard if that column does not
-// exist yet (older databases before the migration is run).
+// Upsert a profile row, retrying without the optional manager columns if they
+// do not exist yet (older databases before the migration is run).
 async function upsertProfile(supabase: SupabaseClient, row: Record<string, unknown>): Promise<string | null> {
   let { error } = await supabase.from("profiles").upsert(row);
-  if (error && /manager_yard/i.test(error.message)) {
-    const { manager_yard, ...rest } = row;
+  if (error && /manager_yard|can_switch_yards/i.test(error.message)) {
+    const { manager_yard, can_switch_yards, ...rest } = row;
     void manager_yard;
+    void can_switch_yards;
     ({ error } = await supabase.from("profiles").upsert(rest));
   }
   return error?.message ?? null;
@@ -33,18 +34,18 @@ export async function GET(request: Request) {
   const { data: list, error: listError } = await auth.supabase.auth.admin.listUsers({ perPage: 1000 });
   if (listError) return NextResponse.json({ users: [], error: listError.message });
 
-  // manager_yard may not exist on older databases; fall back without it.
+  // The manager columns may not exist on older databases; fall back without them.
   let { data: profiles, error: profilesError } = await auth.supabase
     .from("profiles")
-    .select("id, username, full_name, role, active, manager_yard");
-  if (profilesError && /manager_yard/i.test(profilesError.message)) {
+    .select("id, username, full_name, role, active, manager_yard, can_switch_yards");
+  if (profilesError && /manager_yard|can_switch_yards/i.test(profilesError.message)) {
     ({ data: profiles } = await auth.supabase.from("profiles").select("id, username, full_name, role, active"));
   }
   const profileMap = new Map((profiles ?? []).map((profile) => [profile.id, profile]));
 
   const users = (list?.users ?? []).map((user) => {
     const profile = profileMap.get(user.id) as
-      | { username?: string; full_name?: string; role?: string; active?: boolean; manager_yard?: string | null }
+      | { username?: string; full_name?: string; role?: string; active?: boolean; manager_yard?: string | null; can_switch_yards?: boolean | null }
       | undefined;
     return {
       id: user.id,
@@ -53,7 +54,8 @@ export async function GET(request: Request) {
       fullName: profile?.full_name ?? "",
       role: profile?.role ?? "employee",
       active: profile?.active ?? true,
-      locationId: profile?.manager_yard ?? null
+      locationId: profile?.manager_yard ?? null,
+      canSwitchYards: profile?.can_switch_yards ?? false
     };
   });
 
@@ -64,7 +66,7 @@ export async function POST(request: Request) {
   const auth = await requireAdmin(request);
   if (!auth.ok) return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status });
 
-  const body = (await request.json()) as { fullName: string; login: string; password: string; role: string; locationId?: string };
+  const body = (await request.json()) as { fullName: string; login: string; password: string; role: string; locationId?: string; canSwitchYards?: boolean };
   const login = (body.login ?? "").trim();
   const password = body.password ?? "";
   if (!login || password.length < 6) {
@@ -91,7 +93,8 @@ export async function POST(request: Request) {
     full_name: body.fullName?.trim() || username,
     role,
     active: true,
-    manager_yard: yardForRole(role, body.locationId)
+    manager_yard: yardForRole(role, body.locationId),
+    can_switch_yards: role === "supervisor" ? Boolean(body.canSwitchYards) : false
   });
   if (profileError) {
     return NextResponse.json({ ok: false, error: profileError });

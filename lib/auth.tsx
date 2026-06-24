@@ -11,9 +11,12 @@ export type Profile = {
   fullName: string;
   role: AppRole;
   active: boolean;
-  // Yard a Manager is restricted to (null = sees all yards). Only meaningful for
+  // Yard a Manager is assigned to (null = no specific yard). Only meaningful for
   // the "supervisor" role.
   locationId: string | null;
+  // When true, a Manager may switch between / see all yards even if assigned to
+  // one. When false, they are locked to their assigned yard.
+  canSwitchYards: boolean;
 };
 
 type AuthState = {
@@ -92,6 +95,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         role: string;
         active: boolean;
         manager_yard?: string | null;
+        can_switch_yards?: boolean | null;
       };
       let data: ProfileRow | null;
       let profileError: { message: string } | null;
@@ -99,15 +103,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         () =>
           supabase
             .from("profiles")
-            .select(`${baseColumns}, manager_yard`)
+            .select(`${baseColumns}, manager_yard, can_switch_yards`)
             .eq("id", user.id)
             .maybeSingle<ProfileRow>(),
         12000
       ));
 
-      // The manager_yard column may not exist yet on older databases. Fall back to
-      // the base columns so logins keep working before the migration is run.
-      if (profileError && /manager_yard/i.test(profileError.message)) {
+      // The manager_yard / can_switch_yards columns may not exist yet on older
+      // databases. Fall back to the base columns so logins keep working before
+      // the migration is run.
+      if (profileError && /manager_yard|can_switch_yards/i.test(profileError.message)) {
         ({ data, error: profileError } = await withTimeoutRetry(
           () => supabase.from("profiles").select(baseColumns).eq("id", user.id).maybeSingle<ProfileRow>(),
           12000
@@ -137,7 +142,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         fullName: data.full_name,
         role: data.role as AppRole,
         active: data.active,
-        locationId: data.manager_yard ?? null
+        locationId: data.manager_yard ?? null,
+        canSwitchYards: data.can_switch_yards ?? false
       });
       setError("");
     } catch (caught) {

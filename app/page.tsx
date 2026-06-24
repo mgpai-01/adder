@@ -622,9 +622,11 @@ export default function Home() {
   const selectedEmployee = employeeList.find((employee) => employee.id === form.employeeId) ?? activeEmployees[0] ?? employeeList[0];
   const currentCalculation = calculateEntry({ ...form, id: "preview", createdAt: new Date().toISOString() }, palletTypes, settings);
 
-  // A Manager pinned to a yard only ever sees that yard's yards/entries/sheets.
-  // Admins, and Managers with no yard assigned, see everything (managerYardId null).
-  const managerYardId = configured && profile?.role === "supervisor" ? profile.locationId : null;
+  // A Manager locked to a yard only ever sees that yard's yards/entries/sheets.
+  // Admins, Managers allowed to switch yards, and Managers with no yard assigned
+  // all see everything (managerYardId null).
+  const managerYardId =
+    configured && profile?.role === "supervisor" && !profile.canSwitchYards ? profile.locationId : null;
   const scopedLocationList = useMemo(
     () => (managerYardId ? locationList.filter((location) => location.id === managerYardId) : locationList),
     [managerYardId, locationList]
@@ -1074,7 +1076,7 @@ export default function Home() {
               onFormChange={updateForm}
               onQuantityChange={updateLineQuantity}
               onSave={saveEntry}
-              managerName={configured && profile?.role === "supervisor" ? (profile.fullName || profile.username) : undefined}
+              hideYardManager={configured && profile?.role === "supervisor"}
             />
           )}
           {view === "count-sheets" && (
@@ -1240,7 +1242,7 @@ function ProductionEntry({
   onFormChange,
   onQuantityChange,
   onSave,
-  managerName
+  hideYardManager
 }: {
   darkMode: boolean;
   form: EntryForm;
@@ -1256,8 +1258,8 @@ function ProductionEntry({
   onFormChange: <T extends keyof EntryForm>(key: T, value: EntryForm[T]) => void;
   onQuantityChange: (palletTypeId: string, quantity: number) => void;
   onSave: () => void;
-  // When a Manager is signed in, their own name is shown instead of a picker.
-  managerName?: string;
+  // When a Manager is signed in, the Yard Manager picker is hidden entirely.
+  hideYardManager?: boolean;
 }) {
   const yardRepairers = employees.filter((employee) => employee.locationId === form.locationId && employee.role !== "supervisor");
   const yardManagers = employees.filter((employee) => employee.locationId === form.locationId && employee.role === "supervisor");
@@ -1294,13 +1296,8 @@ function ProductionEntry({
             ))}
           </select>
         </Label>
-        <Label title="Yard Manager" icon={<ShieldCheck size={17} />}>
-          {managerName ? (
-            <div className="field flex items-center justify-between gap-2 bg-workshop-100 text-workshop-700">
-              <span className="font-black">{managerName}</span>
-              <ShieldCheck size={18} />
-            </div>
-          ) : (
+        {!hideYardManager && (
+          <Label title="Yard Manager" icon={<ShieldCheck size={17} />}>
             <select className="field" value={form.yardManagerId ?? ""} onChange={(event) => onFormChange("yardManagerId", event.target.value)}>
               <option value="">— No manager —</option>
               {yardManagers.map((employee) => (
@@ -1309,8 +1306,8 @@ function ProductionEntry({
                 </option>
               ))}
             </select>
-          )}
-        </Label>
+          </Label>
+        )}
         <Label title="Repairer" icon={<UserRound size={17} />}>
           <select className="field" value={form.employeeId} onChange={(event) => onEmployeeChange(event.target.value)}>
             {yardRepairers.length === 0 && <option value="">No repairers in this yard</option>}
@@ -4027,6 +4024,7 @@ type UserRow = {
   role: string;
   active: boolean;
   locationId: string | null;
+  canSwitchYards: boolean;
 };
 
 const userRoleOptions: Array<{ value: string; label: string }> = [
@@ -4050,7 +4048,7 @@ function UsersAdmin() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [form, setForm] = useState({ fullName: "", login: "", password: "", role: "employee", locationId: "" });
+  const [form, setForm] = useState({ fullName: "", login: "", password: "", role: "employee", locationId: "", canSwitchYards: false });
 
   async function authedFetch(url: string, options: RequestInit = {}) {
     const token = getAccessToken();
@@ -4099,7 +4097,7 @@ function UsersAdmin() {
         return;
       }
       setMessage(`Added ${form.fullName || form.login}.`);
-      setForm({ fullName: "", login: "", password: "", role: "employee", locationId: "" });
+      setForm({ fullName: "", login: "", password: "", role: "employee", locationId: "", canSwitchYards: false });
       load();
     } catch (caught) {
       setError((caught as Error)?.name === "AbortError" ? "Request timed out — try again." : "Could not add user.");
@@ -4182,6 +4180,22 @@ function UsersAdmin() {
             ))}
           </select>
         </Label>
+        <Label title="Yard Switching" icon={<MapPin size={16} />}>
+          <button
+            type="button"
+            disabled={form.role !== "supervisor"}
+            onClick={() => setForm((current) => ({ ...current, canSwitchYards: !current.canSwitchYards }))}
+            className={classNames(
+              "field flex items-center justify-between gap-2 font-black disabled:opacity-50",
+              form.canSwitchYards ? "bg-workshop-100 text-workshop-700" : "text-steel-500"
+            )}
+          >
+            {form.canSwitchYards ? "Can see all yards" : "Locked to their yard"}
+            <span className={classNames("inline-flex h-5 w-9 items-center rounded-full px-0.5", form.canSwitchYards ? "bg-workshop-500" : "bg-steel-300")}>
+              <span className={classNames("h-4 w-4 rounded-full bg-white transition-transform", form.canSwitchYards ? "translate-x-4" : "translate-x-0")} />
+            </span>
+          </button>
+        </Label>
         <button type="submit" disabled={busy} className="touch-target flex items-center justify-center gap-2 rounded bg-workshop-500 px-4 font-black text-white disabled:bg-steel-300">
           <Check size={18} />
           {busy ? "Adding…" : "Add User"}
@@ -4219,6 +4233,16 @@ function UsersAdmin() {
               ))}
             </select>
             <div className="flex flex-wrap gap-2">
+              {user.role === "supervisor" && (
+                <button
+                  type="button"
+                  title="Whether this manager can switch between / see all yards"
+                  className={classNames("rounded px-3 py-2 text-sm font-black", user.canSwitchYards ? "bg-workshop-500 text-white" : "bg-steel-100 text-steel-900")}
+                  onClick={() => patchUser(user.id, { canSwitchYards: !user.canSwitchYards }, `${user.fullName || user.username} ${user.canSwitchYards ? "locked to their yard" : "can now see all yards"}.`)}
+                >
+                  {user.canSwitchYards ? "All yards ✓" : "One yard"}
+                </button>
+              )}
               <button type="button" className="rounded bg-steel-100 px-3 py-2 text-sm font-black text-steel-900" onClick={() => renameUser(user)}>Rename</button>
               <button type="button" className="rounded bg-steel-100 px-3 py-2 text-sm font-black text-steel-900" onClick={() => resetPassword(user)}>Reset Password</button>
               <button

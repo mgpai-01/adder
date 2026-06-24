@@ -12,6 +12,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     active?: boolean;
     password?: string;
     locationId?: string | null;
+    canSwitchYards?: boolean;
   };
 
   if (body.password) {
@@ -31,20 +32,27 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   }
   if (body.role !== undefined) {
     profilePatch.role = body.role;
-    // Only managers keep a yard assignment; clear it for other roles.
-    if (body.role !== "supervisor") profilePatch.manager_yard = null;
+    // Only managers keep a yard assignment / switch permission; clear for others.
+    if (body.role !== "supervisor") {
+      profilePatch.manager_yard = null;
+      profilePatch.can_switch_yards = false;
+    }
   }
   if (body.active !== undefined) profilePatch.active = body.active;
   if (body.locationId !== undefined && profilePatch.manager_yard === undefined) {
     profilePatch.manager_yard = (body.locationId ?? "") || null;
   }
+  if (body.canSwitchYards !== undefined && profilePatch.can_switch_yards === undefined) {
+    profilePatch.can_switch_yards = Boolean(body.canSwitchYards);
+  }
 
   if (Object.keys(profilePatch).length > 0) {
     let { error } = await auth.supabase.from("profiles").update(profilePatch).eq("id", id);
-    // Retry without manager_yard if that column does not exist yet.
-    if (error && /manager_yard/i.test(error.message)) {
-      const { manager_yard, ...rest } = profilePatch;
+    // Retry without the optional manager columns if they do not exist yet.
+    if (error && /manager_yard|can_switch_yards/i.test(error.message)) {
+      const { manager_yard, can_switch_yards, ...rest } = profilePatch;
       void manager_yard;
+      void can_switch_yards;
       if (Object.keys(rest).length > 0) {
         ({ error } = await auth.supabase.from("profiles").update(rest).eq("id", id));
       } else {
