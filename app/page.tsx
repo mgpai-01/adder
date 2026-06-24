@@ -1303,6 +1303,11 @@ function PhaseTracker({
 
   const active = phases[selected];
 
+  // Only show repairers who have actually entered or bypassed a phase.
+  const checkedInCrew = crew.filter((member) =>
+    member.phases?.some((phase) => isPhaseDone(phase) || phase.bypassed)
+  );
+
   return (
     <div className="grid gap-3 rounded border border-steel-100 bg-white p-3 text-steel-900 md:grid-cols-[1fr_300px]">
       <div className="grid gap-3">
@@ -1389,13 +1394,13 @@ function PhaseTracker({
         </div>
       </div>
 
-      {/* Side panel: the whole crew and which phases each has checked in. */}
+      {/* Side panel: only repairers who have actually checked in a phase. */}
       <div className="grid content-start gap-2 rounded-lg bg-steel-900 p-3 text-white">
         <p className="text-xs font-black uppercase tracking-wide text-steel-100">Crew · Phase check-ins</p>
-        {crew.length === 0 && <p className="px-1 py-2 text-sm font-bold text-steel-300">No repairers in this yard.</p>}
-        {crew.map((member) => {
-          const memberPhases = member.phases;
-          const hasActivity = Boolean(memberPhases?.some((phase) => isPhaseDone(phase) || phase.bypassed));
+        {checkedInCrew.length === 0 && (
+          <p className="px-1 py-2 text-sm font-bold text-steel-300">No check-ins yet.</p>
+        )}
+        {checkedInCrew.map((member) => {
           const isActive = member.id === activeId;
           return (
             <button
@@ -1408,28 +1413,24 @@ function PhaseTracker({
               )}
             >
               <span className="min-w-0 truncate text-sm font-black">{member.name}</span>
-              {hasActivity ? (
-                <span className="flex shrink-0 items-center gap-1">
-                  {memberPhases!.map((phase, index) => (
-                    <span
-                      key={index}
-                      title={`Phase ${index + 1}`}
-                      className="flex items-center gap-0.5 rounded bg-white/10 px-1.5 py-0.5 text-[11px] font-black tabular-nums"
-                    >
-                      {index + 1}
-                      {phase.bypassed ? (
-                        <X size={12} className="text-amber-300" />
-                      ) : isPhaseDone(phase) ? (
-                        <CheckCircle2 size={12} className="text-safety-400" />
-                      ) : (
-                        <span className="h-2.5 w-2.5 rounded-full border border-white/40" />
-                      )}
-                    </span>
-                  ))}
-                </span>
-              ) : (
-                <span className="shrink-0 text-xs font-bold text-steel-400">No check-in</span>
-              )}
+              <span className="flex shrink-0 items-center gap-1">
+                {member.phases!.map((phase, index) => (
+                  <span
+                    key={index}
+                    title={`Phase ${index + 1}`}
+                    className="flex items-center gap-0.5 rounded bg-white/10 px-1.5 py-0.5 text-[11px] font-black tabular-nums"
+                  >
+                    {index + 1}
+                    {phase.bypassed ? (
+                      <X size={12} className="text-amber-300" />
+                    ) : isPhaseDone(phase) ? (
+                      <CheckCircle2 size={12} className="text-safety-400" />
+                    ) : (
+                      <span className="h-2.5 w-2.5 rounded-full border border-white/40" />
+                    )}
+                  </span>
+                ))}
+              </span>
             </button>
           );
         })}
