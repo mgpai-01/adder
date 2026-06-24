@@ -19,7 +19,13 @@ export function getBrowserSupabase(): SupabaseClient | null {
       auth: {
         persistSession: true,
         autoRefreshToken: true,
-        detectSessionInUrl: false
+        detectSessionInUrl: false,
+        // By default supabase-js serializes auth calls across tabs with
+        // navigator.locks. If one tab holds (or wedges) that lock, other tabs'
+        // sign-in/getSession calls hang until they time out — which showed up as
+        // "Slow connection" with two app tabs open. Use a pass-through lock so
+        // each tab runs independently and can never block another.
+        lock: async (_name, _acquireTimeout, fn) => fn()
       }
     });
   }
