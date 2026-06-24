@@ -1074,6 +1074,7 @@ export default function Home() {
               onFormChange={updateForm}
               onQuantityChange={updateLineQuantity}
               onSave={saveEntry}
+              managerName={configured && profile?.role === "supervisor" ? (profile.fullName || profile.username) : undefined}
             />
           )}
           {view === "count-sheets" && (
@@ -1238,7 +1239,8 @@ function ProductionEntry({
   onYardChange,
   onFormChange,
   onQuantityChange,
-  onSave
+  onSave,
+  managerName
 }: {
   darkMode: boolean;
   form: EntryForm;
@@ -1254,6 +1256,8 @@ function ProductionEntry({
   onFormChange: <T extends keyof EntryForm>(key: T, value: EntryForm[T]) => void;
   onQuantityChange: (palletTypeId: string, quantity: number) => void;
   onSave: () => void;
+  // When a Manager is signed in, their own name is shown instead of a picker.
+  managerName?: string;
 }) {
   const yardRepairers = employees.filter((employee) => employee.locationId === form.locationId && employee.role !== "supervisor");
   const yardManagers = employees.filter((employee) => employee.locationId === form.locationId && employee.role === "supervisor");
@@ -1291,14 +1295,21 @@ function ProductionEntry({
           </select>
         </Label>
         <Label title="Yard Manager" icon={<ShieldCheck size={17} />}>
-          <select className="field" value={form.yardManagerId ?? ""} onChange={(event) => onFormChange("yardManagerId", event.target.value)}>
-            <option value="">— No manager —</option>
-            {yardManagers.map((employee) => (
-              <option key={employee.id} value={employee.id}>
-                {employee.name}
-              </option>
-            ))}
-          </select>
+          {managerName ? (
+            <div className="field flex items-center justify-between gap-2 bg-workshop-100 text-workshop-700">
+              <span className="font-black">{managerName}</span>
+              <ShieldCheck size={18} />
+            </div>
+          ) : (
+            <select className="field" value={form.yardManagerId ?? ""} onChange={(event) => onFormChange("yardManagerId", event.target.value)}>
+              <option value="">— No manager —</option>
+              {yardManagers.map((employee) => (
+                <option key={employee.id} value={employee.id}>
+                  {employee.name}
+                </option>
+              ))}
+            </select>
+          )}
         </Label>
         <Label title="Repairer" icon={<UserRound size={17} />}>
           <select className="field" value={form.employeeId} onChange={(event) => onEmployeeChange(event.target.value)}>
