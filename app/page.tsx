@@ -129,6 +129,19 @@ function lastPhaseDone(phases: EntryPhase[]): number {
   return last;
 }
 
+// How many phases a repairer has completed in order, starting from phase 1.
+// Stops at the first gap, so someone is only counted for a phase once they have
+// finished every phase before it (they must start at phase one).
+function phaseStreak(phases: EntryPhase[] | null | undefined): number {
+  if (!phases) return 0;
+  let streak = 0;
+  for (const phase of phases) {
+    if (isPhaseDone(phase)) streak += 1;
+    else break;
+  }
+  return streak;
+}
+
 // Toggle the Shift / Clock In / Clock Out / Hours / Break-Lunch row on the Daily
 // Production Grid. Hidden for now per request, but kept here so it can be turned
 // back on by flipping this to true (the form still tracks sensible defaults).
@@ -1303,11 +1316,6 @@ function PhaseTracker({
 
   const active = phases[selected];
 
-  // Only show repairers who have actually entered or bypassed a phase.
-  const checkedInCrew = crew.filter((member) =>
-    member.phases?.some((phase) => isPhaseDone(phase) || phase.bypassed)
-  );
-
   return (
     <div className="grid gap-3 rounded border border-steel-100 bg-white p-3 text-steel-900 md:grid-cols-[1fr_300px]">
       <div className="grid gap-3">
@@ -1394,44 +1402,46 @@ function PhaseTracker({
         </div>
       </div>
 
-      {/* Side panel: only repairers who have actually checked in a phase. */}
-      <div className="grid content-start gap-2 rounded-lg bg-steel-900 p-3 text-white">
-        <p className="text-xs font-black uppercase tracking-wide text-steel-100">Crew · Phase check-ins</p>
-        {checkedInCrew.length === 0 && (
-          <p className="px-1 py-2 text-sm font-bold text-steel-300">No check-ins yet.</p>
-        )}
-        {checkedInCrew.map((member) => {
-          const isActive = member.id === activeId;
+      {/* Side panel: who has reached each phase. A repairer appears under a
+          phase only once they have completed every phase before it. */}
+      <div className="grid content-start gap-3 rounded-lg bg-steel-900 p-3 text-white">
+        <p className="text-xs font-black uppercase tracking-wide text-steel-100">Phase check-ins</p>
+        {phases.map((_phase, phaseIndex) => {
+          const reached = crew.filter((member) => phaseStreak(member.phases) > phaseIndex);
           return (
-            <button
-              key={member.id}
-              type="button"
-              onClick={() => onSelectRepairer(member.id)}
-              className={classNames(
-                "flex items-center justify-between gap-2 rounded px-3 py-2 text-left transition-colors",
-                isActive ? "bg-white/15 ring-1 ring-workshop-400" : "bg-white/5 hover:bg-white/10"
+            <div key={phaseIndex} className="grid gap-1">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-black">Phase {phaseIndex + 1}</span>
+                {reached.length > 0 && (
+                  <span className="text-xs font-bold text-steel-400">{reached.length}</span>
+                )}
+              </div>
+              {reached.length === 0 ? (
+                <p className="rounded bg-white/5 px-3 py-1.5 text-xs font-bold text-steel-400">No check-ins</p>
+              ) : (
+                reached.map((member) => {
+                  const phase = member.phases?.[phaseIndex];
+                  return (
+                    <button
+                      key={member.id}
+                      type="button"
+                      onClick={() => onSelectRepairer(member.id)}
+                      className={classNames(
+                        "flex items-center justify-between gap-2 rounded px-3 py-1.5 text-left transition-colors",
+                        member.id === activeId ? "bg-white/15 ring-1 ring-workshop-400" : "bg-white/5 hover:bg-white/10"
+                      )}
+                    >
+                      <span className="min-w-0 truncate text-sm font-black">{member.name}</span>
+                      {phase?.bypassed ? (
+                        <X size={14} className="shrink-0 text-amber-300" />
+                      ) : (
+                        <CheckCircle2 size={14} className="shrink-0 text-safety-400" />
+                      )}
+                    </button>
+                  );
+                })
               )}
-            >
-              <span className="min-w-0 truncate text-sm font-black">{member.name}</span>
-              <span className="flex shrink-0 items-center gap-1">
-                {member.phases!.map((phase, index) => (
-                  <span
-                    key={index}
-                    title={`Phase ${index + 1}`}
-                    className="flex items-center gap-0.5 rounded bg-white/10 px-1.5 py-0.5 text-[11px] font-black tabular-nums"
-                  >
-                    {index + 1}
-                    {phase.bypassed ? (
-                      <X size={12} className="text-amber-300" />
-                    ) : isPhaseDone(phase) ? (
-                      <CheckCircle2 size={12} className="text-safety-400" />
-                    ) : (
-                      <span className="h-2.5 w-2.5 rounded-full border border-white/40" />
-                    )}
-                  </span>
-                ))}
-              </span>
-            </button>
+            </div>
           );
         })}
       </div>
