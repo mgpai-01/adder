@@ -14,20 +14,29 @@ export const locations: Location[] = [
 ];
 
 export const employees: Employee[] = [
-  { id: "lupita-reyes", name: "Lupita Reyes", locationId: "fontana", shift: "AM", active: true, role: "supervisor" },
-  { id: "alberto", name: "Alberto", locationId: "fontana", shift: "AM", active: true, role: "employee" },
-  { id: "rodolfo", name: "Rodolfo", locationId: "fontana", shift: "AM", active: true, role: "employee" },
-  { id: "marco", name: "Marco", locationId: "citrus", shift: "AM", active: true, role: "supervisor" },
-  { id: "jovany", name: "Jovany", locationId: "citrus", shift: "AM", active: true, role: "employee" },
-  { id: "jose-resendiz", name: "Jose Resendiz", locationId: "citrus", shift: "AM", active: true, role: "employee" },
-  { id: "axel", name: "Axel", locationId: "mesa", shift: "AM", active: true, role: "supervisor" },
-  { id: "javier", name: "Javier", locationId: "mesa", shift: "AM", active: true, role: "employee" },
-  { id: "daniel", name: "Daniel", locationId: "mesa", shift: "AM", active: true, role: "employee" },
-  { id: "juan-b", name: "Juan B.", locationId: "fontana", shift: "AM", active: true, role: "employee" },
-  { id: "rodrigo", name: "Rodrigo", locationId: "citrus", shift: "AM", active: true, role: "employee" },
-  { id: "eleazar", name: "Eleazar", locationId: "mesa", shift: "AM", active: true, role: "employee" },
-  { id: "edwin", name: "Edwin", locationId: "fontana", shift: "AM", active: true, role: "employee" },
-  { id: "jose-ramirez", name: "Jose Ramirez", locationId: "mesa", shift: "AM", active: true, role: "employee" }
+  // Fontana (Fontana Main)
+  { id: "adrian-baeza", name: "Adrian Baeza", locationId: "fontana", shift: "AM", active: true, role: "supervisor" },
+  { id: "juan-mendez", name: "Juan Mendez", locationId: "fontana", shift: "AM", active: true, role: "supervisor" },
+  { id: "maria-reyes", name: "Maria Reyes", locationId: "fontana", shift: "AM", active: true, role: "employee" },
+  { id: "jovany-gomez", name: "Jovany Gomez", locationId: "fontana", shift: "AM", active: true, role: "employee" },
+  { id: "axel-vallego", name: "Axel Vallego", locationId: "fontana", shift: "AM", active: true, role: "employee" },
+  // Citrus (Riverside Citrus)
+  { id: "ernesto-fernandez", name: "Ernesto Fernandez", locationId: "citrus", shift: "AM", active: true, role: "supervisor" },
+  { id: "javier-vela", name: "Javier Vela", locationId: "citrus", shift: "AM", active: true, role: "employee" },
+  { id: "daniel-t", name: "Daniel T.", locationId: "citrus", shift: "AM", active: true, role: "employee" },
+  { id: "juan-barron", name: "Juan Barron", locationId: "citrus", shift: "AM", active: true, role: "employee" },
+  { id: "rodrigo-lopez", name: "Rodrigo Lopez", locationId: "citrus", shift: "AM", active: true, role: "employee" },
+  { id: "eleazar-monroy", name: "Eleazar Monroy", locationId: "citrus", shift: "AM", active: true, role: "employee" },
+  { id: "edwin-bonilla", name: "Edwin Bonilla", locationId: "citrus", shift: "AM", active: true, role: "employee" },
+  { id: "jose-ramirez", name: "Jose Ramirez", locationId: "citrus", shift: "AM", active: true, role: "employee" },
+  // Mesa (Mesa Fontana)
+  { id: "luis-soriano", name: "Luis Soriano", locationId: "mesa", shift: "AM", active: true, role: "supervisor" },
+  { id: "rodolfo", name: "Rodolfo", locationId: "mesa", shift: "AM", active: true, role: "employee" },
+  { id: "marco-martinez", name: "Marco Martinez", locationId: "mesa", shift: "AM", active: true, role: "employee" },
+  { id: "alberto-arroyo-gomez", name: "Alberto Arroyo Gomez", locationId: "mesa", shift: "AM", active: true, role: "employee" },
+  { id: "jose-resendiz", name: "Jose Resendiz", locationId: "mesa", shift: "AM", active: true, role: "employee" },
+  { id: "joel-manzo", name: "Joel Manzo", locationId: "mesa", shift: "AM", active: true, role: "employee" },
+  { id: "alejandro-salazar", name: "Alejandro Salazar", locationId: "mesa", shift: "AM", active: true, role: "employee" }
 ];
 
 export const palletCategories: PalletCategory[] = [

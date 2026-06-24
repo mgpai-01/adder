@@ -394,6 +394,45 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rosterLoaded]);
 
+  // One-time rebuild of the full roster to match the official per-yard list
+  // (from the managers' PDF). Matches existing people by name to keep their
+  // photos/ids, moves them to the right yard/role, adds anyone missing, and
+  // deactivates anyone no longer on the list. Saved to the cloud for everyone.
+  useEffect(() => {
+    if (!rosterLoaded) return;
+    if (window.localStorage.getItem("mgp-roster-pdf-v1")) return;
+    window.localStorage.setItem("mgp-roster-pdf-v1", "1");
+
+    const norm = (name: string) => name.toLowerCase().replace(/\./g, "").replace(/\s+/g, " ").trim();
+    const targetByName = new Map(defaultEmployees.map((employee) => [norm(employee.name), employee]));
+    const matched = new Set<string>();
+
+    const reconciled: Employee[] = employeeList.map((employee) => {
+      const target = targetByName.get(norm(employee.name));
+      if (target) {
+        matched.add(norm(employee.name));
+        return { ...employee, locationId: target.locationId, role: target.role, active: true };
+      }
+      // Not on the official list anymore — hide from the dropdowns but keep the
+      // record (and any history) by deactivating rather than deleting.
+      return { ...employee, active: false };
+    });
+
+    for (const target of defaultEmployees) {
+      if (matched.has(norm(target.name))) continue;
+      reconciled.push({ ...target, id: `mgp-${norm(target.name).replace(/\s+/g, "-")}` });
+    }
+
+    const changed = reconciled.filter((employee, index) => {
+      const before = employeeList[index];
+      return !before || before.id !== employee.id || before.locationId !== employee.locationId || before.role !== employee.role || before.active !== employee.active;
+    });
+
+    setEmployeeList(reconciled);
+    changed.forEach(saveEmployeeToCloud);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rosterLoaded]);
+
   useEffect(() => {
     const savedEntries = window.localStorage.getItem(entryStorageKey) ?? window.localStorage.getItem("mgp-daily-entries");
     let localEntries: DailyEntry[] = [];
