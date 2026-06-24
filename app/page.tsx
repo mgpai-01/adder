@@ -1105,6 +1105,7 @@ export default function Home() {
               saveStatus={saveStatus}
               selectedEmployee={selectedEmployee}
               employees={activeEmployees}
+              entries={scopedEntries}
               locations={scopedLocationList}
               shifts={shiftList}
               palletTypes={activePalletTypes}
@@ -1271,11 +1272,19 @@ export default function Home() {
 function PhaseTracker({
   repairerName,
   phases,
-  onChange
+  onChange,
+  crew,
+  activeId,
+  onSelectRepairer
 }: {
   repairerName: string;
   phases: EntryPhase[];
   onChange: (next: EntryPhase[]) => void;
+  // Every repairer in the yard and their phase check-ins for the day. `phases`
+  // is null when that person has not been entered yet (shows "No check-in").
+  crew: { id: string; name: string; phases: EntryPhase[] | null }[];
+  activeId: string;
+  onSelectRepairer: (id: string) => void;
 }) {
   const lastDone = lastPhaseDone(phases);
   const [selected, setSelected] = useState(0);
@@ -1380,24 +1389,50 @@ function PhaseTracker({
         </div>
       </div>
 
-      {/* Side panel: each phase's amount under the repairer's name. */}
+      {/* Side panel: the whole crew and which phases each has checked in. */}
       <div className="grid content-start gap-2 rounded-lg bg-steel-900 p-3 text-white">
-        <p className="text-xs font-black uppercase tracking-wide text-steel-100">{repairerName} · Phases</p>
-        {phases.map((phase, index) => (
-          <div key={index} className={classNames("flex items-center justify-between rounded px-3 py-2", selected === index ? "bg-white/15" : "bg-white/5")}>
-            <span className="flex items-center gap-2 text-sm font-black">
-              {phase.bypassed ? <X size={14} /> : isPhaseDone(phase) ? <CheckCircle2 size={14} /> : <span className="h-3 w-3 rounded-full border border-white/40" />}
-              Phase {index + 1}
-            </span>
-            <span className="text-xl font-black tabular-nums">{phase.bypassed ? "—" : wholeNumber(phase.amount)}</span>
-          </div>
-        ))}
-        <div className="mt-1 flex items-center justify-between border-t border-white/10 px-3 pt-2">
-          <span className="text-sm font-black">Total pallets</span>
-          <span className="text-xl font-black tabular-nums text-safety-400">
-            {wholeNumber(phases.reduce((sum, phase) => sum + (phase.bypassed ? 0 : phase.amount), 0))}
-          </span>
-        </div>
+        <p className="text-xs font-black uppercase tracking-wide text-steel-100">Crew · Phase check-ins</p>
+        {crew.length === 0 && <p className="px-1 py-2 text-sm font-bold text-steel-300">No repairers in this yard.</p>}
+        {crew.map((member) => {
+          const memberPhases = member.phases;
+          const hasActivity = Boolean(memberPhases?.some((phase) => isPhaseDone(phase) || phase.bypassed));
+          const isActive = member.id === activeId;
+          return (
+            <button
+              key={member.id}
+              type="button"
+              onClick={() => onSelectRepairer(member.id)}
+              className={classNames(
+                "flex items-center justify-between gap-2 rounded px-3 py-2 text-left transition-colors",
+                isActive ? "bg-white/15 ring-1 ring-workshop-400" : "bg-white/5 hover:bg-white/10"
+              )}
+            >
+              <span className="min-w-0 truncate text-sm font-black">{member.name}</span>
+              {hasActivity ? (
+                <span className="flex shrink-0 items-center gap-1">
+                  {memberPhases!.map((phase, index) => (
+                    <span
+                      key={index}
+                      title={`Phase ${index + 1}`}
+                      className="flex items-center gap-0.5 rounded bg-white/10 px-1.5 py-0.5 text-[11px] font-black tabular-nums"
+                    >
+                      {index + 1}
+                      {phase.bypassed ? (
+                        <X size={12} className="text-amber-300" />
+                      ) : isPhaseDone(phase) ? (
+                        <CheckCircle2 size={12} className="text-safety-400" />
+                      ) : (
+                        <span className="h-2.5 w-2.5 rounded-full border border-white/40" />
+                      )}
+                    </span>
+                  ))}
+                </span>
+              ) : (
+                <span className="shrink-0 text-xs font-bold text-steel-400">No check-in</span>
+              )}
+            </button>
+          );
+        })}
       </div>
     </div>
   );
@@ -1409,6 +1444,7 @@ function ProductionEntry({
   saveStatus,
   selectedEmployee,
   employees,
+  entries,
   locations,
   shifts,
   palletTypes,
@@ -1425,6 +1461,7 @@ function ProductionEntry({
   saveStatus: string;
   selectedEmployee?: Employee;
   employees: Employee[];
+  entries: DailyEntry[];
   locations: Location[];
   shifts: Shift[];
   palletTypes: PalletType[];
@@ -1440,6 +1477,21 @@ function ProductionEntry({
   const yardRepairers = employees.filter((employee) => employee.locationId === form.locationId && employee.role !== "supervisor");
   const yardManagers = employees.filter((employee) => employee.locationId === form.locationId && employee.role === "supervisor");
   const displayedPallets = palletsForYard(palletTypes, form.locationId);
+
+  // Each repairer's phase check-ins for the selected day + yard. Saved entries
+  // are the source of truth; the repairer being edited reflects the live form.
+  const savedPhasesByEmployee = new Map<string, EntryPhase[]>();
+  entries
+    .filter((entry) => entry.date === form.date && entry.locationId === form.locationId)
+    .forEach((entry) => {
+      if (entry.phases?.length) savedPhasesByEmployee.set(entry.employeeId, normalizePhases(entry.phases));
+    });
+  const activePhases = normalizePhases(form.phases);
+  const crew = yardRepairers.map((employee) => ({
+    id: employee.id,
+    name: employee.name,
+    phases: employee.id === form.employeeId ? activePhases : savedPhasesByEmployee.get(employee.id) ?? null
+  }));
 
   return (
     <div className="grid gap-4">
@@ -1498,8 +1550,11 @@ function ProductionEntry({
 
       <PhaseTracker
         repairerName={selectedEmployee?.name ?? "Repairer"}
-        phases={normalizePhases(form.phases)}
+        phases={activePhases}
         onChange={(next) => onFormChange("phases", next)}
+        crew={crew}
+        activeId={form.employeeId}
+        onSelectRepairer={onEmployeeChange}
       />
 
       {SHOW_TIME_FIELDS && (
