@@ -42,6 +42,14 @@ export type ProductionLine = {
   quantity: number;
 };
 
+// A repairer's day is tracked in three phases. Each phase records a total
+// amount, an optional photo, and can be bypassed when it does not apply.
+export type EntryPhase = {
+  amount: number;
+  bypassed: boolean;
+  photoDataUrl?: string;
+};
+
 export type DailyEntry = {
   id: string;
   date: string;
@@ -50,6 +58,7 @@ export type DailyEntry = {
   locationId: string;
   shift: Shift;
   lines: ProductionLine[];
+  phases?: EntryPhase[];
   clockIn?: string;
   clockOut?: string;
   manualHours: number;

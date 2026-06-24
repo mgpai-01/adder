@@ -54,7 +54,7 @@ import { getAccessToken, roleLabels, roleViews, useAuth } from "@/lib/auth";
 import type { ChangeLogEntry } from "@/lib/cloudChangeLog";
 import AuthGate from "@/components/AuthGate";
 import DropZone from "@/components/DropZone";
-import type { BreakProfile, CountSheet, CountSheetStatus, DailyEntry, Employee, Location, PalletCategory, PalletType, PayrollSettings, ProductionLine, Role, Shift } from "@/lib/types";
+import type { BreakProfile, CountSheet, CountSheetStatus, DailyEntry, Employee, EntryPhase, Location, PalletCategory, PalletType, PayrollSettings, ProductionLine, Role, Shift } from "@/lib/types";
 
 const entryStorageKey = "mgp-daily-entries-v2";
 const countSheetStorageKey = "mgp-count-sheets-v1";
@@ -98,6 +98,35 @@ const emptyPallet: Omit<PalletType, "id"> = {
 
 function createLines(palletTypes: PalletType[]): ProductionLine[] {
   return palletTypes.map((pallet) => ({ palletTypeId: pallet.id, quantity: 0 }));
+}
+
+const PHASE_COUNT = 3;
+
+function createPhases(): EntryPhase[] {
+  return Array.from({ length: PHASE_COUNT }, () => ({ amount: 0, bypassed: false }));
+}
+
+// Always return exactly PHASE_COUNT phases, filling any that are missing.
+function normalizePhases(phases?: EntryPhase[]): EntryPhase[] {
+  const base = createPhases();
+  (phases ?? []).slice(0, PHASE_COUNT).forEach((phase, index) => {
+    base[index] = { amount: Number(phase?.amount) || 0, bypassed: Boolean(phase?.bypassed), photoDataUrl: phase?.photoDataUrl };
+  });
+  return base;
+}
+
+// True once a phase has a number entered, a photo, or has been bypassed.
+function isPhaseDone(phase: EntryPhase): boolean {
+  return phase.bypassed || phase.amount > 0 || Boolean(phase.photoDataUrl);
+}
+
+// The highest phase number that has been completed (0 = none yet).
+function lastPhaseDone(phases: EntryPhase[]): number {
+  let last = 0;
+  phases.forEach((phase, index) => {
+    if (isPhaseDone(phase)) last = index + 1;
+  });
+  return last;
 }
 
 // Toggle the Shift / Clock In / Clock Out / Hours / Break-Lunch row on the Daily
@@ -210,6 +239,7 @@ function createBlankForm(palletTypes: PalletType[], employeeList: Employee[]): E
     locationId,
     shift: firstRepairer?.shift ?? "AM",
     lines: createLines(palletTypes.filter((pallet) => pallet.active)),
+    phases: createPhases(),
     clockIn: "7:00 AM",
     clockOut: "3:30 PM",
     manualHours: 8.5,
@@ -237,6 +267,7 @@ function migrateEntry(raw: DailyEntry | (Omit<DailyEntry, "lines"> & { lines?: P
   return {
     ...legacy,
     lines: Array.from(mergedLines, ([palletTypeId, quantity]) => ({ palletTypeId, quantity })),
+    phases: normalizePhases(legacy.phases),
     ...(migratedLegacyId ? { updatedAt: new Date().toISOString(), updatedBy: "Legacy pallet type migration" } : {})
   } as DailyEntry;
 }
@@ -1234,6 +1265,144 @@ export default function Home() {
   );
 }
 
+// Phase 1/2/3 tracker for the selected repairer: a task bar of the three
+// phases, a side panel of their amounts, and inputs (amount, photo, bypass) for
+// the phase you pick. Shown to admins and managers on the entry page.
+function PhaseTracker({
+  repairerName,
+  phases,
+  onChange
+}: {
+  repairerName: string;
+  phases: EntryPhase[];
+  onChange: (next: EntryPhase[]) => void;
+}) {
+  const lastDone = lastPhaseDone(phases);
+  const [selected, setSelected] = useState(0);
+
+  function updatePhase(index: number, patch: Partial<EntryPhase>) {
+    onChange(phases.map((phase, current) => (current === index ? { ...phase, ...patch } : phase)));
+  }
+
+  async function handlePhasePhoto(index: number, file?: File) {
+    if (!file) return;
+    const compressed = await compressImage(file);
+    const reader = new FileReader();
+    reader.onload = () => updatePhase(index, { photoDataUrl: String(reader.result) });
+    reader.readAsDataURL(compressed);
+  }
+
+  const active = phases[selected];
+
+  return (
+    <div className="grid gap-3 rounded border border-steel-100 bg-white p-3 text-steel-900 md:grid-cols-[1fr_300px]">
+      <div className="grid gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <p className="text-lg font-black">{repairerName}</p>
+            <p className="text-xs font-bold text-steel-500">
+              {lastDone > 0 ? `Last entered: Phase ${lastDone}` : "No phases entered yet"}
+            </p>
+          </div>
+          {/* Dropdown under the name to pick which phase to input. */}
+          <select
+            className="field max-w-[180px]"
+            value={selected}
+            onChange={(event) => setSelected(Number(event.target.value))}
+          >
+            {phases.map((_phase, index) => (
+              <option key={index} value={index}>
+                Phase {index + 1}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Task bar: tap a phase to open it. */}
+        <div className="flex items-center gap-2">
+          {phases.map((phase, index) => {
+            const done = isPhaseDone(phase);
+            return (
+              <button
+                key={index}
+                type="button"
+                onClick={() => setSelected(index)}
+                className={classNames(
+                  "flex flex-1 items-center justify-center gap-1.5 rounded-lg border px-2 py-2 text-sm font-black transition-colors",
+                  selected === index ? "border-workshop-500 ring-2 ring-workshop-500/30" : "border-steel-100",
+                  phase.bypassed ? "bg-steel-100 text-steel-500" : done ? "bg-workshop-100 text-workshop-700" : "bg-white text-steel-500"
+                )}
+              >
+                {phase.bypassed ? <X size={15} /> : done ? <CheckCircle2 size={15} /> : <span className="h-3.5 w-3.5 rounded-full border border-steel-300" />}
+                Phase {index + 1}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Inputs for the selected phase. */}
+        <div className="grid gap-3 rounded-lg bg-steel-50 p-3 sm:grid-cols-[1fr_auto]">
+          <Label title={`Phase ${selected + 1} amount`} icon={<FileSpreadsheet size={16} />}>
+            <input
+              className="field text-center font-black"
+              inputMode="numeric"
+              type="number"
+              min="0"
+              placeholder="0"
+              disabled={active.bypassed}
+              value={active.amount === 0 ? "" : active.amount}
+              onChange={(event) => updatePhase(selected, { amount: Math.max(0, Number(event.target.value) || 0) })}
+            />
+          </Label>
+          <div className="flex items-end">
+            <button
+              type="button"
+              onClick={() => updatePhase(selected, { bypassed: !active.bypassed })}
+              className={classNames("field font-black", active.bypassed ? "bg-amber-100 text-amber-700" : "text-steel-500")}
+            >
+              {active.bypassed ? "Bypassed ✓" : "Bypass"}
+            </button>
+          </div>
+          <div className="sm:col-span-2">
+            <p className="mb-1 flex items-center gap-1.5 text-sm font-black"><Camera size={15} /> Phase {selected + 1} photo</p>
+            {active.photoDataUrl ? (
+              <div className="flex items-center gap-3">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={active.photoDataUrl} alt={`Phase ${selected + 1}`} className="h-16 w-16 rounded object-cover" />
+                <button type="button" className="rounded bg-steel-100 px-3 py-2 text-sm font-black text-steel-900" onClick={() => updatePhase(selected, { photoDataUrl: undefined })}>
+                  Remove
+                </button>
+              </div>
+            ) : (
+              <DropZone onFiles={(dropped) => handlePhasePhoto(selected, dropped[0])} label="Drag & drop or tap to add a phase photo" multiple={false} />
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Side panel: each phase's amount under the repairer's name. */}
+      <div className="grid content-start gap-2 rounded-lg bg-steel-900 p-3 text-white">
+        <p className="text-xs font-black uppercase tracking-wide text-steel-100">{repairerName} · Phases</p>
+        {phases.map((phase, index) => (
+          <div key={index} className={classNames("flex items-center justify-between rounded px-3 py-2", selected === index ? "bg-white/15" : "bg-white/5")}>
+            <span className="flex items-center gap-2 text-sm font-black">
+              {phase.bypassed ? <X size={14} /> : isPhaseDone(phase) ? <CheckCircle2 size={14} /> : <span className="h-3 w-3 rounded-full border border-white/40" />}
+              Phase {index + 1}
+            </span>
+            <span className="text-xl font-black tabular-nums">{phase.bypassed ? "—" : wholeNumber(phase.amount)}</span>
+          </div>
+        ))}
+        <div className="mt-1 flex items-center justify-between border-t border-white/10 px-3 pt-2">
+          <span className="text-sm font-black">Total</span>
+          <span className="text-xl font-black tabular-nums text-safety-400">
+            {wholeNumber(phases.reduce((sum, phase) => sum + (phase.bypassed ? 0 : phase.amount), 0))}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ProductionEntry({
   darkMode,
   form,
@@ -1326,6 +1495,12 @@ function ProductionEntry({
           </select>
         </Label>
       </div>
+
+      <PhaseTracker
+        repairerName={selectedEmployee?.name ?? "Repairer"}
+        phases={normalizePhases(form.phases)}
+        onChange={(next) => onFormChange("phases", next)}
+      />
 
       {SHOW_TIME_FIELDS && (
       <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5">
@@ -2119,6 +2294,7 @@ function entryToForm(entry: DailyEntry, palletTypes: PalletType[]): EntryForm {
       palletTypeId,
       quantity: entryLines.get(palletTypeId) ?? 0
     })),
+    phases: normalizePhases(entry.phases),
     clockIn: entry.clockIn,
     clockOut: entry.clockOut,
     manualHours: entry.manualHours,
