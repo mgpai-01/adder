@@ -4151,6 +4151,27 @@ function UsersAdmin() {
     load();
   }
 
+  // Update a manager's yards instantly in the UI, then save in the background.
+  // No refetch on success, so the checkboxes respond on the first click.
+  function setUserYards(user: UserRow, nextYards: string[]) {
+    setError("");
+    setUsers((current) => current.map((item) => (item.id === user.id ? { ...item, allowedYards: nextYards } : item)));
+    authedFetch(`/api/admin/users/${user.id}`, { method: "PATCH", body: JSON.stringify({ allowedYards: nextYards }) })
+      .then((response) => response.json())
+      .then((data) => {
+        if (!data.ok) {
+          setError(data.error ?? "Update failed.");
+          load(); // revert to the server's truth
+        } else {
+          setMessage(`Yards updated for ${user.fullName || user.username}.`);
+        }
+      })
+      .catch(() => {
+        setError("Update failed.");
+        load();
+      });
+  }
+
   function renameUser(user: UserRow) {
     const name = window.prompt("New name:", user.fullName);
     if (name === null) return;
@@ -4241,7 +4262,7 @@ function UsersAdmin() {
             <YardAccessPicker
               value={user.allowedYards}
               disabled={user.role !== "supervisor"}
-              onChange={(next) => patchUser(user.id, { allowedYards: next }, `Yards updated for ${user.fullName || user.username}.`)}
+              onChange={(next) => setUserYards(user, next)}
             />
             <div className="flex flex-wrap gap-2">
               <button type="button" className="rounded bg-steel-100 px-3 py-2 text-sm font-black text-steel-900" onClick={() => renameUser(user)}>Rename</button>
