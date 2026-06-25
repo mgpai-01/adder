@@ -80,8 +80,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Load the signed-in user's profile. Pass the session from sign-in/getSession
   // to skip an extra getSession round trip; omit it to look the session up.
-  const loadProfile = useCallback(async (knownSession?: Session | null) => {
-    if (!supabase) return;
+  const loadProfile = useCallback(async (knownSession?: Session | null): Promise<Profile | null> => {
+    if (!supabase) return null;
     try {
       let session = knownSession;
       if (session === undefined) {
@@ -93,7 +93,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!user) {
         loadedUserId.current = "";
         setProfile(null);
-        return;
+        return null;
       }
       loadedUserId.current = user.id;
 
@@ -130,21 +130,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (profileError) {
         setError(`Could not read your access: ${profileError.message}`);
         setProfile(null);
-        return;
+        return null;
       }
       if (!data) {
         setError("No profile row was found for this login. Ask an admin.");
         setProfile(null);
-        return;
+        return null;
       }
       if (!data.active) {
         setError("This account is inactive. Ask an admin to reactivate it.");
         setProfile(null);
         await supabase.auth.signOut();
-        return;
+        return null;
       }
 
-      setProfile({
+      const loaded: Profile = {
         id: data.id,
         username: data.username ?? "",
         fullName: data.full_name,
@@ -154,12 +154,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           .split(",")
           .map((value) => value.trim())
           .filter(Boolean)
-      });
+      };
+      setProfile(loaded);
       setError("");
+      return loaded;
     } catch (caught) {
       const message = (caught as Error)?.message ?? "unknown";
       setError(message === "timed out" ? "Slow connection — please try again." : `Login error: ${message}`);
       setProfile(null);
+      return null;
     }
   }, [supabase]);
 
@@ -183,7 +186,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (!active) return;
         window.sessionStorage.removeItem("mgp-auth-reset");
         if (data.session) {
-          await loadProfile(data.session);
+          const restored = await loadProfile(data.session);
+          // Admins must sign in fresh every page load — a restored session
+          // (refresh/revisit) is never allowed to stay signed in, so an
+          // unattended admin screen can't be reopened.
+          if (restored?.role === "admin") {
+            loadedUserId.current = "";
+            clearStoredSession();
+            await supabase.auth.signOut();
+            setProfile(null);
+            if (active) setLoading(false);
+            return;
+          }
         }
         if (active) setLoading(false);
       } catch {
@@ -249,6 +263,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await supabase?.auth.signOut();
     setProfile(null);
   }, [supabase]);
+
+  // Admins are signed out after 5 minutes of inactivity so an unattended admin
+  // screen can't be browsed by someone else. Any interaction resets the timer.
+  useEffect(() => {
+    if (profile?.role !== "admin") return;
+    let timer: ReturnType<typeof setTimeout>;
+    const reset = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        void signOut();
+      }, 5 * 60 * 1000);
+    };
+    const events = ["pointerdown", "click", "keydown", "touchstart"];
+    events.forEach((event) => window.addEventListener(event, reset, { passive: true }));
+    reset();
+    return () => {
+      clearTimeout(timer);
+      events.forEach((event) => window.removeEventListener(event, reset));
+    };
+  }, [profile?.role, signOut]);
 
   return (
     <AuthContext.Provider
