@@ -24,11 +24,19 @@ export default function LoginScreen() {
     warmupSupabase();
   }, []);
 
-  async function handleSubmit(event: React.FormEvent) {
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    // Read the live field values straight from the form. Browser password
+    // autofill often sets the input values without firing React's onChange,
+    // which would leave `identifier`/`password` state empty and make a quick
+    // Enter-to-submit sign in with blank credentials. Fall back to state for
+    // anything the form doesn't provide.
+    const data = new FormData(event.currentTarget);
+    const id = ((data.get("identifier") as string) || identifier).trim();
+    const pw = (data.get("password") as string) || password;
     setBusy(true);
     try {
-      await signIn(identifier, password);
+      await signIn(id, pw);
     } catch {
       // error message is surfaced through the auth context
     } finally {
@@ -87,6 +95,7 @@ export default function LoginScreen() {
             Username or email
             <input
               className="field"
+              name="identifier"
               value={identifier}
               onChange={(event) => setIdentifier(event.target.value)}
               autoCapitalize="none"
@@ -101,6 +110,7 @@ export default function LoginScreen() {
             <div className="relative">
               <input
                 className="field pr-12"
+                name="password"
                 type={showPassword ? "text" : "password"}
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
