@@ -6,35 +6,40 @@ import { getSupabaseServerClient } from "@/lib/supabase";
 export async function GET(request: Request) {
   const supabase = getSupabaseServerClient();
   if (!supabase) {
-    return NextResponse.json({ profile: null, configured: false });
+    return NextResponse.json({ profile: null, reason: "server-not-configured" });
   }
 
   const token = (request.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "").trim();
   if (!token) {
-    return NextResponse.json({ profile: null });
+    return NextResponse.json({ profile: null, reason: "no-token" });
   }
 
   const { data: userData, error: userError } = await supabase.auth.getUser(token);
   if (userError || !userData.user) {
-    return NextResponse.json({ profile: null });
+    return NextResponse.json({ profile: null, reason: `auth: ${userError?.message ?? "invalid token"}` });
   }
 
   // manager_yard may not exist on older databases; fall back without it.
+  // maybeSingle so a genuinely-missing row reports as a missing row rather than
+  // a query error, which keeps the diagnostic reason accurate.
   let { data: profile, error: profileError } = await supabase
     .from("profiles")
     .select("id, username, full_name, role, active, manager_yard")
     .eq("id", userData.user.id)
-    .single();
+    .maybeSingle();
   if (profileError && /manager_yard/i.test(profileError.message)) {
     ({ data: profile, error: profileError } = await supabase
       .from("profiles")
       .select("id, username, full_name, role, active")
       .eq("id", userData.user.id)
-      .single());
+      .maybeSingle());
   }
 
-  if (profileError || !profile) {
-    return NextResponse.json({ profile: null });
+  if (profileError) {
+    return NextResponse.json({ profile: null, reason: `db: ${profileError.message}` });
+  }
+  if (!profile) {
+    return NextResponse.json({ profile: null, reason: `no-row-for-user ${userData.user.id}` });
   }
 
   return NextResponse.json({

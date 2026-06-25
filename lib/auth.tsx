@@ -108,7 +108,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // token and reads with the service-role key, so it is not subject to that
       // race or to row-level-security rules.
       type MeResponse = {
-        configured?: boolean;
+        reason?: string;
         profile?: {
           id: string;
           username: string | null;
@@ -134,7 +134,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const body = (await response.json()) as MeResponse;
       const data = body.profile ?? null;
       if (!data) {
-        setError("No profile row was found for this login. Ask an admin.");
+        setError(
+          body.reason
+            ? `No profile found (${body.reason}). Ask an admin.`
+            : "No profile row was found for this login. Ask an admin."
+        );
         setProfile(null);
         return null;
       }
