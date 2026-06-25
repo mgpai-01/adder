@@ -64,6 +64,18 @@ const locationStorageKey = "mgp-locations-v2";
 const shiftStorageKey = "mgp-shifts-v2";
 const payrollSettingsStorageKey = "mgp-payroll-settings-v1";
 const today = new Date().toISOString().slice(0, 10);
+
+// Photos shipped with the app keyed by employee id. Used to fill in a face for
+// rosters loaded from the cloud/local storage that predate the photos, without
+// overwriting a photo an admin has set themselves.
+const seedPhotoById = new Map(
+  defaultEmployees.filter((employee) => employee.photoDataUrl).map((employee) => [employee.id, employee.photoDataUrl!])
+);
+function withSeedPhotos(list: Employee[]): Employee[] {
+  return list.map((employee) =>
+    employee.photoDataUrl ? employee : { ...employee, photoDataUrl: seedPhotoById.get(employee.id) }
+  );
+}
 const legacyPalletTypeAliases: Record<string, string> = {
   "no-1": "stacker-grade-a-1",
   "no-2": "stacker-grade-b-2"
@@ -533,7 +545,7 @@ export default function Home() {
       savedEmployees ? (JSON.parse(savedEmployees) as Employee[]) : defaultEmployees,
       effectiveLocations
     );
-    setEmployeeList(localRoster);
+    setEmployeeList(withSeedPhotos(localRoster));
 
     // Pull the shared roster from the cloud; if the cloud is empty, seed it from
     // this device so existing repairers move up.
@@ -542,7 +554,7 @@ export default function Home() {
       .then(async (result: { employees: Employee[]; storage?: string }) => {
         if (result.storage !== "cloud") return;
         if (result.employees.length > 0) {
-          setEmployeeList(ensureYardManagers(result.employees, effectiveLocations));
+          setEmployeeList(withSeedPhotos(ensureYardManagers(result.employees, effectiveLocations)));
         } else {
           await Promise.all(
             localRoster.map((employee) =>
@@ -1295,7 +1307,7 @@ function PhaseTracker({
   onChange: (next: EntryPhase[]) => void;
   // Every repairer in the yard and their phase check-ins for the day. `phases`
   // is null when that person has not been entered yet (shows "No check-in").
-  crew: { id: string; name: string; phases: EntryPhase[] | null }[];
+  crew: { id: string; name: string; photoDataUrl?: string; phases: EntryPhase[] | null }[];
   activeId: string;
   onSelectRepairer: (id: string) => void;
 }) {
@@ -1431,7 +1443,17 @@ function PhaseTracker({
                         member.id === activeId ? "bg-white/15 ring-1 ring-workshop-400" : "bg-white/5 hover:bg-white/10"
                       )}
                     >
-                      <span className="min-w-0 truncate text-sm font-black">{member.name}</span>
+                      <span className="flex min-w-0 items-center gap-2">
+                        {member.photoDataUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={member.photoDataUrl} alt="" className="h-6 w-6 shrink-0 rounded object-cover" />
+                        ) : (
+                          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-white/20 text-[10px] font-black">
+                            {member.name.split(" ").map((part) => part[0]).join("").slice(0, 2).toUpperCase()}
+                          </span>
+                        )}
+                        <span className="min-w-0 truncate text-sm font-black">{member.name}</span>
+                      </span>
                       {phase?.bypassed ? (
                         <X size={14} className="shrink-0 text-amber-300" />
                       ) : (
@@ -1501,6 +1523,7 @@ function ProductionEntry({
   const crew = yardRepairers.map((employee) => ({
     id: employee.id,
     name: employee.name,
+    photoDataUrl: employee.photoDataUrl,
     phases: employee.id === form.employeeId ? activePhases : savedPhasesByEmployee.get(employee.id) ?? null
   }));
 

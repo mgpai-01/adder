@@ -15,28 +15,28 @@ export const locations: Location[] = [
 
 export const employees: Employee[] = [
   // Fontana (Fontana Main)
-  { id: "adrian-baeza", name: "Adrian Baeza", locationId: "fontana", shift: "AM", active: true, role: "supervisor" },
-  { id: "juan-mendez", name: "Juan Mendez", locationId: "fontana", shift: "AM", active: true, role: "supervisor" },
-  { id: "maria-reyes", name: "Maria Reyes", locationId: "fontana", shift: "AM", active: true, role: "employee" },
-  { id: "jovany-gomez", name: "Jovany Gomez", locationId: "fontana", shift: "AM", active: true, role: "employee" },
-  { id: "axel-vallego", name: "Axel Vallego", locationId: "fontana", shift: "AM", active: true, role: "employee" },
+  { id: "adrian-baeza", name: "Adrian Baeza", locationId: "fontana", shift: "AM", active: true, role: "supervisor", photoDataUrl: "/avatars/adrian-baeza.jpg" },
+  { id: "juan-mendez", name: "Juan Mendez", locationId: "fontana", shift: "AM", active: true, role: "supervisor", photoDataUrl: "/avatars/juan-mendez.jpg" },
+  { id: "maria-reyes", name: "Maria Reyes", locationId: "fontana", shift: "AM", active: true, role: "employee", photoDataUrl: "/avatars/maria-reyes.jpg" },
+  { id: "jovany-gomez", name: "Jovany Gomez", locationId: "fontana", shift: "AM", active: true, role: "employee", photoDataUrl: "/avatars/jovany-gomez.jpg" },
+  { id: "axel-vallego", name: "Axel Vallego", locationId: "fontana", shift: "AM", active: true, role: "employee", photoDataUrl: "/avatars/axel-vallego.jpg" },
   // Citrus (Riverside Citrus)
-  { id: "ernesto-fernandez", name: "Ernesto Fernandez", locationId: "citrus", shift: "AM", active: true, role: "supervisor" },
-  { id: "javier-vela", name: "Javier Vela", locationId: "citrus", shift: "AM", active: true, role: "employee" },
-  { id: "daniel-t", name: "Daniel T.", locationId: "citrus", shift: "AM", active: true, role: "employee" },
-  { id: "juan-barron", name: "Juan Barron", locationId: "citrus", shift: "AM", active: true, role: "employee" },
-  { id: "rodrigo-lopez", name: "Rodrigo Lopez", locationId: "citrus", shift: "AM", active: true, role: "employee" },
-  { id: "eleazar-monroy", name: "Eleazar Monroy", locationId: "citrus", shift: "AM", active: true, role: "employee" },
-  { id: "edwin-bonilla", name: "Edwin Bonilla", locationId: "citrus", shift: "AM", active: true, role: "employee" },
-  { id: "jose-ramirez", name: "Jose Ramirez", locationId: "citrus", shift: "AM", active: true, role: "employee" },
+  { id: "ernesto-fernandez", name: "Ernesto Fernandez", locationId: "citrus", shift: "AM", active: true, role: "supervisor", photoDataUrl: "/avatars/ernesto-fernandez.jpg" },
+  { id: "javier-vela", name: "Javier Vela", locationId: "citrus", shift: "AM", active: true, role: "employee", photoDataUrl: "/avatars/javier-vela.jpg" },
+  { id: "daniel-t", name: "Daniel T.", locationId: "citrus", shift: "AM", active: true, role: "employee", photoDataUrl: "/avatars/daniel-t.jpg" },
+  { id: "juan-barron", name: "Juan Barron", locationId: "citrus", shift: "AM", active: true, role: "employee", photoDataUrl: "/avatars/juan-barron.jpg" },
+  { id: "rodrigo-lopez", name: "Rodrigo Lopez", locationId: "citrus", shift: "AM", active: true, role: "employee", photoDataUrl: "/avatars/rodrigo-lopez.jpg" },
+  { id: "eleazar-monroy", name: "Eleazar Monroy", locationId: "citrus", shift: "AM", active: true, role: "employee", photoDataUrl: "/avatars/eleazar-monroy.jpg" },
+  { id: "edwin-bonilla", name: "Edwin Bonilla", locationId: "citrus", shift: "AM", active: true, role: "employee", photoDataUrl: "/avatars/edwin-bonilla.jpg" },
+  { id: "jose-ramirez", name: "Jose Ramirez", locationId: "citrus", shift: "AM", active: true, role: "employee", photoDataUrl: "/avatars/jose-ramirez.jpg" },
   // Mesa (Mesa Fontana)
-  { id: "luis-soriano", name: "Luis Soriano", locationId: "mesa", shift: "AM", active: true, role: "supervisor" },
+  { id: "luis-soriano", name: "Luis Soriano", locationId: "mesa", shift: "AM", active: true, role: "supervisor", photoDataUrl: "/avatars/luis-soriano.jpg" },
   { id: "rodolfo", name: "Rodolfo", locationId: "mesa", shift: "AM", active: true, role: "employee" },
   { id: "marco-martinez", name: "Marco Martinez", locationId: "mesa", shift: "AM", active: true, role: "employee" },
-  { id: "alberto-arroyo-gomez", name: "Alberto Arroyo Gomez", locationId: "mesa", shift: "AM", active: true, role: "employee" },
-  { id: "jose-resendiz", name: "Jose Resendiz", locationId: "mesa", shift: "AM", active: true, role: "employee" },
-  { id: "joel-manzo", name: "Joel Manzo", locationId: "mesa", shift: "AM", active: true, role: "employee" },
-  { id: "alejandro-salazar", name: "Alejandro Salazar", locationId: "mesa", shift: "AM", active: true, role: "employee" }
+  { id: "alberto-arroyo-gomez", name: "Alberto Arroyo Gomez", locationId: "mesa", shift: "AM", active: true, role: "employee", photoDataUrl: "/avatars/alberto-arroyo-gomez.jpg" },
+  { id: "jose-resendiz", name: "Jose Resendiz", locationId: "mesa", shift: "AM", active: true, role: "employee", photoDataUrl: "/avatars/jose-resendiz.jpg" },
+  { id: "joel-manzo", name: "Joel Manzo", locationId: "mesa", shift: "AM", active: true, role: "employee", photoDataUrl: "/avatars/joel-manzo.jpg" },
+  { id: "alejandro-salazar", name: "Alejandro Salazar", locationId: "mesa", shift: "AM", active: true, role: "employee", photoDataUrl: "/avatars/alejandro-salazar.jpg" }
 ];
 
 export const palletCategories: PalletCategory[] = [
