@@ -100,41 +100,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       loadedUserId.current = user.id;
 
-      const baseColumns = "id, username, full_name, role, active";
-      type ProfileRow = {
-        id: string;
-        username: string | null;
-        full_name: string;
-        role: string;
-        active: boolean;
-        manager_yard?: string | null;
+      // Read the profile through the server (service-role) endpoint rather than
+      // querying the profiles table directly from the browser. The direct read
+      // depends on the browser request carrying the freshly-issued auth token;
+      // when it races ahead of the token it lands as the anon role and fails
+      // with "permission denied for table profiles". The server validates the
+      // token and reads with the service-role key, so it is not subject to that
+      // race or to row-level-security rules.
+      type MeResponse = {
+        configured?: boolean;
+        profile?: {
+          id: string;
+          username: string | null;
+          fullName: string;
+          role: string;
+          active: boolean;
+          managerYard?: string | null;
+        } | null;
       };
-      let data: ProfileRow | null;
-      let profileError: { message: string } | null;
-      ({ data, error: profileError } = await withTimeoutRetry(
+      const response = await withTimeoutRetry(
         () =>
-          supabase
-            .from("profiles")
-            .select(`${baseColumns}, manager_yard`)
-            .eq("id", user.id)
-            .maybeSingle<ProfileRow>(),
+          fetch("/api/auth/me", {
+            headers: { Authorization: `Bearer ${session?.access_token ?? ""}` },
+            cache: "no-store"
+          }),
         12000
-      ));
-
-      // The manager_yard column may not exist yet on older databases. Fall back
-      // to the base columns so logins keep working before the migration is run.
-      if (profileError && /manager_yard/i.test(profileError.message)) {
-        ({ data, error: profileError } = await withTimeoutRetry(
-          () => supabase.from("profiles").select(baseColumns).eq("id", user.id).maybeSingle<ProfileRow>(),
-          12000
-        ));
-      }
-
-      if (profileError) {
-        setError(`Could not read your access: ${profileError.message}`);
+      );
+      if (!response.ok) {
+        setError(`Could not read your access (HTTP ${response.status}). Please try again.`);
         setProfile(null);
         return null;
       }
+      const body = (await response.json()) as MeResponse;
+      const data = body.profile ?? null;
       if (!data) {
         setError("No profile row was found for this login. Ask an admin.");
         setProfile(null);
@@ -150,10 +148,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const loaded: Profile = {
         id: data.id,
         username: data.username ?? "",
-        fullName: data.full_name,
+        fullName: data.fullName,
         role: data.role as AppRole,
         active: data.active,
-        allowedYards: (data.manager_yard ?? "")
+        allowedYards: (data.managerYard ?? "")
           .split(",")
           .map((value) => value.trim())
           .filter(Boolean)

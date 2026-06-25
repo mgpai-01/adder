@@ -19,11 +19,19 @@ export async function GET(request: Request) {
     return NextResponse.json({ profile: null });
   }
 
-  const { data: profile, error: profileError } = await supabase
+  // manager_yard may not exist on older databases; fall back without it.
+  let { data: profile, error: profileError } = await supabase
     .from("profiles")
-    .select("id, username, full_name, role, active")
+    .select("id, username, full_name, role, active, manager_yard")
     .eq("id", userData.user.id)
     .single();
+  if (profileError && /manager_yard/i.test(profileError.message)) {
+    ({ data: profile, error: profileError } = await supabase
+      .from("profiles")
+      .select("id, username, full_name, role, active")
+      .eq("id", userData.user.id)
+      .single());
+  }
 
   if (profileError || !profile) {
     return NextResponse.json({ profile: null });
@@ -35,7 +43,8 @@ export async function GET(request: Request) {
       username: profile.username ?? "",
       fullName: profile.full_name,
       role: profile.role,
-      active: profile.active
+      active: profile.active,
+      managerYard: (profile as { manager_yard?: string | null }).manager_yard ?? ""
     }
   });
 }
