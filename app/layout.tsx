@@ -3,6 +3,7 @@ import { Analytics } from "@vercel/analytics/next";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import "./globals.css";
 import { AuthProvider } from "@/lib/auth";
+import VersionGuard from "@/components/VersionGuard";
 
 export const metadata: Metadata = {
   applicationName: "MGP Repair",
@@ -39,6 +40,9 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  // Commit this deployment was built from, baked into the bundle so the client
+  // can tell when a newer deploy has gone live (see VersionGuard).
+  const buildId = process.env.VERCEL_GIT_COMMIT_SHA || "dev";
   return (
     <html lang="en">
       {supabaseUrl && (
@@ -51,6 +55,7 @@ export default function RootLayout({
       )}
       <body>
         <AuthProvider>{children}</AuthProvider>
+        <VersionGuard buildId={buildId} />
         <Analytics />
         <SpeedInsights />
       </body>
