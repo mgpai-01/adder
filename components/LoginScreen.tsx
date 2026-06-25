@@ -161,9 +161,6 @@ export default function LoginScreen() {
             >
               {resetBusy ? "Sending…" : "Send reset link"}
             </button>
-            <p className="text-xs font-semibold text-steel-500">
-              Staff who sign in with a username (no email) should ask an admin to reset their password.
-            </p>
           </form>
         )}
       </div>
