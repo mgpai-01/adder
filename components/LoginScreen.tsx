@@ -51,14 +51,28 @@ export default function LoginScreen() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center px-4 py-10">
-      <div className="w-full max-w-sm rounded-2xl border border-steel-100 bg-white p-7 text-steel-900 shadow-panel">
-        <div className="mb-6 flex flex-col items-center text-center">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo.svg" alt="Manufacturing Green Products" className="h-16 w-16 rounded-full" />
-          <p className="mt-3 text-xs font-bold uppercase tracking-wide text-workshop-700">MGP</p>
-          <h1 className="text-2xl font-black">Pallet Repair Tracking</h1>
-          <p className="mt-1 text-sm text-steel-500">Sign in to continue</p>
+    <main className="relative flex min-h-screen items-center justify-center overflow-hidden px-4 py-10">
+      {/* Soft animated aurora backdrop */}
+      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        <span className="absolute -left-40 -top-32 h-[40rem] w-[40rem] rounded-full bg-[#2a6b40]/25 blur-[130px] [animation:aurora-a_20s_ease-in-out_infinite]" />
+        <span className="absolute -bottom-40 -right-40 h-[38rem] w-[38rem] rounded-full bg-[#92d6a1]/20 blur-[130px] [animation:aurora-b_24s_ease-in-out_infinite]" />
+        <span className="absolute bottom-0 left-1/3 h-[28rem] w-[28rem] rounded-full bg-[#3f8a55]/15 blur-[120px] [animation:aurora-c_28s_ease-in-out_infinite]" />
+      </div>
+
+      <div className="relative w-full max-w-sm rounded-3xl border border-white/60 bg-white/80 p-8 text-steel-900 shadow-panel ring-1 ring-steel-900/5 backdrop-blur-xl [animation:board-rise_0.5s_ease-out]">
+        <div className="mb-7 flex flex-col items-center text-center">
+          <div className="relative">
+            <span className="absolute inset-0 -z-10 rounded-full bg-gradient-to-br from-workshop-500 to-safety-400 blur-md opacity-60" />
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/logo.svg"
+              alt="Manufacturing Green Products"
+              className="h-16 w-16 rounded-full ring-2 ring-white/80 shadow-md"
+            />
+          </div>
+          <p className="mt-4 text-[0.7rem] font-bold uppercase tracking-[0.2em] text-workshop-700">MGP</p>
+          <h1 className="mt-1 text-2xl font-black tracking-tight">Pallet Repair Tracking</h1>
+          <p className="mt-1.5 text-sm text-steel-500">Sign in to continue</p>
         </div>
 
         <form onSubmit={handleSubmit} className="grid gap-3">
@@ -117,7 +131,7 @@ export default function LoginScreen() {
           <button
             type="submit"
             disabled={busy}
-            className="touch-target mt-1 flex items-center justify-center rounded bg-workshop-500 px-4 py-3 text-lg font-black text-white disabled:bg-steel-300"
+            className="touch-target mt-2 flex items-center justify-center rounded-xl bg-gradient-to-r from-workshop-500 to-workshop-700 px-4 py-3 text-lg font-black text-white shadow-md shadow-workshop-700/20 transition-all hover:shadow-lg hover:shadow-workshop-700/30 active:scale-[0.99] disabled:from-steel-300 disabled:to-steel-300 disabled:shadow-none"
           >
             {busy ? "Signing in…" : "Sign In"}
           </button>
@@ -130,14 +144,14 @@ export default function LoginScreen() {
               setResetMessage("");
               setResetError("");
             }}
-            className="mt-1 text-sm font-bold text-workshop-700 underline"
+            className="mt-1 justify-self-center text-sm font-bold text-workshop-700 underline-offset-4 transition-colors hover:text-workshop-500 hover:underline"
           >
             Forgot password?
           </button>
         </form>
 
         {resetOpen && (
-          <form onSubmit={handleReset} className="mt-3 grid gap-2 rounded border border-steel-100 bg-steel-50 p-3">
+          <form onSubmit={handleReset} className="mt-4 grid gap-2 rounded-2xl border border-steel-100 bg-steel-50/80 p-4 [animation:board-rise_0.3s_ease-out]">
             <p className="text-sm font-bold text-steel-700">
               Enter the email on your account and we&apos;ll send a reset link.
             </p>
@@ -157,7 +171,7 @@ export default function LoginScreen() {
             <button
               type="submit"
               disabled={resetBusy}
-              className="touch-target flex items-center justify-center rounded bg-steel-900 px-4 py-2.5 font-black text-white disabled:bg-steel-300"
+              className="touch-target flex items-center justify-center rounded-xl bg-steel-900 px-4 py-2.5 font-black text-white shadow-sm transition-all hover:bg-steel-800 active:scale-[0.99] disabled:bg-steel-300 disabled:shadow-none"
             >
               {resetBusy ? "Sending…" : "Send reset link"}
             </button>
