@@ -6,11 +6,17 @@ import { clearStoredSession, useAuth } from "@/lib/auth";
 import { warmupSupabase } from "@/lib/supabaseBrowser";
 
 export default function LoginScreen() {
-  const { signIn, error } = useAuth();
+  const { signIn, error, requestPasswordReset } = useAuth();
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
+  // Forgot-password panel state.
+  const [resetOpen, setResetOpen] = useState(false);
+  const [resetEmail, setResetEmail] = useState("");
+  const [resetBusy, setResetBusy] = useState(false);
+  const [resetMessage, setResetMessage] = useState("");
+  const [resetError, setResetError] = useState("");
 
   // Warm the Supabase connection as soon as the login screen appears so the
   // first sign-in request does not pay for DNS/TLS/cold-start.
@@ -28,6 +34,20 @@ export default function LoginScreen() {
     } finally {
       setBusy(false);
     }
+  }
+
+  async function handleReset(event: React.FormEvent) {
+    event.preventDefault();
+    setResetBusy(true);
+    setResetMessage("");
+    setResetError("");
+    const problem = await requestPasswordReset(resetEmail);
+    if (problem) {
+      setResetError(problem);
+    } else {
+      setResetMessage("If that email is on file, a reset link is on its way. Check your inbox.");
+    }
+    setResetBusy(false);
   }
 
   return (
@@ -101,7 +121,51 @@ export default function LoginScreen() {
           >
             {busy ? "Signing in…" : "Sign In"}
           </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setResetOpen((open) => !open);
+              setResetEmail(identifier.includes("@") ? identifier : "");
+              setResetMessage("");
+              setResetError("");
+            }}
+            className="mt-1 text-sm font-bold text-workshop-700 underline"
+          >
+            Forgot password?
+          </button>
         </form>
+
+        {resetOpen && (
+          <form onSubmit={handleReset} className="mt-3 grid gap-2 rounded border border-steel-100 bg-steel-50 p-3">
+            <p className="text-sm font-bold text-steel-700">
+              Enter the email on your account and we&apos;ll send a reset link.
+            </p>
+            <input
+              className="field"
+              type="email"
+              value={resetEmail}
+              onChange={(event) => setResetEmail(event.target.value)}
+              autoCapitalize="none"
+              autoCorrect="off"
+              autoComplete="email"
+              placeholder="you@email.com"
+              required
+            />
+            {resetError && <p className="text-sm font-bold text-red-700">{resetError}</p>}
+            {resetMessage && <p className="text-sm font-bold text-workshop-700">{resetMessage}</p>}
+            <button
+              type="submit"
+              disabled={resetBusy}
+              className="touch-target flex items-center justify-center rounded bg-steel-900 px-4 py-2.5 font-black text-white disabled:bg-steel-300"
+            >
+              {resetBusy ? "Sending…" : "Send reset link"}
+            </button>
+            <p className="text-xs font-semibold text-steel-500">
+              Staff who sign in with a username (no email) should ask an admin to reset their password.
+            </p>
+          </form>
+        )}
       </div>
     </main>
   );

@@ -33,6 +33,31 @@ export function getBrowserSupabase(): SupabaseClient | null {
   return browserClient;
 }
 
+// A separate client for the password-reset page. It must read the recovery
+// token Supabase puts in the URL (detectSessionInUrl), which the main client
+// deliberately ignores. Uses its own storage key so it can't disturb a normal
+// login session.
+let resetClient: SupabaseClient | null = null;
+export function getResetSupabase(): SupabaseClient | null {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!url || !anonKey) return null;
+
+  if (!resetClient) {
+    resetClient = createClient(url, anonKey, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+        detectSessionInUrl: true,
+        storageKey: "sb-mgp-reset",
+        lock: async (_name, _acquireTimeout, fn) => fn()
+      }
+    });
+  }
+
+  return resetClient;
+}
+
 // Fire-and-forget pings that open the DNS/TLS connection and wake the auth
 // server + database so they are hot by the time the user submits the login
 // form. Safe to call repeatedly; only the first call does work.

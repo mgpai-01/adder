@@ -24,6 +24,9 @@ type AuthState = {
   error: string;
   signIn: (identifier: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
+  // Emails a password-reset link to the address on the account. Returns an
+  // error message string, or "" on success.
+  requestPasswordReset: (email: string) => Promise<string>;
 };
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -264,6 +267,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setProfile(null);
   }, [supabase]);
 
+  const requestPasswordReset = useCallback(
+    async (email: string): Promise<string> => {
+      if (!supabase) return "Sign-in is not configured.";
+      const value = email.trim();
+      // Resets need a real inbox; usernames map to an internal, undeliverable
+      // address, so require an actual email here.
+      if (!value.includes("@")) {
+        return "Enter the email address on your account.";
+      }
+      const redirectTo =
+        typeof window !== "undefined" ? `${window.location.origin}/reset-password` : undefined;
+      const { error: resetError } = await supabase.auth.resetPasswordForEmail(value, { redirectTo });
+      // Supabase returns success even when the email is unknown (so addresses
+      // can't be probed); only surface real transport errors.
+      if (resetError) return resetError.message;
+      return "";
+    },
+    [supabase]
+  );
+
   // Admins are signed out after 5 minutes of inactivity so an unattended admin
   // screen can't be browsed by someone else. Any interaction resets the timer.
   useEffect(() => {
@@ -286,7 +309,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   return (
     <AuthContext.Provider
-      value={{ configured: isSupabaseConfigured, loading, profile, error, signIn, signOut }}
+      value={{ configured: isSupabaseConfigured, loading, profile, error, signIn, signOut, requestPasswordReset }}
     >
       {children}
     </AuthContext.Provider>
@@ -302,7 +325,8 @@ export function useAuth(): AuthState {
       profile: null,
       error: "",
       signIn: async () => undefined,
-      signOut: async () => undefined
+      signOut: async () => undefined,
+      requestPasswordReset: async () => "Sign-in is not configured."
     };
   }
   return context;
