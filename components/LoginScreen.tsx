@@ -52,28 +52,35 @@ export default function LoginScreen() {
 
   return (
     <main className="relative flex min-h-screen items-center justify-center overflow-hidden px-4 py-10">
+      {/* Brand-tinted scrim over the page's warehouse photo so the card pops */}
+      <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-steel-900/85 via-workshop-700/70 to-steel-900/90" />
+
       {/* Soft animated aurora backdrop */}
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
-        <span className="absolute -left-40 -top-32 h-[40rem] w-[40rem] rounded-full bg-[#2a6b40]/25 blur-[130px] [animation:aurora-a_20s_ease-in-out_infinite]" />
-        <span className="absolute -bottom-40 -right-40 h-[38rem] w-[38rem] rounded-full bg-[#92d6a1]/20 blur-[130px] [animation:aurora-b_24s_ease-in-out_infinite]" />
-        <span className="absolute bottom-0 left-1/3 h-[28rem] w-[28rem] rounded-full bg-[#3f8a55]/15 blur-[120px] [animation:aurora-c_28s_ease-in-out_infinite]" />
+        <span className="absolute -left-40 -top-32 h-[42rem] w-[42rem] rounded-full bg-safety-400/40 blur-[120px] [animation:aurora-a_20s_ease-in-out_infinite]" />
+        <span className="absolute -bottom-44 -right-40 h-[40rem] w-[40rem] rounded-full bg-workshop-500/45 blur-[120px] [animation:aurora-b_24s_ease-in-out_infinite]" />
+        <span className="absolute bottom-0 left-1/3 h-[30rem] w-[30rem] rounded-full bg-safety-500/30 blur-[110px] [animation:aurora-c_28s_ease-in-out_infinite]" />
       </div>
 
-      <div className="relative w-full max-w-sm rounded-3xl border border-white/60 bg-white/80 p-8 text-steel-900 shadow-panel ring-1 ring-steel-900/5 backdrop-blur-xl [animation:board-rise_0.5s_ease-out]">
-        <div className="mb-7 flex flex-col items-center text-center">
-          <div className="relative">
-            <span className="absolute inset-0 -z-10 rounded-full bg-gradient-to-br from-workshop-500 to-safety-400 blur-md opacity-60" />
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src="/logo.svg"
-              alt="Manufacturing Green Products"
-              className="h-16 w-16 rounded-full ring-2 ring-white/80 shadow-md"
-            />
+      <div className="relative w-full max-w-sm overflow-hidden rounded-[1.75rem] border border-white/30 bg-white/75 text-steel-900 shadow-[0_24px_70px_-20px_rgba(11,82,42,0.55)] ring-1 ring-white/40 backdrop-blur-2xl [animation:board-rise_0.5s_ease-out]">
+        {/* Gradient accent strip along the top edge */}
+        <div className="h-1.5 w-full bg-gradient-to-r from-safety-400 via-workshop-500 to-workshop-700" />
+
+        <div className="p-8">
+          <div className="mb-7 flex flex-col items-center text-center">
+            <div className="relative">
+              <span className="absolute -inset-2 -z-10 rounded-full bg-gradient-to-br from-safety-400 to-workshop-700 opacity-70 blur-lg [animation:mgp-pulse-ring_3.5s_ease-out_infinite]" />
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/logo.svg"
+                alt="Manufacturing Green Products"
+                className="h-[4.5rem] w-[4.5rem] rounded-full ring-2 ring-white shadow-lg"
+              />
+            </div>
+            <p className="mt-4 text-[0.7rem] font-bold uppercase tracking-[0.22em] text-workshop-700">MGP</p>
+            <h1 className="mt-1 text-[1.65rem] font-black leading-tight tracking-tight">Pallet Repair Tracking</h1>
+            <p className="mt-1.5 text-sm text-steel-500">Sign in to continue</p>
           </div>
-          <p className="mt-4 text-[0.7rem] font-bold uppercase tracking-[0.2em] text-workshop-700">MGP</p>
-          <h1 className="mt-1 text-2xl font-black tracking-tight">Pallet Repair Tracking</h1>
-          <p className="mt-1.5 text-sm text-steel-500">Sign in to continue</p>
-        </div>
 
         <form onSubmit={handleSubmit} className="grid gap-3">
           <label className="grid gap-1 text-sm font-black">
@@ -177,6 +184,7 @@ export default function LoginScreen() {
             </button>
           </form>
         )}
+        </div>
       </div>
     </main>
   );
