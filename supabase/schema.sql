@@ -184,6 +184,17 @@ alter table public.payroll_settings enable row level security;
 alter table public.count_sheets enable row level security;
 alter table public.count_sheet_photos enable row level security;
 
+-- Each signed-in user can read their own profile row (the app reads it at
+-- login to load their role). Keyed on auth.uid() = id so it never recurses
+-- into the profiles policies referenced by other tables. Admin tooling reads
+-- all profiles server-side with the service-role key, which bypasses RLS.
+grant select on public.profiles to authenticated;
+
+create policy "Users can read own profile"
+on public.profiles for select
+to authenticated
+using (auth.uid() = id);
+
 create policy "Authenticated users can read setup data"
 on public.locations for select
 to authenticated
