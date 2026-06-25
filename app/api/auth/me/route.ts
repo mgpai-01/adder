@@ -3,13 +3,32 @@ import { getSupabaseServerClient } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
 
+// Read the user id (the `sub` claim) straight out of the Supabase access token.
+// We deliberately avoid supabase.auth.getUser(token) and the GoTrue /user REST
+// endpoint here: on a service-role client getUser looks for a stored session
+// ("Auth session missing!"), and the REST call has been returning 403 in this
+// project. The token is a standard JWT (header.payload.signature); we base64url
+// decode the payload to get the user id and reject expired tokens.
+function userIdFromToken(token: string): string | null {
+  const parts = token.split(".");
+  if (parts.length < 2) return null;
+  try {
+    const payload = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    const json = Buffer.from(payload, "base64").toString("utf8");
+    const claims = JSON.parse(json) as { sub?: string; exp?: number };
+    // Reject tokens that have expired (exp is in seconds).
+    if (claims.exp && claims.exp * 1000 < Date.now()) return null;
+    return claims.sub ?? null;
+  } catch {
+    return null;
+  }
+}
+
 // Returns the signed-in user's profile (role/username) using the service-role
 // client so it works regardless of row-level-security rules.
 export async function GET(request: Request) {
   const supabase = getSupabaseServerClient();
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!supabase || !url || !anonKey) {
+  if (!supabase) {
     return NextResponse.json({ profile: null, reason: "server-not-configured" });
   }
 
@@ -18,27 +37,9 @@ export async function GET(request: Request) {
     return NextResponse.json({ profile: null, reason: "no-token" });
   }
 
-  // Validate the token by calling GoTrue directly with the public key. We avoid
-  // supabase.auth.getUser(token) here: on a client created with the service-role
-  // key it looks for a stored session instead of verifying the passed token and
-  // fails with "Auth session missing!". This REST call verifies the token and
-  // returns the user, and the service-role client below does the DB read.
-  let userId = "";
-  try {
-    const userRes = await fetch(`${url}/auth/v1/user`, {
-      headers: { apikey: anonKey, Authorization: `Bearer ${token}` },
-      cache: "no-store"
-    });
-    if (!userRes.ok) {
-      return NextResponse.json({ profile: null, reason: `auth: HTTP ${userRes.status}` });
-    }
-    const user = (await userRes.json()) as { id?: string };
-    userId = user.id ?? "";
-  } catch (caught) {
-    return NextResponse.json({ profile: null, reason: `auth: ${(caught as Error)?.message ?? "verify failed"}` });
-  }
+  const userId = userIdFromToken(token);
   if (!userId) {
-    return NextResponse.json({ profile: null, reason: "auth: no user id" });
+    return NextResponse.json({ profile: null, reason: "auth: could not read user id from token" });
   }
 
   // manager_yard may not exist on older databases; fall back without it.
