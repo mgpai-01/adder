@@ -1647,7 +1647,7 @@ function ProductionEntry({
           <table className={classNames("w-full text-left text-sm", hidePricing ? "table-fixed" : "min-w-[760px]")}>
             <thead className="bg-steel-900 text-white">
               <tr>
-                <th className={classNames(cellPad, hidePricing && "w-[72px]")}>Category</th>
+                {!hidePricing && <th className="p-3">Category</th>}
                 <th className={cellPad}>Pallet Description</th>
                 {!hidePricing && <th className="p-3">Rate</th>}
                 <th className={classNames(cellPad, hidePricing && "w-[88px]")}>Quantity</th>
@@ -1662,7 +1662,7 @@ function ProductionEntry({
 
                 return (
                   <tr key={pallet.id} className="border-t border-steel-100">
-                    <td className={classNames(cellPad, "font-black")}>{pallet.category}</td>
+                    {!hidePricing && <td className={classNames(cellPad, "font-black")}>{pallet.category}</td>}
                     <td className={classNames(cellPad, hidePricing && "break-words")}>
                       <span className="block font-black">{pallet.code}</span>
                       <span className="text-steel-500">{pallet.description}</span>
