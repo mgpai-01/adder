@@ -112,6 +112,19 @@ function createLines(palletTypes: PalletType[]): ProductionLine[] {
   return palletTypes.map((pallet) => ({ palletTypeId: pallet.id, quantity: 0 }));
 }
 
+// Normalize a name for comparison (case/spacing/punctuation-insensitive).
+function normName(name: string): string {
+  return name.toLowerCase().replace(/\./g, "").replace(/\s+/g, " ").trim();
+}
+
+// Best-effort human name for an employee id when we can't find the record:
+// "mgp-maria-reyes" -> "maria reyes". Used to match saved entries to repairers
+// even when their roster id changed (e.g. entries saved under "maria-reyes"
+// while the dropdown now uses "mgp-maria-reyes").
+function slugToName(id: string): string {
+  return id.replace(/^mgp-/, "").replace(/-/g, " ");
+}
+
 const PHASE_COUNT = 3;
 
 function createPhases(): EntryPhase[] {
@@ -720,10 +733,22 @@ export default function Home() {
   // per repairer/day on the right yard, there's nothing left to do.
   useEffect(() => {
     if (!entriesLoaded) return;
-    const yardByEmployee = new Map(employeeList.map((employee) => [employee.id, employee.locationId]));
+    // Canonical id + yard for each repairer name, taken from the live roster so
+    // entries snap onto whatever id the dropdown currently uses (active records
+    // win over deactivated duplicates).
+    const idByName = new Map<string, string>();
+    const yardByName = new Map<string, string>();
+    [...employeeList].sort((a, b) => Number(b.active) - Number(a.active)).forEach((employee) => {
+      const key = normName(employee.name);
+      if (!idByName.has(key)) {
+        idByName.set(key, employee.id);
+        yardByName.set(key, employee.locationId);
+      }
+    });
+
     const groups = new Map<string, DailyEntry[]>();
     entries.forEach((entry) => {
-      const key = `${entry.employeeId}|${entry.date}`;
+      const key = `${normName(nameOfEmployeeId(entry.employeeId))}|${entry.date}`;
       const group = groups.get(key);
       if (group) group.push(entry);
       else groups.set(key, [entry]);
@@ -731,9 +756,11 @@ export default function Home() {
 
     const merged: DailyEntry[] = [];
     const deleteIds: string[] = [];
-    groups.forEach((group) => {
+    groups.forEach((group, key) => {
+      const nameKey = key.split("|")[0];
       const primary = [...group].sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""))[0];
-      const targetYard = yardByEmployee.get(primary.employeeId) ?? primary.locationId;
+      const targetId = idByName.get(nameKey) ?? primary.employeeId;
+      const targetYard = yardByName.get(nameKey) ?? primary.locationId;
       const summed = new Map<string, number>();
       let phases = createPhases();
       group.forEach((entry) => {
@@ -749,11 +776,12 @@ export default function Home() {
       });
       const result: DailyEntry = {
         ...primary,
+        employeeId: targetId,
         locationId: targetYard,
         lines: Array.from(summed, ([palletTypeId, quantity]) => ({ palletTypeId, quantity })).filter((line) => line.quantity !== 0),
         phases
       };
-      const changed = group.length > 1 || primary.locationId !== targetYard;
+      const changed = group.length > 1 || primary.employeeId !== targetId || primary.locationId !== targetYard;
       if (changed) {
         merged.push(result);
         group.filter((entry) => entry.id !== primary.id).forEach((entry) => deleteIds.push(entry.id));
@@ -792,16 +820,29 @@ export default function Home() {
     setForm((current) => ({ ...current, [key]: value }));
   }
 
+  // Human name for an employee id, tolerant of id changes: checks the live
+  // roster, then the built-in roster, then falls back to de-slugging the id.
+  function nameOfEmployeeId(id: string): string {
+    return (
+      employeeList.find((employee) => employee.id === id)?.name ??
+      defaultEmployees.find((employee) => employee.id === id)?.name ??
+      slugToName(id)
+    );
+  }
+
   // Pulls a repairer's already-saved entry (for the given day + yard) back into
   // the form so the grid shows their real numbers instead of a blank form, and
   // remembers its id so Save updates that entry rather than creating a duplicate.
   function entryFormData(employeeId: string, date: string, locationId: string) {
     // Sum ALL of this repairer's entries for the day (across yards) so the grid
     // shows their true total even if the old save bug left duplicates or their
-    // entries are split across yards. Saving consolidates into one record (see
-    // the cleanup migration); editing targets the entry on the selected yard,
-    // falling back to the newest.
-    const matching = entries.filter((entry) => entry.employeeId === employeeId && entry.date === date);
+    // entries are split across yards. Match by NAME, not raw id, so entries
+    // saved under an older id (e.g. "maria-reyes") still load for the current
+    // dropdown id (e.g. "mgp-maria-reyes"). Saving consolidates into one record.
+    const targetName = normName(nameOfEmployeeId(employeeId));
+    const matching = entries.filter(
+      (entry) => normName(nameOfEmployeeId(entry.employeeId)) === targetName && entry.date === date
+    );
     const savedByPallet = new Map<string, number>();
     let phases = createPhases();
     matching.forEach((entry) => {
@@ -1675,17 +1716,6 @@ function ProductionEntry({
           <div>
             <h2 className="text-2xl font-black">Daily Production Grid</h2>
             <p className={classNames("text-sm", darkMode ? "text-steel-100" : "text-steel-500")}>{saveStatus}</p>
-            {(() => {
-              const mine = entries.filter((e) => e.employeeId === form.employeeId && e.date === form.date);
-              const allToday = entries.filter((e) => e.date === form.date);
-              return (
-                <p className="mt-1 text-[11px] font-bold text-red-600">
-                  DEBUG · looking for id &quot;{form.employeeId}&quot; on {form.date} · found {mine.length}:{" "}
-                  {mine.map((e) => `${e.locationId}/q${(e.lines ?? []).reduce((s, l) => s + l.quantity, 0)}`).join(", ") || "none"}
-                  {" "}· all ids with entries today: {Array.from(new Set(allToday.map((e) => e.employeeId))).join(", ") || "none"}
-                </p>
-              );
-            })()}
           </div>
         </div>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
