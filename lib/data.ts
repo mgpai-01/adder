@@ -34,9 +34,9 @@ export const employees: Employee[] = [
   { id: "rodolfo", name: "Rodolfo", locationId: "mesa", shift: "AM", active: true, role: "employee" },
   { id: "marco-martinez", name: "Marco Martinez", locationId: "mesa", shift: "AM", active: true, role: "employee" },
   { id: "alberto-arroyo-gomez", name: "Alberto Arroyo Gomez", locationId: "mesa", shift: "AM", active: true, role: "employee", photoDataUrl: "/avatars/alberto-arroyo-gomez.jpg" },
-  { id: "jose-resendiz", name: "Jose Resendiz", locationId: "mesa", shift: "AM", active: true, role: "employee", photoDataUrl: "/avatars/jose-resendiz.jpg" },
-  { id: "joel-manzo", name: "Joel Manzo", locationId: "mesa", shift: "AM", active: true, role: "employee", photoDataUrl: "/avatars/joel-manzo.jpg" },
-  { id: "alejandro-salazar", name: "Alejandro Salazar", locationId: "mesa", shift: "AM", active: true, role: "employee", photoDataUrl: "/avatars/alejandro-salazar.jpg" }
+  { id: "jose-resendiz", name: "Jose Resendiz", locationId: "fontana", shift: "AM", active: true, role: "employee", photoDataUrl: "/avatars/jose-resendiz.jpg" },
+  { id: "joel-manzo", name: "Joel Manzo", locationId: "fontana", shift: "AM", active: true, role: "employee", photoDataUrl: "/avatars/joel-manzo.jpg" },
+  { id: "alejandro-salazar", name: "Alejandro Salazar", locationId: "fontana", shift: "AM", active: true, role: "employee", photoDataUrl: "/avatars/alejandro-salazar.jpg" }
 ];
 
 export const palletCategories: PalletCategory[] = [

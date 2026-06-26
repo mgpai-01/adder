@@ -458,8 +458,8 @@ export default function Home() {
     if (!rosterLoaded) return;
     // Bump this key whenever the official per-yard roster (lib/data.ts) changes
     // so every device re-applies it once and overwrites stale saved assignments.
-    if (window.localStorage.getItem("mgp-roster-pdf-v2")) return;
-    window.localStorage.setItem("mgp-roster-pdf-v2", "1");
+    if (window.localStorage.getItem("mgp-roster-pdf-v3")) return;
+    window.localStorage.setItem("mgp-roster-pdf-v3", "1");
 
     const norm = (name: string) => name.toLowerCase().replace(/\./g, "").replace(/\s+/g, " ").trim();
     const targetByName = new Map(defaultEmployees.map((employee) => [norm(employee.name), employee]));
