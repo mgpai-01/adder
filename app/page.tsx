@@ -1675,6 +1675,17 @@ function ProductionEntry({
           <div>
             <h2 className="text-2xl font-black">Daily Production Grid</h2>
             <p className={classNames("text-sm", darkMode ? "text-steel-100" : "text-steel-500")}>{saveStatus}</p>
+            {(() => {
+              const mine = entries.filter((e) => e.employeeId === form.employeeId && e.date === form.date);
+              const allToday = entries.filter((e) => e.date === form.date);
+              return (
+                <p className="mt-1 text-[11px] font-bold text-red-600">
+                  DEBUG · looking for id &quot;{form.employeeId}&quot; on {form.date} · found {mine.length}:{" "}
+                  {mine.map((e) => `${e.locationId}/q${(e.lines ?? []).reduce((s, l) => s + l.quantity, 0)}`).join(", ") || "none"}
+                  {" "}· all ids with entries today: {Array.from(new Set(allToday.map((e) => e.employeeId))).join(", ") || "none"}
+                </p>
+              );
+            })()}
           </div>
         </div>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
