@@ -75,9 +75,17 @@ export function calculateEntry(
     return total + line.quantity * (palletType?.rate ?? 0);
   }, 0);
   const quantity = lines.reduce((total, line) => total + line.quantity, 0);
-  const minimumWageRequired =
-    regularHours * settings.minimumWage +
-    overtimeHours * settings.minimumWage * settings.overtimeMultiplier;
+  // Only owe the minimum-wage make-up when there's actual activity for the day
+  // (pallets entered, or a phase counted/bypassed/photographed). An empty entry
+  // means the person likely wasn't at work, so they earn nothing.
+  const hasActivity =
+    quantity > 0 ||
+    (entry.phases ?? []).some(
+      (phase) => (phase?.amount ?? 0) > 0 || Boolean(phase?.bypassed) || Boolean(phase?.photoDataUrl)
+    );
+  const minimumWageRequired = hasActivity
+    ? regularHours * settings.minimumWage + overtimeHours * settings.minimumWage * settings.overtimeMultiplier
+    : 0;
   const additionalOwed = Math.max(0, minimumWageRequired - pieceEarnings);
   const totalPay = pieceEarnings + additionalOwed;
   const hourlyEquivalent = paidHours > 0 ? pieceEarnings / paidHours : 0;

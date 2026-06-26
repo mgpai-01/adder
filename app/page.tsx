@@ -141,19 +141,6 @@ function lastPhaseDone(phases: EntryPhase[]): number {
   return last;
 }
 
-// How many phases a repairer has completed in order, starting from phase 1.
-// Stops at the first gap, so someone is only counted for a phase once they have
-// finished every phase before it (they must start at phase one).
-function phaseStreak(phases: EntryPhase[] | null | undefined): number {
-  if (!phases) return 0;
-  let streak = 0;
-  for (const phase of phases) {
-    if (isPhaseDone(phase)) streak += 1;
-    else break;
-  }
-  return streak;
-}
-
 // Toggle the Shift / Clock In / Clock Out / Hours / Break-Lunch row on the Daily
 // Production Grid. Hidden for now per request, but kept here so it can be turned
 // back on by flipping this to true (the form still tracks sensible defaults).
@@ -1499,19 +1486,26 @@ function PhaseTracker({
       <div className="grid content-start gap-3 rounded-lg bg-steel-900 p-3 text-white">
         <p className="text-xs font-black uppercase tracking-wide text-steel-100">Phase check-ins</p>
         {phases.map((_phase, phaseIndex) => {
-          const reached = crew.filter((member) => phaseStreak(member.phases) > phaseIndex);
+          // Show each repairer under the phase they're currently checked in for
+          // (their latest completed phase), listed alphabetically by first name.
+          const checkedIn = crew
+            .filter((member) => lastPhaseDone(member.phases ?? []) === phaseIndex + 1)
+            .sort((a, b) => {
+              const first = (name: string) => name.trim().split(/\s+/)[0].toLowerCase();
+              return first(a.name).localeCompare(first(b.name)) || a.name.localeCompare(b.name);
+            });
           return (
             <div key={phaseIndex} className="grid gap-1">
               <div className="flex items-center justify-between">
                 <span className="text-sm font-black">Phase {phaseIndex + 1}</span>
-                {reached.length > 0 && (
-                  <span className="text-xs font-bold text-steel-400">{reached.length}</span>
+                {checkedIn.length > 0 && (
+                  <span className="text-xs font-bold text-steel-400">{checkedIn.length}</span>
                 )}
               </div>
-              {reached.length === 0 ? (
+              {checkedIn.length === 0 ? (
                 <p className="rounded bg-white/5 px-3 py-1.5 text-xs font-bold text-steel-400">No check-ins</p>
               ) : (
-                reached.map((member) => {
+                checkedIn.map((member) => {
                   const phase = member.phases?.[phaseIndex];
                   return (
                     <button
