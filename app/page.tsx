@@ -1650,7 +1650,7 @@ function ProductionEntry({
                 <th className={classNames(cellPad, hidePricing && "w-[72px]")}>Category</th>
                 <th className={cellPad}>Pallet Description</th>
                 {!hidePricing && <th className="p-3">Rate</th>}
-                <th className={classNames(cellPad, hidePricing && "w-[148px]")}>Quantity</th>
+                <th className={classNames(cellPad, hidePricing && "w-[88px]")}>Quantity</th>
                 {!hidePricing && <th className="p-3">Total Earned</th>}
               </tr>
             </thead>
@@ -1671,15 +1671,19 @@ function ProductionEntry({
                       <td className={classNames("p-3 font-black", pallet.rate < 0 ? "text-red-700" : "text-workshop-700")}>{currency(pallet.rate)}</td>
                     )}
                     <td className={cellPad}>
-                      <div className={classNames("grid", qtyCols)}>
-                        <button type="button" className="touch-target flex items-center justify-center rounded bg-steel-800 text-white" onClick={() => onQuantityChange(pallet.id, quantity - 1)}>
-                          <Minus size={18} />
-                        </button>
+                      {hidePricing ? (
                         <input className="field min-w-0 px-1 text-center font-black" inputMode="numeric" type="number" min="0" placeholder="0" value={quantity === 0 ? "" : quantity} onChange={(event) => onQuantityChange(pallet.id, Number(event.target.value))} />
-                        <button type="button" className="touch-target flex items-center justify-center rounded bg-safety-400 text-steel-900" onClick={() => onQuantityChange(pallet.id, quantity + 1)}>
-                          <Plus size={18} />
-                        </button>
-                      </div>
+                      ) : (
+                        <div className={classNames("grid", qtyCols)}>
+                          <button type="button" className="touch-target flex items-center justify-center rounded bg-steel-800 text-white" onClick={() => onQuantityChange(pallet.id, quantity - 1)}>
+                            <Minus size={18} />
+                          </button>
+                          <input className="field min-w-0 px-1 text-center font-black" inputMode="numeric" type="number" min="0" placeholder="0" value={quantity === 0 ? "" : quantity} onChange={(event) => onQuantityChange(pallet.id, Number(event.target.value))} />
+                          <button type="button" className="touch-target flex items-center justify-center rounded bg-safety-400 text-steel-900" onClick={() => onQuantityChange(pallet.id, quantity + 1)}>
+                            <Plus size={18} />
+                          </button>
+                        </div>
+                      )}
                     </td>
                     {!hidePricing && (
                       <td className={classNames("p-3 text-lg font-black", earned < 0 ? "text-red-700" : "text-steel-900")}>{currency(earned)}</td>
