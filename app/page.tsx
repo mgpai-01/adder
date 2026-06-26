@@ -722,6 +722,35 @@ export default function Home() {
     });
   }, [activePalletTypes]);
 
+  // Keep each repairer's saved entries on the yard they're currently assigned
+  // to. When someone is moved between yards (e.g. Resendiz/Manzo/Salazar from
+  // Mesa to Fontana), their existing production should follow them so it shows
+  // under their new yard on both the grid and the live board. Idempotent: once
+  // every entry matches its repairer's yard there's nothing left to move.
+  useEffect(() => {
+    if (!entriesLoaded) return;
+    const yardByEmployee = new Map(employeeList.map((employee) => [employee.id, employee.locationId]));
+    const misplaced = entries.filter((entry) => {
+      const yard = yardByEmployee.get(entry.employeeId);
+      return yard && entry.locationId !== yard;
+    });
+    if (misplaced.length === 0) return;
+    setEntries((current) =>
+      current.map((entry) => {
+        const yard = yardByEmployee.get(entry.employeeId);
+        return yard && entry.locationId !== yard ? { ...entry, locationId: yard } : entry;
+      })
+    );
+    misplaced.forEach((entry) => {
+      const yard = yardByEmployee.get(entry.employeeId);
+      fetch("/api/entries", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...entry, locationId: yard })
+      }).catch(() => undefined);
+    });
+  }, [entriesLoaded, employeeList, entries]);
+
   // Once saved entries are loaded, hydrate the initially-selected repairer's form
   // so the grid opens showing their real numbers (matching the live board)
   // rather than a blank form.
