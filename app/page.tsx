@@ -709,32 +709,70 @@ export default function Home() {
     });
   }, [activePalletTypes]);
 
-  // Keep each repairer's saved entries on the yard they're currently assigned
-  // to. When someone is moved between yards (e.g. Resendiz/Manzo/Salazar from
-  // Mesa to Fontana), their existing production should follow them so it shows
-  // under their new yard on both the grid and the live board. Idempotent: once
-  // every entry matches its repairer's yard there's nothing left to move.
+  // Clean up saved entries so the grid and live board show the truth:
+  //  1) Merge duplicate entries for the same repairer + day (the old save bug
+  //     created a new record every time, which double-counted on the board and
+  //     made the grid load just one of them — often an empty one showing 0).
+  //  2) Put each entry on the repairer's current yard, so moving someone between
+  //     yards carries their production with them.
+  // Sums pallets, merges phase check-ins, keeps the newest record's id, deletes
+  // the extras, and saves the result. Idempotent: once everything is one entry
+  // per repairer/day on the right yard, there's nothing left to do.
   useEffect(() => {
     if (!entriesLoaded) return;
     const yardByEmployee = new Map(employeeList.map((employee) => [employee.id, employee.locationId]));
-    const misplaced = entries.filter((entry) => {
-      const yard = yardByEmployee.get(entry.employeeId);
-      return yard && entry.locationId !== yard;
+    const groups = new Map<string, DailyEntry[]>();
+    entries.forEach((entry) => {
+      const key = `${entry.employeeId}|${entry.date}`;
+      const group = groups.get(key);
+      if (group) group.push(entry);
+      else groups.set(key, [entry]);
     });
-    if (misplaced.length === 0) return;
-    setEntries((current) =>
-      current.map((entry) => {
-        const yard = yardByEmployee.get(entry.employeeId);
-        return yard && entry.locationId !== yard ? { ...entry, locationId: yard } : entry;
-      })
-    );
-    misplaced.forEach((entry) => {
-      const yard = yardByEmployee.get(entry.employeeId);
+
+    const merged: DailyEntry[] = [];
+    const deleteIds: string[] = [];
+    groups.forEach((group) => {
+      const primary = [...group].sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""))[0];
+      const targetYard = yardByEmployee.get(primary.employeeId) ?? primary.locationId;
+      const summed = new Map<string, number>();
+      let phases = createPhases();
+      group.forEach((entry) => {
+        (entry.lines ?? []).forEach((line) =>
+          summed.set(line.palletTypeId, (summed.get(line.palletTypeId) ?? 0) + Number(line.quantity || 0))
+        );
+        const entryPhases = normalizePhases(entry.phases);
+        phases = phases.map((phase, index) => ({
+          amount: Math.max(phase.amount, entryPhases[index].amount),
+          bypassed: phase.bypassed || entryPhases[index].bypassed,
+          photoDataUrl: phase.photoDataUrl || entryPhases[index].photoDataUrl
+        }));
+      });
+      const result: DailyEntry = {
+        ...primary,
+        locationId: targetYard,
+        lines: Array.from(summed, ([palletTypeId, quantity]) => ({ palletTypeId, quantity })).filter((line) => line.quantity !== 0),
+        phases
+      };
+      const changed = group.length > 1 || primary.locationId !== targetYard;
+      if (changed) {
+        merged.push(result);
+        group.filter((entry) => entry.id !== primary.id).forEach((entry) => deleteIds.push(entry.id));
+      }
+    });
+
+    if (merged.length === 0 && deleteIds.length === 0) return;
+    const deleteSet = new Set(deleteIds);
+    const mergedById = new Map(merged.map((entry) => [entry.id, entry]));
+    setEntries((current) => current.filter((entry) => !deleteSet.has(entry.id)).map((entry) => mergedById.get(entry.id) ?? entry));
+    merged.forEach((entry) => {
       fetch("/api/entries", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...entry, locationId: yard })
+        body: JSON.stringify(entry)
       }).catch(() => undefined);
+    });
+    deleteIds.forEach((id) => {
+      fetch(`/api/entries/${id}`, { method: "DELETE" }).catch(() => undefined);
     });
   }, [entriesLoaded, employeeList, entries]);
 
@@ -758,14 +796,32 @@ export default function Home() {
   // the form so the grid shows their real numbers instead of a blank form, and
   // remembers its id so Save updates that entry rather than creating a duplicate.
   function entryFormData(employeeId: string, date: string, locationId: string) {
-    const existing = entries.find(
-      (entry) => entry.employeeId === employeeId && entry.date === date && entry.locationId === locationId
-    );
-    const savedByPallet = new Map((existing?.lines ?? []).map((line) => [line.palletTypeId, line.quantity]));
+    // Sum ALL of this repairer's entries for the day (across yards) so the grid
+    // shows their true total even if the old save bug left duplicates or their
+    // entries are split across yards. Saving consolidates into one record (see
+    // the cleanup migration); editing targets the entry on the selected yard,
+    // falling back to the newest.
+    const matching = entries.filter((entry) => entry.employeeId === employeeId && entry.date === date);
+    const savedByPallet = new Map<string, number>();
+    let phases = createPhases();
+    matching.forEach((entry) => {
+      (entry.lines ?? []).forEach((line) =>
+        savedByPallet.set(line.palletTypeId, (savedByPallet.get(line.palletTypeId) ?? 0) + Number(line.quantity || 0))
+      );
+      const entryPhases = normalizePhases(entry.phases);
+      phases = phases.map((phase, index) => ({
+        amount: Math.max(phase.amount, entryPhases[index].amount),
+        bypassed: phase.bypassed || entryPhases[index].bypassed,
+        photoDataUrl: phase.photoDataUrl || entryPhases[index].photoDataUrl
+      }));
+    });
+    const primary =
+      matching.find((entry) => entry.locationId === locationId) ??
+      [...matching].sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""))[0];
     return {
-      existingId: existing?.id ?? null,
+      existingId: primary?.id ?? null,
       lines: activePalletTypes.map((pallet) => ({ palletTypeId: pallet.id, quantity: savedByPallet.get(pallet.id) ?? 0 })),
-      phases: existing ? normalizePhases(existing.phases) : createPhases()
+      phases
     };
   }
 
