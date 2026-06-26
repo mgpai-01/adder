@@ -396,6 +396,9 @@ export default function Home() {
   const [shiftList, setShiftList] = useState<Shift[]>(defaultShifts);
   const [settings, setSettings] = useState<PayrollSettings>(payrollSettings);
   const [form, setForm] = useState<EntryForm>(() => createBlankForm(defaultPalletTypes, defaultEmployees));
+  // Id of the saved entry the form is currently editing (so Save updates it
+  // instead of creating a duplicate). Null when starting a brand-new entry.
+  const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState("Ready");
   const [adminStatus, setAdminStatus] = useState("Spreadsheet-style setup is ready.");
   const [selectedWeek, setSelectedWeek] = useState(getWeekKey(today));
@@ -719,39 +722,77 @@ export default function Home() {
     });
   }, [activePalletTypes]);
 
+  // Once saved entries are loaded, hydrate the initially-selected repairer's form
+  // so the grid opens showing their real numbers (matching the live board)
+  // rather than a blank form.
+  useEffect(() => {
+    if (!entriesLoaded) return;
+    const data = entryFormData(form.employeeId, form.date, form.locationId);
+    setEditingEntryId(data.existingId);
+    setForm((current) => ({ ...current, lines: data.lines, phases: data.phases }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entriesLoaded]);
+
 
   function updateForm<T extends keyof EntryForm>(key: T, value: EntryForm[T]) {
     setForm((current) => ({ ...current, [key]: value }));
   }
 
+  // Pulls a repairer's already-saved entry (for the given day + yard) back into
+  // the form so the grid shows their real numbers instead of a blank form, and
+  // remembers its id so Save updates that entry rather than creating a duplicate.
+  function entryFormData(employeeId: string, date: string, locationId: string) {
+    const existing = entries.find(
+      (entry) => entry.employeeId === employeeId && entry.date === date && entry.locationId === locationId
+    );
+    const savedByPallet = new Map((existing?.lines ?? []).map((line) => [line.palletTypeId, line.quantity]));
+    return {
+      existingId: existing?.id ?? null,
+      lines: activePalletTypes.map((pallet) => ({ palletTypeId: pallet.id, quantity: savedByPallet.get(pallet.id) ?? 0 })),
+      phases: existing ? normalizePhases(existing.phases) : createPhases()
+    };
+  }
+
   function handleEmployeeChange(employeeId: string) {
     const employee = employeeList.find((item) => item.id === employeeId);
+    const data = entryFormData(employeeId, form.date, form.locationId);
+    setEditingEntryId(data.existingId);
     setForm((current) => ({
       ...current,
       employeeId,
-      shift: employee?.shift ?? current.shift
+      shift: employee?.shift ?? current.shift,
+      lines: data.lines,
+      phases: data.phases
     }));
   }
 
+  function handleDateChange(date: string) {
+    const data = entryFormData(form.employeeId, date, form.locationId);
+    setEditingEntryId(data.existingId);
+    setForm((current) => ({ ...current, date, lines: data.lines, phases: data.phases }));
+  }
+
   function handleYardChange(locationId: string) {
-    setForm((current) => {
-      const repairers = activeEmployees.filter((employee) => employee.locationId === locationId && !isManager(employee));
-      const managers = activeEmployees.filter((employee) => employee.locationId === locationId && isManager(employee));
-      const employeeId = repairers.some((employee) => employee.id === current.employeeId)
-        ? current.employeeId
-        : repairers[0]?.id ?? "";
-      const yardManagerId = managers.some((employee) => employee.id === current.yardManagerId)
-        ? current.yardManagerId
-        : managers[0]?.id ?? "";
-      const selectedRepairer = repairers.find((employee) => employee.id === employeeId);
-      return {
-        ...current,
-        locationId,
-        employeeId,
-        yardManagerId,
-        shift: selectedRepairer?.shift ?? current.shift
-      };
-    });
+    const repairers = activeEmployees.filter((employee) => employee.locationId === locationId && !isManager(employee));
+    const managers = activeEmployees.filter((employee) => employee.locationId === locationId && isManager(employee));
+    const employeeId = repairers.some((employee) => employee.id === form.employeeId)
+      ? form.employeeId
+      : repairers[0]?.id ?? "";
+    const yardManagerId = managers.some((employee) => employee.id === form.yardManagerId)
+      ? form.yardManagerId
+      : managers[0]?.id ?? "";
+    const selectedRepairer = repairers.find((employee) => employee.id === employeeId);
+    const data = entryFormData(employeeId, form.date, locationId);
+    setEditingEntryId(data.existingId);
+    setForm((current) => ({
+      ...current,
+      locationId,
+      employeeId,
+      yardManagerId,
+      shift: selectedRepairer?.shift ?? current.shift,
+      lines: data.lines,
+      phases: data.phases
+    }));
   }
 
   function updateLineQuantity(palletTypeId: string, quantity: number) {
@@ -762,9 +803,13 @@ export default function Home() {
   }
 
   async function saveEntry() {
+    // Reuse the id of the entry being edited so this updates that day's record
+    // (the cloud upserts by id) instead of piling up duplicate entries that the
+    // live board would double-count.
+    const entryId = editingEntryId ?? `entry-${Date.now()}`;
     const cleanEntry: DailyEntry = {
       ...form,
-      id: `entry-${Date.now()}`,
+      id: entryId,
       manualHours: Number(form.manualHours),
       lines: form.lines.filter((line) => line.quantity !== 0),
       createdAt: new Date().toISOString(),
@@ -772,8 +817,10 @@ export default function Home() {
       submittedById: profile?.id
     };
 
-    setEntries((current) => [cleanEntry, ...current]);
-    setForm(createBlankForm(activePalletTypes, employeeList));
+    setEntries((current) => [cleanEntry, ...current.filter((entry) => entry.id !== entryId)]);
+    // Keep the saved numbers on screen (and keep editing this same entry) so the
+    // grid totals reflect what was just saved and match the live board.
+    setEditingEntryId(entryId);
     setSaveStatus("Saving…");
     showToast("Daily grid saved");
 
@@ -1139,6 +1186,7 @@ export default function Home() {
               calculation={currentCalculation}
               onEmployeeChange={handleEmployeeChange}
               onYardChange={handleYardChange}
+              onDateChange={handleDateChange}
               onFormChange={updateForm}
               onQuantityChange={updateLineQuantity}
               onSave={saveEntry}
@@ -1487,6 +1535,7 @@ function ProductionEntry({
   calculation,
   onEmployeeChange,
   onYardChange,
+  onDateChange,
   onFormChange,
   onQuantityChange,
   onSave,
@@ -1505,6 +1554,7 @@ function ProductionEntry({
   calculation: ReturnType<typeof calculateEntry>;
   onEmployeeChange: (employeeId: string) => void;
   onYardChange: (locationId: string) => void;
+  onDateChange: (date: string) => void;
   onFormChange: <T extends keyof EntryForm>(key: T, value: EntryForm[T]) => void;
   onQuantityChange: (palletTypeId: string, quantity: number) => void;
   onSave: () => void;
@@ -1558,7 +1608,7 @@ function ProductionEntry({
 
       <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-4">
         <Label title="Date" icon={<CalendarDays size={17} />}>
-          <input className="field" type="date" value={form.date} onChange={(event) => onFormChange("date", event.target.value)} />
+          <input className="field" type="date" value={form.date} onChange={(event) => onDateChange(event.target.value)} />
         </Label>
         <Label title="Yard" icon={<MapPin size={17} />}>
           <select className="field" value={form.locationId} onChange={(event) => onYardChange(event.target.value)}>
