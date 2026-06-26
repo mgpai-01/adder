@@ -456,8 +456,10 @@ export default function Home() {
   // deactivates anyone no longer on the list. Saved to the cloud for everyone.
   useEffect(() => {
     if (!rosterLoaded) return;
-    if (window.localStorage.getItem("mgp-roster-pdf-v1")) return;
-    window.localStorage.setItem("mgp-roster-pdf-v1", "1");
+    // Bump this key whenever the official per-yard roster (lib/data.ts) changes
+    // so every device re-applies it once and overwrites stale saved assignments.
+    if (window.localStorage.getItem("mgp-roster-pdf-v2")) return;
+    window.localStorage.setItem("mgp-roster-pdf-v2", "1");
 
     const norm = (name: string) => name.toLowerCase().replace(/\./g, "").replace(/\s+/g, " ").trim();
     const targetByName = new Map(defaultEmployees.map((employee) => [norm(employee.name), employee]));
