@@ -1664,8 +1664,17 @@ function ProductionEntry({
                   <tr key={pallet.id} className="border-t border-steel-100">
                     {!hidePricing && <td className={classNames(cellPad, "font-black")}>{pallet.category}</td>}
                     <td className={classNames(cellPad, hidePricing && "break-words")}>
-                      <span className="block font-black">{pallet.code}</span>
-                      <span className="text-steel-500">{pallet.description}</span>
+                      {hidePricing ? (
+                        <>
+                          <span className="block text-steel-500">{pallet.code}</span>
+                          <span className="block font-black">{pallet.description}</span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="block font-black">{pallet.code}</span>
+                          <span className="text-steel-500">{pallet.description}</span>
+                        </>
+                      )}
                     </td>
                     {!hidePricing && (
                       <td className={classNames("p-3 font-black", pallet.rate < 0 ? "text-red-700" : "text-workshop-700")}>{currency(pallet.rate)}</td>
