@@ -1141,6 +1141,7 @@ export default function Home() {
               onQuantityChange={updateLineQuantity}
               onSave={saveEntry}
               hideYardManager={configured && profile?.role === "supervisor"}
+              hidePricing={configured && profile?.role === "supervisor"}
             />
           )}
           {view === "count-sheets" && (
@@ -1487,7 +1488,8 @@ function ProductionEntry({
   onFormChange,
   onQuantityChange,
   onSave,
-  hideYardManager
+  hideYardManager,
+  hidePricing
 }: {
   darkMode: boolean;
   form: EntryForm;
@@ -1506,10 +1508,17 @@ function ProductionEntry({
   onSave: () => void;
   // When a Manager is signed in, the Yard Manager picker is hidden entirely.
   hideYardManager?: boolean;
+  // Managers don't need pay figures: hide the Rate/Total Earned columns so the
+  // pallet table fits a phone screen without scrolling sideways.
+  hidePricing?: boolean;
 }) {
   const yardRepairers = employees.filter((employee) => employee.locationId === form.locationId && employee.role !== "supervisor");
   const yardManagers = employees.filter((employee) => employee.locationId === form.locationId && employee.role === "supervisor");
   const displayedPallets = palletsForYard(palletTypes, form.locationId);
+  // Manager view drops the price columns and uses compact cells + a smaller
+  // quantity stepper so the table fits a phone screen with no sideways scroll.
+  const cellPad = hidePricing ? "p-2" : "p-3";
+  const qtyCols = hidePricing ? "grid-cols-[40px_minmax(0,1fr)_40px] gap-1" : "grid-cols-[44px_88px_44px] gap-2";
 
   // Each repairer's phase check-ins for the selected day + yard. Saved entries
   // are the source of truth; the repairer being edited reflects the live form.
@@ -1635,14 +1644,14 @@ function ProductionEntry({
 
       <div className="overflow-hidden rounded border border-steel-100 bg-white text-steel-900">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[760px] text-left text-sm">
+          <table className={classNames("w-full text-left text-sm", hidePricing ? "table-fixed" : "min-w-[760px]")}>
             <thead className="bg-steel-900 text-white">
               <tr>
-                <th className="p-3">Category</th>
-                <th className="p-3">Pallet Description</th>
-                <th className="p-3">Rate</th>
-                <th className="p-3">Quantity</th>
-                <th className="p-3">Total Earned</th>
+                <th className={classNames(cellPad, hidePricing && "w-[72px]")}>Category</th>
+                <th className={cellPad}>Pallet Description</th>
+                {!hidePricing && <th className="p-3">Rate</th>}
+                <th className={classNames(cellPad, hidePricing && "w-[148px]")}>Quantity</th>
+                {!hidePricing && <th className="p-3">Total Earned</th>}
               </tr>
             </thead>
             <tbody>
@@ -1653,24 +1662,28 @@ function ProductionEntry({
 
                 return (
                   <tr key={pallet.id} className="border-t border-steel-100">
-                    <td className="p-3 font-black">{pallet.category}</td>
-                    <td className="p-3">
+                    <td className={classNames(cellPad, "font-black")}>{pallet.category}</td>
+                    <td className={classNames(cellPad, hidePricing && "break-words")}>
                       <span className="block font-black">{pallet.code}</span>
                       <span className="text-steel-500">{pallet.description}</span>
                     </td>
-                    <td className={classNames("p-3 font-black", pallet.rate < 0 ? "text-red-700" : "text-workshop-700")}>{currency(pallet.rate)}</td>
-                    <td className="p-3">
-                      <div className="grid grid-cols-[44px_88px_44px] gap-2">
+                    {!hidePricing && (
+                      <td className={classNames("p-3 font-black", pallet.rate < 0 ? "text-red-700" : "text-workshop-700")}>{currency(pallet.rate)}</td>
+                    )}
+                    <td className={cellPad}>
+                      <div className={classNames("grid", qtyCols)}>
                         <button type="button" className="touch-target flex items-center justify-center rounded bg-steel-800 text-white" onClick={() => onQuantityChange(pallet.id, quantity - 1)}>
                           <Minus size={18} />
                         </button>
-                        <input className="field text-center font-black" inputMode="numeric" type="number" min="0" placeholder="0" value={quantity === 0 ? "" : quantity} onChange={(event) => onQuantityChange(pallet.id, Number(event.target.value))} />
+                        <input className="field min-w-0 px-1 text-center font-black" inputMode="numeric" type="number" min="0" placeholder="0" value={quantity === 0 ? "" : quantity} onChange={(event) => onQuantityChange(pallet.id, Number(event.target.value))} />
                         <button type="button" className="touch-target flex items-center justify-center rounded bg-safety-400 text-steel-900" onClick={() => onQuantityChange(pallet.id, quantity + 1)}>
                           <Plus size={18} />
                         </button>
                       </div>
                     </td>
-                    <td className={classNames("p-3 text-lg font-black", earned < 0 ? "text-red-700" : "text-steel-900")}>{currency(earned)}</td>
+                    {!hidePricing && (
+                      <td className={classNames("p-3 text-lg font-black", earned < 0 ? "text-red-700" : "text-steel-900")}>{currency(earned)}</td>
+                    )}
                   </tr>
                 );
               })}
