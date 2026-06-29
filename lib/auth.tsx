@@ -191,18 +191,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (!active) return;
         window.sessionStorage.removeItem("mgp-auth-reset");
         if (data.session) {
-          const restored = await loadProfile(data.session);
-          // Admins must sign in fresh every page load — a restored session
-          // (refresh/revisit) is never allowed to stay signed in, so an
-          // unattended admin screen can't be reopened.
-          if (restored?.role === "admin") {
-            loadedUserId.current = "";
-            clearStoredSession();
-            await supabase.auth.signOut();
-            setProfile(null);
-            if (active) setLoading(false);
-            return;
-          }
+          // Keep the session across page loads / navigating to the live board
+          // and back. Unattended admin screens are protected by the inactivity
+          // timeout below instead of forcing a fresh login every page load.
+          await loadProfile(data.session);
         }
         if (active) setLoading(false);
       } catch {
@@ -268,6 +260,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await supabase?.auth.signOut();
     setProfile(null);
   }, [supabase]);
+
+  // Auto sign-out an admin after 2 minutes of no activity, so an unattended
+  // admin screen locks itself — without forcing a fresh login every time they
+  // navigate (e.g. to the live board and back). Any interaction resets the timer.
+  useEffect(() => {
+    if (!profile || profile.role !== "admin") return;
+    const TIMEOUT_MS = 2 * 60 * 1000;
+    let timer: ReturnType<typeof setTimeout>;
+    const reset = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        void signOut();
+      }, TIMEOUT_MS);
+    };
+    const activityEvents = ["mousemove", "mousedown", "keydown", "touchstart", "scroll", "click", "wheel"];
+    activityEvents.forEach((event) => window.addEventListener(event, reset, { passive: true }));
+    const onVisible = () => {
+      if (document.visibilityState === "visible") reset();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    reset();
+    return () => {
+      clearTimeout(timer);
+      activityEvents.forEach((event) => window.removeEventListener(event, reset));
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [profile, signOut]);
 
   const requestPasswordReset = useCallback(
     async (email: string): Promise<string> => {
