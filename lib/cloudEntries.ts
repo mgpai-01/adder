@@ -40,6 +40,32 @@ export async function readCloudEntries(): Promise<DailyEntry[]> {
   return (data as CloudEntryRow[]).map(fromRow);
 }
 
+// Lightweight read for displays that only need quantities (e.g. the live
+// board). Selects just the fields needed from the jsonb so the heavy embedded
+// photos never leave the database — this is the main lever for Supabase egress.
+export async function readCloudEntriesSummary(): Promise<DailyEntry[]> {
+  const supabase = getSupabaseServerClient();
+  if (!supabase) return [];
+
+  const { data, error } = await supabase
+    .from("cloud_entries")
+    .select("id, entry_date, employee_id:data->>employeeId, location_id:data->>locationId, shift:data->>shift, lines:data->lines")
+    .order("entry_date", { ascending: false });
+
+  if (error || !data) return [];
+  return (data as Array<{ id: string; entry_date: string | null; employee_id: string | null; location_id: string | null; shift: string | null; lines: unknown }>).map(
+    (row) =>
+      ({
+        id: row.id,
+        date: row.entry_date ?? "",
+        employeeId: row.employee_id ?? "",
+        locationId: row.location_id ?? "",
+        shift: (row.shift ?? "AM") as DailyEntry["shift"],
+        lines: Array.isArray(row.lines) ? (row.lines as DailyEntry["lines"]) : []
+      }) as DailyEntry
+  );
+}
+
 export async function upsertCloudEntry(entry: DailyEntry): Promise<{ ok: boolean; error?: string }> {
   const supabase = getSupabaseServerClient();
   if (!supabase) return { ok: false, error: "Supabase not configured" };

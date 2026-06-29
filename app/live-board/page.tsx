@@ -10,7 +10,7 @@ import type { DailyEntry, PayrollSettings, Shift } from "@/lib/types";
 
 type PeriodMode = "today" | "date" | "current-week" | "previous-week" | "custom-week" | "custom-range";
 
-const refreshInterval = 15_000;
+const refreshInterval = 60_000;
 
 function addDays(dateValue: string, days: number) {
   const date = new Date(`${dateValue}T12:00:00`);
@@ -118,10 +118,13 @@ export default function LiveBoardPage() {
   }, []);
 
   async function loadData() {
+    // Use the photo-free summary endpoints: the board only needs names and
+    // pallet quantities, so pulling the embedded photos every refresh would
+    // burn Supabase egress for nothing.
     const [entryResponse, settingsResponse, employeesResponse] = await Promise.all([
-      fetch("/api/entries", { cache: "no-store" }),
+      fetch("/api/entries/summary", { cache: "no-store" }),
       fetch("/api/settings", { cache: "no-store" }),
-      fetch("/api/employees", { cache: "no-store" })
+      fetch("/api/employees?summary=1", { cache: "no-store" })
     ]);
     const entryResult = (await entryResponse.json()) as { entries: DailyEntry[] };
     const settingsResult = (await settingsResponse.json()) as { settings: PayrollSettings };

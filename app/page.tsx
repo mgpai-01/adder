@@ -703,7 +703,10 @@ export default function Home() {
         })
         .catch(() => undefined);
     };
-    const timer = window.setInterval(loadSharedEntries, 15_000);
+    // Poll once a minute (was every 15s). Each poll pulls every entry — and
+    // entries carry embedded photos — so frequent polling was a major source of
+    // Supabase egress. A refresh on window focus keeps it feeling live.
+    const timer = window.setInterval(loadSharedEntries, 60_000);
     window.addEventListener("focus", loadSharedEntries);
     return () => {
       window.clearInterval(timer);
