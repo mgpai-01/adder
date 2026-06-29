@@ -1597,107 +1597,70 @@ function PhaseTracker({
           sits at the top. */}
       <div className="grid max-h-[80vh] content-start gap-3 overflow-y-auto rounded-lg bg-steel-900 p-3 text-white">
         <p className="sticky top-0 -mx-3 -mt-3 bg-steel-900 px-3 pb-2 pt-3 text-xs font-black uppercase tracking-wide text-steel-100">Phase check-ins</p>
-        {phases.map((_phase, phaseIndex) => phaseIndex).reverse().map((phaseIndex) => {
-          // Show each repairer under the phase they're currently checked in for
-          // (their latest completed phase). Completed (checkmark) repairers come
-          // first, then bypassed ones, each group alphabetical by first name.
-          const checkedIn = crew
-            .filter((member) => lastPhaseDone(member.phases ?? []) === phaseIndex + 1)
-            .sort((a, b) => {
-              const bypassed = (member: typeof a) => Boolean(member.phases?.[phaseIndex]?.bypassed);
-              if (bypassed(a) !== bypassed(b)) return bypassed(a) ? 1 : -1;
-              const first = (name: string) => name.trim().split(/\s+/)[0].toLowerCase();
-              return first(a.name).localeCompare(first(b.name)) || a.name.localeCompare(b.name);
-            });
-          return (
-            <div key={phaseIndex} className="grid gap-1">
+        {(() => {
+          // Classify each repairer by what they've entered:
+          //   completed  -> at least one phase has a photo
+          //   incomplete -> entered info (pallets or bypass) but no photo yet
+          //   not started -> nothing entered at all
+          const hasPhoto = (member: typeof crew[number]) => (member.phases ?? []).some((phase) => Boolean(phase?.photoDataUrl));
+          const hasInfo = (member: typeof crew[number]) =>
+            (member.phases ?? []).some((phase) => (phase?.amount ?? 0) > 0 || Boolean(phase?.bypassed));
+          const byFirstName = (a: typeof crew[number], b: typeof crew[number]) => {
+            const first = (name: string) => name.trim().split(/\s+/)[0].toLowerCase();
+            return first(a.name).localeCompare(first(b.name)) || a.name.localeCompare(b.name);
+          };
+
+          const completed = crew.filter((m) => hasPhoto(m)).sort(byFirstName);
+          const incomplete = crew.filter((m) => !hasPhoto(m) && hasInfo(m)).sort(byFirstName);
+          const notStarted = crew.filter((m) => !hasPhoto(m) && !hasInfo(m)).sort(byFirstName);
+
+          const groups = [
+            { key: "completed", label: "Completed", members: completed, dim: false,
+              icon: <CheckCircle2 size={14} className="shrink-0 text-safety-400" /> },
+            { key: "incomplete", label: "Incomplete", members: incomplete, dim: false,
+              icon: <span className="h-3.5 w-3.5 shrink-0 rounded-full bg-amber-400" /> },
+            { key: "not-started", label: "Not started", members: notStarted, dim: true,
+              icon: <span className="h-3.5 w-3.5 shrink-0 rounded-full border border-steel-500" /> }
+          ];
+
+          return groups.map((group) => (
+            <div key={group.key} className="grid gap-1">
               <div className="flex items-center justify-between">
-                <span className="text-sm font-black">Phase {phaseIndex + 1}</span>
-                {checkedIn.length > 0 && (
-                  <span className="text-xs font-bold text-steel-400">{checkedIn.length}</span>
+                <span className={classNames("text-sm font-black", group.dim && "text-steel-400")}>{group.label}</span>
+                {group.members.length > 0 && (
+                  <span className="text-xs font-bold text-steel-400">{group.members.length}</span>
                 )}
               </div>
-              {checkedIn.length === 0 ? (
-                <p className="rounded bg-white/5 px-3 py-1.5 text-xs font-bold text-steel-400">No check-ins</p>
+              {group.members.length === 0 ? (
+                <p className="rounded bg-white/5 px-3 py-1.5 text-xs font-bold text-steel-400">None</p>
               ) : (
-                checkedIn.map((member) => {
-                  const phase = member.phases?.[phaseIndex];
-                  return (
-                    <button
-                      key={member.id}
-                      type="button"
-                      onClick={() => onSelectRepairer(member.id)}
-                      className={classNames(
-                        "flex items-center justify-between gap-2 rounded px-3 py-1.5 text-left transition-colors",
-                        member.id === activeId ? "bg-white/15 ring-1 ring-workshop-400" : "bg-white/5 hover:bg-white/10"
-                      )}
-                    >
-                      <span className="flex min-w-0 items-center gap-2">
-                        {member.photoDataUrl ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={member.photoDataUrl} alt="" className="h-6 w-6 shrink-0 rounded object-cover" />
-                        ) : (
-                          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-white/20 text-[10px] font-black">
-                            {member.name.split(" ").map((part) => part[0]).join("").slice(0, 2).toUpperCase()}
-                          </span>
-                        )}
-                        <span className="min-w-0 truncate text-sm font-black">{member.name}</span>
-                      </span>
-                      {phase?.bypassed ? (
-                        <X size={14} className="shrink-0 text-amber-300" />
+                group.members.map((member) => (
+                  <button
+                    key={member.id}
+                    type="button"
+                    onClick={() => onSelectRepairer(member.id)}
+                    className={classNames(
+                      "flex items-center justify-between gap-2 rounded px-3 py-1.5 text-left transition-colors",
+                      member.id === activeId ? "bg-white/15 ring-1 ring-workshop-400" : "bg-white/5 hover:bg-white/10"
+                    )}
+                  >
+                    <span className="flex min-w-0 items-center gap-2">
+                      {member.photoDataUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={member.photoDataUrl} alt="" className="h-6 w-6 shrink-0 rounded object-cover" />
                       ) : (
-                        <CheckCircle2 size={14} className="shrink-0 text-safety-400" />
+                        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-white/20 text-[10px] font-black">
+                          {member.name.split(" ").map((part) => part[0]).join("").slice(0, 2).toUpperCase()}
+                        </span>
                       )}
-                    </button>
-                  );
-                })
+                      <span className={classNames("min-w-0 truncate text-sm font-black", group.dim && "text-steel-300")}>{member.name}</span>
+                    </span>
+                    {group.icon}
+                  </button>
+                ))
               )}
             </div>
-          );
-        })}
-
-        {/* Everyone who hasn't entered any phase yet still shows, grouped at the
-            bottom, so the whole crew is always visible. */}
-        {(() => {
-          const notStarted = crew
-            .filter((member) => lastPhaseDone(member.phases ?? []) === 0)
-            .sort((a, b) => {
-              const first = (name: string) => name.trim().split(/\s+/)[0].toLowerCase();
-              return first(a.name).localeCompare(first(b.name)) || a.name.localeCompare(b.name);
-            });
-          if (notStarted.length === 0) return null;
-          return (
-            <div className="grid gap-1">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-black text-steel-400">Not started</span>
-                <span className="text-xs font-bold text-steel-400">{notStarted.length}</span>
-              </div>
-              {notStarted.map((member) => (
-                <button
-                  key={member.id}
-                  type="button"
-                  onClick={() => onSelectRepairer(member.id)}
-                  className={classNames(
-                    "flex items-center justify-between gap-2 rounded px-3 py-1.5 text-left transition-colors",
-                    member.id === activeId ? "bg-white/15 ring-1 ring-workshop-400" : "bg-white/5 hover:bg-white/10"
-                  )}
-                >
-                  <span className="flex min-w-0 items-center gap-2">
-                    {member.photoDataUrl ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={member.photoDataUrl} alt="" className="h-6 w-6 shrink-0 rounded object-cover" />
-                    ) : (
-                      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-white/20 text-[10px] font-black">
-                        {member.name.split(" ").map((part) => part[0]).join("").slice(0, 2).toUpperCase()}
-                      </span>
-                    )}
-                    <span className="min-w-0 truncate text-sm font-black text-steel-300">{member.name}</span>
-                  </span>
-                  <span className="h-3.5 w-3.5 shrink-0 rounded-full border border-steel-500" />
-                </button>
-              ))}
-            </div>
-          );
+          ));
         })()}
       </div>
 
