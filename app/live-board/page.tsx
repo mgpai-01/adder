@@ -3,7 +3,8 @@
 import { Crown, Expand, MapPin, RefreshCw, Target, Trophy } from "lucide-react";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { employees, locations, payrollSettings, shifts } from "@/lib/data";
+import { employees, locations, palletTypes, payrollSettings, shifts } from "@/lib/data";
+import { findPalletType } from "@/lib/payroll";
 import { getWeekKey, wholeNumber } from "@/lib/payroll";
 import type { DailyEntry, PayrollSettings, Shift } from "@/lib/types";
 
@@ -37,7 +38,12 @@ function getLocationName(locationId: string) {
 }
 
 function quantityForEntry(entry: DailyEntry) {
-  return (entry.lines ?? []).reduce((total, line) => total + Number(line.quantity || 0), 0);
+  // QC deductions reduce pay but are not pallets produced, so they're left out
+  // of the productivity count shown on the board.
+  return (entry.lines ?? []).reduce((total, line) => {
+    if (findPalletType(palletTypes, line.palletTypeId)?.category === "QC Deductions") return total;
+    return total + Number(line.quantity || 0);
+  }, 0);
 }
 
 function readUrlFilters() {

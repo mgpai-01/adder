@@ -42,12 +42,14 @@ export type ProductionLine = {
   quantity: number;
 };
 
-// A repairer's day is tracked in three phases. Each phase records a total
-// amount, an optional photo, and can be bypassed when it does not apply.
+// A repairer's day is tracked in three phases. Each phase records its own
+// pallet quantities (`lines`), an auto-computed non-QC pallet count (`amount`),
+// an optional photo, and can be bypassed when it does not apply.
 export type EntryPhase = {
   amount: number;
   bypassed: boolean;
   photoDataUrl?: string;
+  lines?: ProductionLine[];
 };
 
 export type DailyEntry = {

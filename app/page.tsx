@@ -129,21 +129,83 @@ function slugToName(id: string): string {
 const PHASE_COUNT = 3;
 
 function createPhases(): EntryPhase[] {
-  return Array.from({ length: PHASE_COUNT }, () => ({ amount: 0, bypassed: false }));
+  return Array.from({ length: PHASE_COUNT }, () => ({ amount: 0, bypassed: false, lines: [] as ProductionLine[] }));
 }
 
 // Always return exactly PHASE_COUNT phases, filling any that are missing.
 function normalizePhases(phases?: EntryPhase[]): EntryPhase[] {
   const base = createPhases();
   (phases ?? []).slice(0, PHASE_COUNT).forEach((phase, index) => {
-    base[index] = { amount: Number(phase?.amount) || 0, bypassed: Boolean(phase?.bypassed), photoDataUrl: phase?.photoDataUrl };
+    base[index] = {
+      amount: Number(phase?.amount) || 0,
+      bypassed: Boolean(phase?.bypassed),
+      photoDataUrl: phase?.photoDataUrl,
+      lines: (phase?.lines ?? []).map((line) => ({ palletTypeId: line.palletTypeId, quantity: Number(line.quantity) || 0 }))
+    };
   });
   return base;
 }
 
-// True once a phase has a number entered, a photo, or has been bypassed.
+// Sum per-pallet quantities across a set of line arrays into one list.
+function sumLines(lineSets: (ProductionLine[] | undefined)[]): ProductionLine[] {
+  const map = new Map<string, number>();
+  lineSets.forEach((lines) =>
+    (lines ?? []).forEach((line) => map.set(line.palletTypeId, (map.get(line.palletTypeId) ?? 0) + Number(line.quantity || 0)))
+  );
+  return Array.from(map, ([palletTypeId, quantity]) => ({ palletTypeId, quantity }));
+}
+
+// The day's full pallet list is the sum of every phase's lines.
+function aggregatePhaseLines(phases: EntryPhase[]): ProductionLine[] {
+  return sumLines(phases.map((phase) => phase.lines)).filter((line) => line.quantity !== 0);
+}
+
+// Pallets actually produced in a phase, excluding QC-deduction lines.
+function phasePalletCount(phase: EntryPhase, palletTypes: PalletType[]): number {
+  return (phase.lines ?? []).reduce((total, line) => {
+    const palletType = findPalletType(palletTypes, line.palletTypeId);
+    if (palletType?.category === "QC Deductions") return total;
+    return total + Number(line.quantity || 0);
+  }, 0);
+}
+
+// QC-deduction pallet count for a phase (shown separately as a negative).
+function phaseQcCount(phase: EntryPhase, palletTypes: PalletType[]): number {
+  return (phase.lines ?? []).reduce((total, line) => {
+    const palletType = findPalletType(palletTypes, line.palletTypeId);
+    if (palletType?.category !== "QC Deductions") return total;
+    return total + Number(line.quantity || 0);
+  }, 0);
+}
+
+// Merge one or more saved entries (same repairer/day) into a single set of
+// phases: per-phase lines are summed, a phase is bypassed if any entry bypassed
+// it, and the first photo wins. Legacy entries that stored a single aggregate
+// `lines` (no per-phase breakdown) have those quantities seeded into Phase 1.
+function combinePhases(entries: DailyEntry[], palletTypes: PalletType[]): EntryPhase[] {
+  const base = createPhases();
+  const phases = base.map((_basePhase, index) => {
+    const lineSets: (ProductionLine[] | undefined)[] = [];
+    let bypassed = false;
+    let photoDataUrl: string | undefined;
+    entries.forEach((entry) => {
+      const phs = normalizePhases(entry.phases);
+      const phase = phs[index];
+      const entryHasPhaseLines = phs.some((p) => (p.lines ?? []).length > 0);
+      if ((phase.lines ?? []).length > 0) lineSets.push(phase.lines);
+      else if (index === 0 && !entryHasPhaseLines) lineSets.push(entry.lines);
+      bypassed = bypassed || phase.bypassed;
+      photoDataUrl = photoDataUrl || phase.photoDataUrl;
+    });
+    const lines = sumLines(lineSets).filter((line) => line.quantity !== 0);
+    return { amount: 0, bypassed, photoDataUrl, lines };
+  });
+  return phases.map((phase) => ({ ...phase, amount: phasePalletCount(phase, palletTypes) }));
+}
+
+// True once a phase has pallets entered, a photo, or has been bypassed.
 function isPhaseDone(phase: EntryPhase): boolean {
-  return phase.bypassed || phase.amount > 0 || Boolean(phase.photoDataUrl);
+  return phase.bypassed || phase.amount > 0 || (phase.lines ?? []).length > 0 || Boolean(phase.photoDataUrl);
 }
 
 // The highest phase number that has been completed (0 = none yet).
@@ -762,24 +824,12 @@ export default function Home() {
       const primary = [...group].sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""))[0];
       const targetId = idByName.get(nameKey) ?? primary.employeeId;
       const targetYard = yardByName.get(nameKey) ?? primary.locationId;
-      const summed = new Map<string, number>();
-      let phases = createPhases();
-      group.forEach((entry) => {
-        (entry.lines ?? []).forEach((line) =>
-          summed.set(line.palletTypeId, (summed.get(line.palletTypeId) ?? 0) + Number(line.quantity || 0))
-        );
-        const entryPhases = normalizePhases(entry.phases);
-        phases = phases.map((phase, index) => ({
-          amount: Math.max(phase.amount, entryPhases[index].amount),
-          bypassed: phase.bypassed || entryPhases[index].bypassed,
-          photoDataUrl: phase.photoDataUrl || entryPhases[index].photoDataUrl
-        }));
-      });
+      const phases = combinePhases(group, palletTypes);
       const result: DailyEntry = {
         ...primary,
         employeeId: targetId,
         locationId: targetYard,
-        lines: Array.from(summed, ([palletTypeId, quantity]) => ({ palletTypeId, quantity })).filter((line) => line.quantity !== 0),
+        lines: aggregatePhaseLines(phases),
         phases
       };
       const changed = group.length > 1 || primary.employeeId !== targetId || primary.locationId !== targetYard;
@@ -844,25 +894,13 @@ export default function Home() {
     const matching = entries.filter(
       (entry) => normName(nameOfEmployeeId(entry.employeeId)) === targetName && entry.date === date
     );
-    const savedByPallet = new Map<string, number>();
-    let phases = createPhases();
-    matching.forEach((entry) => {
-      (entry.lines ?? []).forEach((line) =>
-        savedByPallet.set(line.palletTypeId, (savedByPallet.get(line.palletTypeId) ?? 0) + Number(line.quantity || 0))
-      );
-      const entryPhases = normalizePhases(entry.phases);
-      phases = phases.map((phase, index) => ({
-        amount: Math.max(phase.amount, entryPhases[index].amount),
-        bypassed: phase.bypassed || entryPhases[index].bypassed,
-        photoDataUrl: phase.photoDataUrl || entryPhases[index].photoDataUrl
-      }));
-    });
+    const phases = combinePhases(matching, palletTypes);
     const primary =
       matching.find((entry) => entry.locationId === locationId) ??
       [...matching].sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""))[0];
     return {
       existingId: primary?.id ?? null,
-      lines: activePalletTypes.map((pallet) => ({ palletTypeId: pallet.id, quantity: savedByPallet.get(pallet.id) ?? 0 })),
+      lines: aggregatePhaseLines(phases),
       phases
     };
   }
@@ -909,11 +947,21 @@ export default function Home() {
     }));
   }
 
-  function updateLineQuantity(palletTypeId: string, quantity: number) {
-    setForm((current) => ({
-      ...current,
-      lines: current.lines.map((line) => (line.palletTypeId === palletTypeId ? { ...line, quantity: Math.max(0, Number(quantity) || 0) } : line))
-    }));
+  // Quantities are entered per phase. Updating a phase's line also refreshes
+  // that phase's non-QC count (`amount`) and the day's aggregate `lines`, which
+  // is what pay and the live board read.
+  function updatePhaseLineQuantity(phaseIndex: number, palletTypeId: string, quantity: number) {
+    setForm((current) => {
+      const qty = Math.max(0, Number(quantity) || 0);
+      const phases = normalizePhases(current.phases).map((phase, index) => {
+        if (index !== phaseIndex) return phase;
+        const without = (phase.lines ?? []).filter((line) => line.palletTypeId !== palletTypeId);
+        const lines = qty === 0 ? without : [...without, { palletTypeId, quantity: qty }];
+        return { ...phase, lines };
+      });
+      const withAmounts = phases.map((phase) => ({ ...phase, amount: phasePalletCount(phase, palletTypes) }));
+      return { ...current, phases: withAmounts, lines: aggregatePhaseLines(withAmounts) };
+    });
   }
 
   async function saveEntry() {
@@ -921,11 +969,17 @@ export default function Home() {
     // (the cloud upserts by id) instead of piling up duplicate entries that the
     // live board would double-count.
     const entryId = editingEntryId ?? `entry-${Date.now()}`;
+    const cleanPhases = normalizePhases(form.phases).map((phase) => ({
+      ...phase,
+      amount: phasePalletCount(phase, palletTypes),
+      lines: (phase.lines ?? []).filter((line) => line.quantity !== 0)
+    }));
     const cleanEntry: DailyEntry = {
       ...form,
       id: entryId,
       manualHours: Number(form.manualHours),
-      lines: form.lines.filter((line) => line.quantity !== 0),
+      phases: cleanPhases,
+      lines: aggregatePhaseLines(cleanPhases),
       createdAt: new Date().toISOString(),
       submittedBy: profile?.fullName || profile?.username || undefined,
       submittedById: profile?.id
@@ -1302,7 +1356,7 @@ export default function Home() {
               onYardChange={handleYardChange}
               onDateChange={handleDateChange}
               onFormChange={updateForm}
-              onQuantityChange={updateLineQuantity}
+              onQuantityChange={updatePhaseLineQuantity}
               onSave={saveEntry}
               hideYardManager={configured && profile?.role === "supervisor"}
               hidePricing={configured && profile?.role === "supervisor"}
@@ -1465,7 +1519,11 @@ function PhaseTracker({
   onChange,
   crew,
   activeId,
-  onSelectRepairer
+  onSelectRepairer,
+  selected,
+  onSelect,
+  phaseCounts,
+  phaseQcCounts
 }: {
   repairerName: string;
   phases: EntryPhase[];
@@ -1475,9 +1533,15 @@ function PhaseTracker({
   crew: { id: string; name: string; photoDataUrl?: string; phases: EntryPhase[] | null }[];
   activeId: string;
   onSelectRepairer: (id: string) => void;
+  // Which phase the grid is editing (lifted to the parent so the grid and this
+  // tracker stay in sync).
+  selected: number;
+  onSelect: (index: number) => void;
+  // Pallets produced per phase (QC excluded) and QC-deduction counts per phase.
+  phaseCounts: number[];
+  phaseQcCounts: number[];
 }) {
   const lastDone = lastPhaseDone(phases);
-  const [selected, setSelected] = useState(0);
   // Full-screen view of a phase photo so count sheets can be read.
   const [zoomPhoto, setZoomPhoto] = useState<string | null>(null);
 
@@ -1509,7 +1573,7 @@ function PhaseTracker({
           <select
             className="field max-w-[180px]"
             value={selected}
-            onChange={(event) => setSelected(Number(event.target.value))}
+            onChange={(event) => onSelect(Number(event.target.value))}
           >
             {phases.map((_phase, index) => (
               <option key={index} value={index}>
@@ -1519,42 +1583,57 @@ function PhaseTracker({
           </select>
         </div>
 
-        {/* Task bar: tap a phase to open it. */}
-        <div className="flex items-center gap-2">
+        {/* Task bar: tap a phase to open it. Each tab shows the pallets made in
+            that phase; phases 2 and 3 also show how that compares to the phase
+            before (green if same/more, red if fewer) as a productivity gauge. */}
+        <div className="flex items-stretch gap-2">
           {phases.map((phase, index) => {
             const done = isPhaseDone(phase);
+            const count = phaseCounts[index] ?? 0;
+            const prev = phaseCounts[index - 1] ?? 0;
+            const delta = count - prev;
+            // Only show the comparison once there is something to compare.
+            const showDelta = index > 0 && (count > 0 || prev > 0);
             return (
               <button
                 key={index}
                 type="button"
-                onClick={() => setSelected(index)}
+                onClick={() => onSelect(index)}
                 className={classNames(
-                  "flex flex-1 items-center justify-center gap-1.5 rounded-lg border px-2 py-2 text-sm font-black transition-colors",
+                  "flex flex-1 flex-col items-center justify-center gap-0.5 rounded-lg border px-2 py-2 text-sm font-black transition-colors",
                   selected === index ? "border-workshop-500 ring-2 ring-workshop-500/30" : "border-steel-100",
                   phase.bypassed ? "bg-steel-100 text-steel-500" : done ? "bg-workshop-100 text-workshop-700" : "bg-white text-steel-500"
                 )}
               >
-                {phase.bypassed ? <X size={15} /> : done ? <CheckCircle2 size={15} /> : <span className="h-3.5 w-3.5 rounded-full border border-steel-300" />}
-                Phase {index + 1}
+                <span className="flex items-center gap-1.5">
+                  {phase.bypassed ? <X size={15} /> : done ? <CheckCircle2 size={15} /> : <span className="h-3.5 w-3.5 rounded-full border border-steel-300" />}
+                  Phase {index + 1}
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="text-base text-steel-900">{phase.bypassed ? "—" : count}</span>
+                  {showDelta && !phase.bypassed && (
+                    <span className={classNames("rounded px-1 text-xs font-black", delta >= 0 ? "bg-workshop-100 text-workshop-700" : "bg-red-100 text-red-700")}>
+                      {delta >= 0 ? `+${delta}` : delta}
+                    </span>
+                  )}
+                </span>
               </button>
             );
           })}
         </div>
 
-        {/* Inputs for the selected phase. */}
+        {/* Read-out + controls for the selected phase. The pallet count comes
+            straight from the quantity grid below (entered per phase). */}
         <div className="grid gap-3 rounded-lg bg-steel-50 p-3 sm:grid-cols-[1fr_auto]">
-          <Label title={`Phase ${selected + 1} pallets`} icon={<FileSpreadsheet size={16} />}>
-            <input
-              className="field text-center font-black"
-              inputMode="numeric"
-              type="number"
-              min="0"
-              placeholder="0"
-              disabled={active.bypassed}
-              value={active.amount === 0 ? "" : active.amount}
-              onChange={(event) => updatePhase(selected, { amount: Math.max(0, Number(event.target.value) || 0) })}
-            />
-          </Label>
+          <div className="grid gap-1">
+            <p className="flex items-center gap-1.5 text-sm font-black"><FileSpreadsheet size={16} /> Phase {selected + 1} pallets</p>
+            <div className="flex items-baseline gap-2">
+              <span className="text-2xl font-black text-steel-900">{active.bypassed ? "—" : phaseCounts[selected] ?? 0}</span>
+              {!active.bypassed && (phaseQcCounts[selected] ?? 0) > 0 && (
+                <span className="rounded bg-red-100 px-1.5 py-0.5 text-xs font-black text-red-700">-{phaseQcCounts[selected]} QC</span>
+              )}
+            </div>
+          </div>
           <div className="flex items-end">
             <button
               type="button"
@@ -1753,7 +1832,7 @@ function ProductionEntry({
   onYardChange: (locationId: string) => void;
   onDateChange: (date: string) => void;
   onFormChange: <T extends keyof EntryForm>(key: T, value: EntryForm[T]) => void;
-  onQuantityChange: (palletTypeId: string, quantity: number) => void;
+  onQuantityChange: (phaseIndex: number, palletTypeId: string, quantity: number) => void;
   onSave: () => void;
   // When a Manager is signed in, the Yard Manager picker is hidden entirely.
   hideYardManager?: boolean;
@@ -1784,6 +1863,15 @@ function ProductionEntry({
     photoDataUrl: employee.photoDataUrl,
     phases: employee.id === form.employeeId ? activePhases : savedPhasesByEmployee.get(employee.id) ?? null
   }));
+
+  // Which phase the quantity grid is currently editing. Each phase keeps its
+  // own quantities; switching phases shows that phase's numbers (0 if fresh).
+  const [selectedPhase, setSelectedPhase] = useState(0);
+  // Pallets produced per phase (QC deductions excluded) for the productivity
+  // figures shown on each phase tab.
+  const phaseCounts = activePhases.map((phase) => phasePalletCount(phase, palletTypes));
+  const phaseQcCounts = activePhases.map((phase) => phaseQcCount(phase, palletTypes));
+  const phaseLines = activePhases[selectedPhase]?.lines ?? [];
 
   return (
     <div className="grid gap-4">
@@ -1847,6 +1935,10 @@ function ProductionEntry({
         crew={crew}
         activeId={form.employeeId}
         onSelectRepairer={onEmployeeChange}
+        selected={selectedPhase}
+        onSelect={setSelectedPhase}
+        phaseCounts={phaseCounts}
+        phaseQcCounts={phaseQcCounts}
       />
 
       {SHOW_TIME_FIELDS && (
@@ -1891,6 +1983,14 @@ function ProductionEntry({
       </div>
       )}
 
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-sm font-black text-steel-900">
+          Phase {selectedPhase + 1} quantities
+          <span className="ml-1 font-bold text-steel-500">— enter this phase&apos;s pallets, then switch phases above</span>
+        </p>
+        <span className="rounded bg-workshop-100 px-2.5 py-1 text-xs font-black text-workshop-700">{phaseCounts[selectedPhase]} pallets</span>
+      </div>
+
       <div className="overflow-hidden rounded border border-steel-100 bg-white text-steel-900">
         <div className="overflow-x-auto">
           <table className={classNames("w-full text-left text-sm", hidePricing ? "table-fixed" : "min-w-[760px]")}>
@@ -1905,7 +2005,7 @@ function ProductionEntry({
             </thead>
             <tbody>
               {displayedPallets.map((pallet) => {
-                const line = form.lines.find((item) => item.palletTypeId === pallet.id);
+                const line = phaseLines.find((item) => item.palletTypeId === pallet.id);
                 const quantity = line?.quantity ?? 0;
                 const earned = quantity * pallet.rate;
 
@@ -1930,14 +2030,14 @@ function ProductionEntry({
                     )}
                     <td className={cellPad}>
                       {hidePricing ? (
-                        <input className="field min-w-0 px-1 text-center font-black" inputMode="numeric" type="number" min="0" placeholder="0" value={quantity === 0 ? "" : quantity} onChange={(event) => onQuantityChange(pallet.id, Number(event.target.value))} />
+                        <input className="field min-w-0 px-1 text-center font-black" inputMode="numeric" type="number" min="0" placeholder="0" value={quantity === 0 ? "" : quantity} onChange={(event) => onQuantityChange(selectedPhase, pallet.id, Number(event.target.value))} />
                       ) : (
                         <div className={classNames("grid", qtyCols)}>
-                          <button type="button" className="touch-target flex items-center justify-center rounded bg-steel-800 text-white" onClick={() => onQuantityChange(pallet.id, quantity - 1)}>
+                          <button type="button" className="touch-target flex items-center justify-center rounded bg-steel-800 text-white" onClick={() => onQuantityChange(selectedPhase, pallet.id, quantity - 1)}>
                             <Minus size={18} />
                           </button>
-                          <input className="field min-w-0 px-1 text-center font-black" inputMode="numeric" type="number" min="0" placeholder="0" value={quantity === 0 ? "" : quantity} onChange={(event) => onQuantityChange(pallet.id, Number(event.target.value))} />
-                          <button type="button" className="touch-target flex items-center justify-center rounded bg-safety-400 text-steel-900" onClick={() => onQuantityChange(pallet.id, quantity + 1)}>
+                          <input className="field min-w-0 px-1 text-center font-black" inputMode="numeric" type="number" min="0" placeholder="0" value={quantity === 0 ? "" : quantity} onChange={(event) => onQuantityChange(selectedPhase, pallet.id, Number(event.target.value))} />
+                          <button type="button" className="touch-target flex items-center justify-center rounded bg-safety-400 text-steel-900" onClick={() => onQuantityChange(selectedPhase, pallet.id, quantity + 1)}>
                             <Plus size={18} />
                           </button>
                         </div>

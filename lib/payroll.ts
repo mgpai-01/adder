@@ -46,7 +46,7 @@ const legacyPalletTypeAliases: Record<string, string> = {
   "no-2": "stacker-grade-b-2"
 };
 
-function findPalletType(palletTypes: PalletType[], palletTypeId: string) {
+export function findPalletType(palletTypes: PalletType[], palletTypeId: string) {
   if (!palletTypeId) return undefined;
   const normalizedId = legacyPalletTypeAliases[palletTypeId] ?? palletTypeId;
   return palletTypes.find((pallet) => {
@@ -74,7 +74,13 @@ export function calculateEntry(
     const palletType = findPalletType(palletTypes, line.palletTypeId);
     return total + line.quantity * (palletType?.rate ?? 0);
   }, 0);
-  const quantity = lines.reduce((total, line) => total + line.quantity, 0);
+  // Pallet count excludes QC Deductions — those reduce pay (negative rate) but
+  // are not pallets produced, so they should not inflate the productivity count.
+  const quantity = lines.reduce((total, line) => {
+    const palletType = findPalletType(palletTypes, line.palletTypeId);
+    if (palletType?.category === "QC Deductions") return total;
+    return total + line.quantity;
+  }, 0);
   // Only owe the minimum-wage make-up when there's actual activity for the day
   // (pallets entered, or a phase counted/bypassed/photographed). An empty entry
   // means the person likely wasn't at work, so they earn nothing.
