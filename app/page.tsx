@@ -18,6 +18,7 @@ import {
   ImagePlus,
   LogOut,
   MapPin,
+  Maximize2,
   Minus,
   Moon,
   Plus,
@@ -1477,6 +1478,8 @@ function PhaseTracker({
 }) {
   const lastDone = lastPhaseDone(phases);
   const [selected, setSelected] = useState(0);
+  // Full-screen view of a phase photo so count sheets can be read.
+  const [zoomPhoto, setZoomPhoto] = useState<string | null>(null);
 
   function updatePhase(index: number, patch: Partial<EntryPhase>) {
     onChange(phases.map((phase, current) => (current === index ? { ...phase, ...patch } : phase)));
@@ -1565,8 +1568,18 @@ function PhaseTracker({
             <p className="mb-1 flex items-center gap-1.5 text-sm font-black"><Camera size={15} /> Phase {selected + 1} photo</p>
             {active.photoDataUrl ? (
               <div className="flex items-center gap-3">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={active.photoDataUrl} alt={`Phase ${selected + 1}`} className="h-16 w-16 rounded object-cover" />
+                <button
+                  type="button"
+                  onClick={() => setZoomPhoto(active.photoDataUrl ?? null)}
+                  className="group relative shrink-0 rounded ring-1 ring-steel-200 transition-transform hover:scale-105"
+                  title="Tap to enlarge"
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={active.photoDataUrl} alt={`Phase ${selected + 1}`} className="h-16 w-16 rounded object-cover" />
+                  <span className="absolute inset-0 flex items-center justify-center rounded bg-black/0 text-transparent transition-colors group-hover:bg-black/40 group-hover:text-white">
+                    <Maximize2 size={18} />
+                  </span>
+                </button>
                 <button type="button" className="rounded bg-steel-100 px-3 py-2 text-sm font-black text-steel-900" onClick={() => updatePhase(selected, { photoDataUrl: undefined })}>
                   Remove
                 </button>
@@ -1638,6 +1651,32 @@ function PhaseTracker({
           );
         })}
       </div>
+
+      {/* Full-screen photo viewer so count sheets can be read up close. */}
+      {zoomPhoto && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-4 [animation:board-rise_0.2s_ease-out]"
+          onClick={() => setZoomPhoto(null)}
+          role="dialog"
+          aria-modal="true"
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={zoomPhoto}
+            alt="Phase photo"
+            className="max-h-full max-w-full rounded-lg object-contain shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          />
+          <button
+            type="button"
+            onClick={() => setZoomPhoto(null)}
+            aria-label="Close"
+            className="absolute right-4 top-4 flex h-11 w-11 items-center justify-center rounded-full bg-white/15 text-white backdrop-blur transition-colors hover:bg-white/30"
+          >
+            <X size={22} />
+          </button>
+        </div>
+      )}
     </div>
   );
 }
