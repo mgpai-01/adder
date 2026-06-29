@@ -635,21 +635,28 @@ export default function Home() {
       setEntries(localEntries);
     }
 
-    Promise.all(
-      localEntries.map((entry) =>
-        fetch("/api/entries?syncSheets=false", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(entry)
-        }).catch(() => undefined)
-      )
-    )
-      .then(() => fetch("/api/entries"))
+    // Load the cloud first, then merge with cloud winning. The local copy is a
+    // cache that has been stripped of photos (to fit the storage quota), so it
+    // must NEVER overwrite a cloud entry — doing so erased photos. Only push up
+    // local entries the cloud doesn't have yet (e.g. created while offline).
+    fetch("/api/entries")
       .then((response) => response.json())
       .then((result: { entries: DailyEntry[] }) => {
+        const cloudEntries = result.entries.map(migrateEntry);
+        const cloudIds = new Set(cloudEntries.map((entry) => entry.id));
         const merged = new Map<string, DailyEntry>();
-        [...localEntries, ...result.entries.map(migrateEntry)].forEach((entry) => merged.set(entry.id, entry));
+        // Local first, cloud second, so the cloud's photo-bearing copy wins.
+        [...localEntries, ...cloudEntries].forEach((entry) => merged.set(entry.id, entry));
         setEntries(Array.from(merged.values()).sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt)));
+        localEntries
+          .filter((entry) => !cloudIds.has(entry.id))
+          .forEach((entry) => {
+            fetch("/api/entries?syncSheets=false", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(entry)
+            }).catch(() => undefined);
+          });
       })
       .finally(() => setEntriesLoaded(true));
 
