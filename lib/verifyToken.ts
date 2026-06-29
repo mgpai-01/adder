@@ -1,14 +1,12 @@
-import { createRemoteJWKSet, decodeJwt, jwtVerify } from "jose";
+import { createRemoteJWKSet, jwtVerify } from "jose";
 
-// Verifies a Supabase access token and returns the user id (the `sub` claim).
-// Handles both project setups:
+// Verifies a Supabase access token (signature + expiry) and returns the user id
+// (the `sub` claim). Handles both project setups:
 //   - asymmetric "JWT signing keys" -> verified against the project's JWKS
 //   - legacy shared "JWT secret" (HS256) -> verified with SUPABASE_JWT_SECRET
-// Returns { verified: false } only as a temporary fallback (decode without
-// signature check) so login keeps working until verification is confirmed; the
-// fallback is removed once we've confirmed real verification is active.
+// Returns null if the token can't be verified — there is no unverified fallback.
 
-export type TokenCheck = { userId: string; verified: boolean; method: "jwks" | "hs256" | "unverified" };
+export type TokenCheck = { userId: string; verified: boolean; method: "jwks" | "hs256" };
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 
@@ -50,16 +48,6 @@ export async function verifyUserToken(token: string): Promise<TokenCheck | null>
     }
   }
 
-  // 3) Temporary fallback: decode without verifying the signature (still checks
-  // expiry). Keeps login working until verification is confirmed configured.
-  try {
-    const payload = decodeJwt(token);
-    if (payload.sub && (!payload.exp || payload.exp * 1000 > Date.now())) {
-      return { userId: String(payload.sub), verified: false, method: "unverified" };
-    }
-  } catch {
-    // Not a readable JWT.
-  }
-
+  // Could not verify with either method — reject.
   return null;
 }
