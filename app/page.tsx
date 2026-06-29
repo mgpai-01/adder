@@ -420,8 +420,26 @@ function dataUrlToFile(dataUrl: string, fileName: string) {
   return new File([bytes], fileName, { type: mime });
 }
 
-async function compressImage(file: File) {
-  if (!file.type.startsWith("image/")) return file;
+// iPhone photos are often HEIC/HEIF, which Chrome can't draw to a canvas or
+// show in an <img>, so they'd save as broken images. Convert them to JPEG first
+// (heic2any is loaded only when a HEIC actually shows up, to keep the bundle small).
+async function toRenderableImage(file: File): Promise<File> {
+  const isHeic = /hei[cf]/i.test(file.type) || /\.(heic|heif)$/i.test(file.name);
+  if (!isHeic) return file;
+  try {
+    const heic2any = (await import("heic2any")).default;
+    const converted = await heic2any({ blob: file, toType: "image/jpeg", quality: 0.85 });
+    const blob = Array.isArray(converted) ? converted[0] : converted;
+    const name = file.name.replace(/\.[^.]+$/, "") || "photo";
+    return new File([blob], `${name}.jpg`, { type: "image/jpeg" });
+  } catch {
+    return file;
+  }
+}
+
+async function compressImage(input: File) {
+  if (!input.type.startsWith("image/") && !/\.(heic|heif)$/i.test(input.name)) return input;
+  const file = await toRenderableImage(input);
 
   const imageUrl = URL.createObjectURL(file);
   try {
@@ -1598,6 +1616,9 @@ function PhaseTracker({
   const lastDone = lastPhaseDone(phases);
   // Full-screen view of a phase photo so count sheets can be read.
   const [zoomPhoto, setZoomPhoto] = useState<string | null>(null);
+  // Photos that fail to render (e.g. an old HEIC saved before conversion) so we
+  // can show a clear "re-upload" placeholder instead of a broken-image icon.
+  const [brokenPhotos, setBrokenPhotos] = useState<string[]>([]);
 
   function updatePhase(index: number, patch: Partial<EntryPhase>) {
     onChange(phases.map((phase, current) => (current === index ? { ...phase, ...patch } : phase)));
@@ -1717,20 +1738,33 @@ function PhaseTracker({
             </p>
             {activePhotos.length > 0 && (
               <div className="mb-3 flex flex-wrap gap-2">
-                {activePhotos.map((photo, photoIndex) => (
+                {activePhotos.map((photo, photoIndex) => {
+                  const broken = brokenPhotos.includes(photo);
+                  return (
                   <div key={photoIndex} className="relative shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => setZoomPhoto(photo)}
-                      className="group relative block rounded ring-1 ring-steel-200 transition-transform hover:scale-105"
-                      title="Tap to enlarge"
-                    >
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={photo} alt={`Phase ${selected + 1} photo ${photoIndex + 1}`} className="h-16 w-16 rounded object-cover" />
-                      <span className="absolute inset-0 flex items-center justify-center rounded bg-black/0 text-transparent transition-colors group-hover:bg-black/40 group-hover:text-white">
-                        <Maximize2 size={18} />
-                      </span>
-                    </button>
+                    {broken ? (
+                      <div className="flex h-16 w-24 flex-col items-center justify-center rounded bg-amber-50 px-1 text-center text-[10px] font-black leading-tight text-amber-700 ring-1 ring-amber-200">
+                        Can&apos;t preview — remove &amp; re-add
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setZoomPhoto(photo)}
+                        className="group relative block rounded ring-1 ring-steel-200 transition-transform hover:scale-105"
+                        title="Tap to enlarge"
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={photo}
+                          alt={`Phase ${selected + 1} photo ${photoIndex + 1}`}
+                          className="h-16 w-16 rounded object-cover"
+                          onError={() => setBrokenPhotos((current) => (current.includes(photo) ? current : [...current, photo]))}
+                        />
+                        <span className="absolute inset-0 flex items-center justify-center rounded bg-black/0 text-transparent transition-colors group-hover:bg-black/40 group-hover:text-white">
+                          <Maximize2 size={18} />
+                        </span>
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => removePhasePhoto(selected, photo)}
@@ -1740,7 +1774,8 @@ function PhaseTracker({
                       <X size={13} />
                     </button>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )}
             <DropZone
