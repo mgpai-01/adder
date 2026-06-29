@@ -1592,10 +1592,12 @@ function PhaseTracker({
       </div>
 
       {/* Side panel: who has reached each phase. A repairer appears under a
-          phase only once they have completed every phase before it. */}
-      <div className="grid content-start gap-3 rounded-lg bg-steel-900 p-3 text-white">
-        <p className="text-xs font-black uppercase tracking-wide text-steel-100">Phase check-ins</p>
-        {phases.map((_phase, phaseIndex) => {
+          phase only once they have completed every phase before it. The list
+          scrolls on its own so every name shows, and the most-completed phase
+          sits at the top. */}
+      <div className="grid max-h-[80vh] content-start gap-3 overflow-y-auto rounded-lg bg-steel-900 p-3 text-white">
+        <p className="sticky top-0 -mx-3 -mt-3 bg-steel-900 px-3 pb-2 pt-3 text-xs font-black uppercase tracking-wide text-steel-100">Phase check-ins</p>
+        {phases.map((_phase, phaseIndex) => phaseIndex).reverse().map((phaseIndex) => {
           // Show each repairer under the phase they're currently checked in for
           // (their latest completed phase), listed alphabetically by first name.
           const checkedIn = crew
