@@ -1599,10 +1599,13 @@ function PhaseTracker({
         <p className="sticky top-0 -mx-3 -mt-3 bg-steel-900 px-3 pb-2 pt-3 text-xs font-black uppercase tracking-wide text-steel-100">Phase check-ins</p>
         {phases.map((_phase, phaseIndex) => phaseIndex).reverse().map((phaseIndex) => {
           // Show each repairer under the phase they're currently checked in for
-          // (their latest completed phase), listed alphabetically by first name.
+          // (their latest completed phase). Completed (checkmark) repairers come
+          // first, then bypassed ones, each group alphabetical by first name.
           const checkedIn = crew
             .filter((member) => lastPhaseDone(member.phases ?? []) === phaseIndex + 1)
             .sort((a, b) => {
+              const bypassed = (member: typeof a) => Boolean(member.phases?.[phaseIndex]?.bypassed);
+              if (bypassed(a) !== bypassed(b)) return bypassed(a) ? 1 : -1;
               const first = (name: string) => name.trim().split(/\s+/)[0].toLowerCase();
               return first(a.name).localeCompare(first(b.name)) || a.name.localeCompare(b.name);
             });
