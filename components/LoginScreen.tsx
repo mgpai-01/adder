@@ -194,6 +194,14 @@ export default function LoginScreen() {
             </button>
           </form>
         )}
+
+        {/* Public live board — viewable without signing in. */}
+        <a
+          href="/live-board"
+          className="mt-5 flex touch-target items-center justify-center gap-1.5 rounded-xl border border-workshop-100 bg-workshop-100/60 px-4 py-2.5 text-sm font-black text-workshop-700 transition-colors hover:bg-workshop-100"
+        >
+          Live Pallet Tracker →
+        </a>
         </div>
       </div>
     </main>
