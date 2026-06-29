@@ -1634,7 +1634,12 @@ function PhaseTracker({
               {group.members.length === 0 ? (
                 <p className="rounded bg-white/5 px-3 py-1.5 text-xs font-bold text-steel-400">None</p>
               ) : (
-                group.members.map((member) => (
+                group.members.map((member) => {
+                  // Phases this repairer actually finished (have a photo).
+                  const donePhases = (member.phases ?? [])
+                    .map((phase, i) => (phase?.photoDataUrl ? i + 1 : null))
+                    .filter((n): n is number => n !== null);
+                  return (
                   <button
                     key={member.id}
                     type="button"
@@ -1655,9 +1660,18 @@ function PhaseTracker({
                       )}
                       <span className={classNames("min-w-0 truncate text-sm font-black", group.dim && "text-steel-300")}>{member.name}</span>
                     </span>
-                    {group.icon}
+                    {group.key === "completed" && donePhases.length > 0 ? (
+                      <span className="flex shrink-0 items-center gap-1">
+                        {donePhases.map((n) => (
+                          <span key={n} className="rounded bg-safety-400/20 px-1.5 py-0.5 text-[10px] font-black text-safety-300">P{n}</span>
+                        ))}
+                      </span>
+                    ) : (
+                      group.icon
+                    )}
                   </button>
-                ))
+                  );
+                })
               )}
             </div>
           ));
