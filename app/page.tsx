@@ -1598,21 +1598,24 @@ function PhaseTracker({
       <div className="grid max-h-[80vh] content-start gap-3 overflow-y-auto rounded-lg bg-steel-900 p-3 text-white">
         <p className="sticky top-0 -mx-3 -mt-3 bg-steel-900 px-3 pb-2 pt-3 text-xs font-black uppercase tracking-wide text-steel-100">Phase check-ins</p>
         {(() => {
-          // Classify each repairer by what they've entered:
-          //   completed  -> at least one phase has a photo
-          //   incomplete -> entered info (pallets or bypass) but no photo yet
+          // A phase counts as complete only once it has a photo (a bypassed
+          // phase needs no photo, so it's complete too). Classify each repairer:
+          //   completed  -> every phase is complete
+          //   incomplete -> started, but at least one phase still needs a photo
           //   not started -> nothing entered at all
-          const hasPhoto = (member: typeof crew[number]) => (member.phases ?? []).some((phase) => Boolean(phase?.photoDataUrl));
-          const hasInfo = (member: typeof crew[number]) =>
-            (member.phases ?? []).some((phase) => (phase?.amount ?? 0) > 0 || Boolean(phase?.bypassed));
+          const phaseComplete = (phase: EntryPhase | undefined) => Boolean(phase?.photoDataUrl) || Boolean(phase?.bypassed);
+          const phaseActive = (phase: EntryPhase | undefined) =>
+            (phase?.amount ?? 0) > 0 || Boolean(phase?.bypassed) || Boolean(phase?.photoDataUrl);
+          const hasActivity = (member: typeof crew[number]) => (member.phases ?? []).some((phase) => phaseActive(phase ?? undefined));
+          const allComplete = (member: typeof crew[number]) => phases.every((_p, i) => phaseComplete(member.phases?.[i] ?? undefined));
           const byFirstName = (a: typeof crew[number], b: typeof crew[number]) => {
             const first = (name: string) => name.trim().split(/\s+/)[0].toLowerCase();
             return first(a.name).localeCompare(first(b.name)) || a.name.localeCompare(b.name);
           };
 
-          const completed = crew.filter((m) => hasPhoto(m)).sort(byFirstName);
-          const incomplete = crew.filter((m) => !hasPhoto(m) && hasInfo(m)).sort(byFirstName);
-          const notStarted = crew.filter((m) => !hasPhoto(m) && !hasInfo(m)).sort(byFirstName);
+          const completed = crew.filter((m) => hasActivity(m) && allComplete(m)).sort(byFirstName);
+          const incomplete = crew.filter((m) => hasActivity(m) && !allComplete(m)).sort(byFirstName);
+          const notStarted = crew.filter((m) => !hasActivity(m)).sort(byFirstName);
 
           const groups = [
             { key: "completed", label: "Completed", members: completed, dim: false,
@@ -1635,9 +1638,12 @@ function PhaseTracker({
                 <p className="rounded bg-white/5 px-3 py-1.5 text-xs font-bold text-steel-400">None</p>
               ) : (
                 group.members.map((member) => {
-                  // Phases this repairer actually finished (have a photo).
-                  const donePhases = (member.phases ?? [])
-                    .map((phase, i) => (phase?.photoDataUrl ? i + 1 : null))
+                  // Which phases are done (photo/bypassed) vs still incomplete.
+                  const donePhases = phases
+                    .map((_p, i) => (phaseComplete(member.phases?.[i] ?? undefined) ? i + 1 : null))
+                    .filter((n): n is number => n !== null);
+                  const pendingPhases = phases
+                    .map((_p, i) => (!phaseComplete(member.phases?.[i] ?? undefined) ? i + 1 : null))
                     .filter((n): n is number => n !== null);
                   return (
                   <button
@@ -1664,6 +1670,12 @@ function PhaseTracker({
                       <span className="flex shrink-0 items-center gap-1">
                         {donePhases.map((n) => (
                           <span key={n} className="rounded bg-safety-400/20 px-1.5 py-0.5 text-[10px] font-black text-safety-300">P{n}</span>
+                        ))}
+                      </span>
+                    ) : group.key === "incomplete" && pendingPhases.length > 0 ? (
+                      <span className="flex shrink-0 items-center gap-1">
+                        {pendingPhases.map((n) => (
+                          <span key={n} className="rounded bg-amber-400/20 px-1.5 py-0.5 text-[10px] font-black text-amber-300">P{n}</span>
                         ))}
                       </span>
                     ) : (
