@@ -378,6 +378,37 @@ function sanitizeCountSheetsForStorage(countSheets: CountSheet[]) {
   }));
 }
 
+// Write to localStorage without ever throwing. Quota-exceeded (the cache got
+// too big) would otherwise crash the app; the cloud is the source of truth, so
+// dropping the cache on failure is safe.
+function safeSetItem(key: string, value: string) {
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+    try {
+      window.localStorage.removeItem(key);
+    } catch {
+      // ignore
+    }
+  }
+}
+
+// The localStorage copy of entries is only an offline cache — the cloud is the
+// source of truth. Phase photos are large base64 strings that quickly blow past
+// the ~5 MB localStorage quota (especially with several photos per phase), which
+// would make setItem throw. Drop them from the cached copy; they reload from the
+// cloud. (Lines/counts are kept so totals still work offline.)
+function sanitizeEntriesForStorage(entries: DailyEntry[]): DailyEntry[] {
+  return entries.map((entry) => ({
+    ...entry,
+    phases: entry.phases?.map((phase) => ({
+      amount: phase.amount,
+      bypassed: phase.bypassed,
+      lines: phase.lines
+    }))
+  }));
+}
+
 function dataUrlToFile(dataUrl: string, fileName: string) {
   const [header, base64] = dataUrl.split(",");
   const mime = header.match(/data:(.*?);base64/)?.[1] ?? "image/jpeg";
@@ -573,7 +604,7 @@ export default function Home() {
     let localEntries: DailyEntry[] = [];
     if (savedEntries) {
       localEntries = (JSON.parse(savedEntries) as DailyEntry[]).map(migrateEntry);
-      window.localStorage.setItem(entryStorageKey, JSON.stringify(localEntries));
+      safeSetItem(entryStorageKey, JSON.stringify(sanitizeEntriesForStorage(localEntries)));
       setEntries(localEntries);
     }
 
@@ -610,7 +641,7 @@ export default function Home() {
     if (savedPallets) {
       setPalletTypes(JSON.parse(savedPallets));
     } else {
-      window.localStorage.setItem(palletStorageKey, JSON.stringify(defaultPalletTypes));
+      safeSetItem(palletStorageKey, JSON.stringify(defaultPalletTypes));
     }
 
     const savedLocations = window.localStorage.getItem(locationStorageKey);
@@ -715,8 +746,17 @@ export default function Home() {
   }, [entriesLoaded]);
 
   useEffect(() => {
-    if (entriesLoaded) {
-      window.localStorage.setItem(entryStorageKey, JSON.stringify(entries));
+    if (!entriesLoaded) return;
+    try {
+      window.localStorage.setItem(entryStorageKey, JSON.stringify(sanitizeEntriesForStorage(entries)));
+    } catch {
+      // Over quota or storage blocked — the cloud is the source of truth, so
+      // just drop the stale cache rather than letting the write throw.
+      try {
+        window.localStorage.removeItem(entryStorageKey);
+      } catch {
+        // ignore
+      }
     }
   }, [entries, entriesLoaded]);
 
@@ -729,23 +769,23 @@ export default function Home() {
   }, [countSheets]);
 
   useEffect(() => {
-    window.localStorage.setItem(palletStorageKey, JSON.stringify(palletTypes));
+    safeSetItem(palletStorageKey, JSON.stringify(palletTypes));
   }, [palletTypes]);
 
   useEffect(() => {
-    window.localStorage.setItem(employeeStorageKey, JSON.stringify(employeeList));
+    safeSetItem(employeeStorageKey, JSON.stringify(employeeList));
   }, [employeeList]);
 
   useEffect(() => {
-    window.localStorage.setItem(locationStorageKey, JSON.stringify(locationList));
+    safeSetItem(locationStorageKey, JSON.stringify(locationList));
   }, [locationList]);
 
   useEffect(() => {
-    window.localStorage.setItem(shiftStorageKey, JSON.stringify(shiftList));
+    safeSetItem(shiftStorageKey, JSON.stringify(shiftList));
   }, [shiftList]);
 
   useEffect(() => {
-    window.localStorage.setItem(payrollSettingsStorageKey, JSON.stringify(settings));
+    safeSetItem(payrollSettingsStorageKey, JSON.stringify(settings));
     if (settingsLoaded) {
       fetch("/api/settings", {
         method: "POST",
