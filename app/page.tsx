@@ -534,6 +534,15 @@ export default function Home() {
   const [toast, setToast] = useState("");
   const [changeLog, setChangeLog] = useState<ChangeLogEntry[]>([]);
   const toastTimer = useRef<number | undefined>(undefined);
+  // Tracks whether the entry form has unsaved local edits. When it doesn't, the
+  // view is safe to auto-refresh from incoming cloud data (so a manager/admin
+  // who is just watching sees others' new photos/counts appear live); when it
+  // does, we leave the form alone so we never clobber what someone is typing.
+  const formDirtyRef = useRef(false);
+  // Latest form selection, read inside the auto-refresh effect without making
+  // it depend on (and re-run for) every keystroke.
+  const formSelectionRef = useRef({ employeeId: "", date: "", locationId: "" });
+  formSelectionRef.current = { employeeId: form.employeeId, date: form.date, locationId: form.locationId };
 
   function showToast(message: string) {
     setToast(message);
@@ -752,13 +761,34 @@ export default function Home() {
         })
         .catch(() => undefined);
     };
-    // Poll once a minute (was every 15s). Each poll pulls every entry — and
-    // entries carry embedded photos — so frequent polling was a major source of
-    // Supabase egress. A refresh on window focus keeps it feeling live.
-    const timer = window.setInterval(loadSharedEntries, 60_000);
+    // Poll a tiny fingerprint every 10s and only pull the full (photo-heavy)
+    // entries when something actually changed. This makes another manager's or
+    // admin's saved photos show up here within ~10s without re-downloading every
+    // photo on a timer. A slow full refresh + focus refresh are safety nets.
+    let lastFingerprint: string | null = null;
+    const checkForChanges = async () => {
+      try {
+        const response = await fetch("/api/entries/ping", { cache: "no-store" });
+        const { fingerprint } = (await response.json()) as { fingerprint?: string };
+        const next = fingerprint ?? "";
+        if (lastFingerprint === null) {
+          lastFingerprint = next; // seed on first check; initial load already ran
+          return;
+        }
+        if (next !== lastFingerprint) {
+          lastFingerprint = next;
+          loadSharedEntries();
+        }
+      } catch {
+        // ignore transient network errors
+      }
+    };
+    const pingTimer = window.setInterval(checkForChanges, 10_000);
+    const fullTimer = window.setInterval(loadSharedEntries, 180_000);
     window.addEventListener("focus", loadSharedEntries);
     return () => {
-      window.clearInterval(timer);
+      window.clearInterval(pingTimer);
+      window.clearInterval(fullTimer);
       window.removeEventListener("focus", loadSharedEntries);
     };
   }, [entriesLoaded]);
@@ -938,8 +968,23 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entriesLoaded]);
 
+  // When fresh entries arrive (e.g. another manager/admin just saved photos),
+  // refresh the on-screen form for the person being viewed — but only if there
+  // are no unsaved local edits, so we never overwrite what someone is typing.
+  // This is what makes a colleague's photos appear here live without clicking.
+  useEffect(() => {
+    if (!entriesLoaded || formDirtyRef.current) return;
+    const { employeeId, date, locationId } = formSelectionRef.current;
+    if (!employeeId) return;
+    const data = entryFormData(employeeId, date, locationId);
+    setEditingEntryId(data.existingId);
+    setForm((current) => ({ ...current, lines: data.lines, phases: data.phases }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entries, entriesLoaded]);
+
 
   function updateForm<T extends keyof EntryForm>(key: T, value: EntryForm[T]) {
+    formDirtyRef.current = true;
     setForm((current) => ({ ...current, [key]: value }));
   }
 
@@ -980,6 +1025,7 @@ export default function Home() {
   function handleEmployeeChange(employeeId: string) {
     const employee = employeeList.find((item) => item.id === employeeId);
     const data = entryFormData(employeeId, form.date, form.locationId);
+    formDirtyRef.current = false;
     setEditingEntryId(data.existingId);
     setForm((current) => ({
       ...current,
@@ -992,6 +1038,7 @@ export default function Home() {
 
   function handleDateChange(date: string) {
     const data = entryFormData(form.employeeId, date, form.locationId);
+    formDirtyRef.current = false;
     setEditingEntryId(data.existingId);
     setForm((current) => ({ ...current, date, lines: data.lines, phases: data.phases }));
   }
@@ -1007,6 +1054,7 @@ export default function Home() {
       : managers[0]?.id ?? "";
     const selectedRepairer = repairers.find((employee) => employee.id === employeeId);
     const data = entryFormData(employeeId, form.date, locationId);
+    formDirtyRef.current = false;
     setEditingEntryId(data.existingId);
     setForm((current) => ({
       ...current,
@@ -1023,6 +1071,7 @@ export default function Home() {
   // that phase's non-QC count (`amount`) and the day's aggregate `lines`, which
   // is what pay and the live board read.
   function updatePhaseLineQuantity(phaseIndex: number, palletTypeId: string, quantity: number) {
+    formDirtyRef.current = true;
     setForm((current) => {
       const qty = Math.max(0, Number(quantity) || 0);
       const phases = normalizePhases(current.phases).map((phase, index) => {
@@ -1058,6 +1107,8 @@ export default function Home() {
     };
 
     setEntries((current) => [cleanEntry, ...current.filter((entry) => entry.id !== entryId)]);
+    // Saved — the form now matches the cloud, so it's safe to auto-refresh again.
+    formDirtyRef.current = false;
     // Keep the saved numbers on screen (and keep editing this same entry) so the
     // grid totals reflect what was just saved and match the live board.
     setEditingEntryId(entryId);

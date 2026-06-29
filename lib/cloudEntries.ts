@@ -66,6 +66,25 @@ export async function readCloudEntriesSummary(): Promise<DailyEntry[]> {
   );
 }
 
+// A tiny fingerprint of the table — total row count plus the most recent
+// updated_at — so clients can cheaply detect "something changed" and only pull
+// the full (photo-heavy) entries when it actually did. Keeps cross-user sync
+// near-instant without constantly re-downloading photos.
+export async function readCloudEntriesFingerprint(): Promise<string> {
+  const supabase = getSupabaseServerClient();
+  if (!supabase) return "";
+
+  const { data, count, error } = await supabase
+    .from("cloud_entries")
+    .select("updated_at", { count: "exact" })
+    .order("updated_at", { ascending: false })
+    .limit(1);
+
+  if (error) return "";
+  const latest = (data?.[0] as { updated_at?: string } | undefined)?.updated_at ?? "";
+  return `${count ?? 0}:${latest}`;
+}
+
 export async function upsertCloudEntry(entry: DailyEntry): Promise<{ ok: boolean; error?: string }> {
   const supabase = getSupabaseServerClient();
   if (!supabase) return { ok: false, error: "Supabase not configured" };
