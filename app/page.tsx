@@ -1655,6 +1655,50 @@ function PhaseTracker({
             </div>
           );
         })}
+
+        {/* Everyone who hasn't entered any phase yet still shows, grouped at the
+            bottom, so the whole crew is always visible. */}
+        {(() => {
+          const notStarted = crew
+            .filter((member) => lastPhaseDone(member.phases ?? []) === 0)
+            .sort((a, b) => {
+              const first = (name: string) => name.trim().split(/\s+/)[0].toLowerCase();
+              return first(a.name).localeCompare(first(b.name)) || a.name.localeCompare(b.name);
+            });
+          if (notStarted.length === 0) return null;
+          return (
+            <div className="grid gap-1">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-black text-steel-400">Not started</span>
+                <span className="text-xs font-bold text-steel-400">{notStarted.length}</span>
+              </div>
+              {notStarted.map((member) => (
+                <button
+                  key={member.id}
+                  type="button"
+                  onClick={() => onSelectRepairer(member.id)}
+                  className={classNames(
+                    "flex items-center justify-between gap-2 rounded px-3 py-1.5 text-left transition-colors",
+                    member.id === activeId ? "bg-white/15 ring-1 ring-workshop-400" : "bg-white/5 hover:bg-white/10"
+                  )}
+                >
+                  <span className="flex min-w-0 items-center gap-2">
+                    {member.photoDataUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={member.photoDataUrl} alt="" className="h-6 w-6 shrink-0 rounded object-cover" />
+                    ) : (
+                      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-white/20 text-[10px] font-black">
+                        {member.name.split(" ").map((part) => part[0]).join("").slice(0, 2).toUpperCase()}
+                      </span>
+                    )}
+                    <span className="min-w-0 truncate text-sm font-black text-steel-300">{member.name}</span>
+                  </span>
+                  <span className="h-3.5 w-3.5 shrink-0 rounded-full border border-steel-500" />
+                </button>
+              ))}
+            </div>
+          );
+        })()}
       </div>
 
       {/* Full-screen photo viewer so count sheets can be read up close. */}
