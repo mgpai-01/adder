@@ -48,7 +48,10 @@ export type ProductionLine = {
 export type EntryPhase = {
   amount: number;
   bypassed: boolean;
+  // `photoDataUrl` is the legacy single photo; `photoDataUrls` holds one or more
+  // photos. Helpers read both so older saved entries keep working.
   photoDataUrl?: string;
+  photoDataUrls?: string[];
   lines?: ProductionLine[];
 };
 

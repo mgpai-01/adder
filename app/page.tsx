@@ -132,14 +132,23 @@ function createPhases(): EntryPhase[] {
   return Array.from({ length: PHASE_COUNT }, () => ({ amount: 0, bypassed: false, lines: [] as ProductionLine[] }));
 }
 
-// Always return exactly PHASE_COUNT phases, filling any that are missing.
+// All photos on a phase, combining the legacy single photo with the array.
+function phasePhotos(phase?: EntryPhase): string[] {
+  const list = [...(phase?.photoDataUrls ?? [])];
+  if (phase?.photoDataUrl && !list.includes(phase.photoDataUrl)) list.unshift(phase.photoDataUrl);
+  return list.filter(Boolean);
+}
+
+// Always return exactly PHASE_COUNT phases, filling any that are missing. The
+// legacy single photo is folded into the photo array so everything downstream
+// only has to look at `photoDataUrls`.
 function normalizePhases(phases?: EntryPhase[]): EntryPhase[] {
   const base = createPhases();
   (phases ?? []).slice(0, PHASE_COUNT).forEach((phase, index) => {
     base[index] = {
       amount: Number(phase?.amount) || 0,
       bypassed: Boolean(phase?.bypassed),
-      photoDataUrl: phase?.photoDataUrl,
+      photoDataUrls: phasePhotos(phase),
       lines: (phase?.lines ?? []).map((line) => ({ palletTypeId: line.palletTypeId, quantity: Number(line.quantity) || 0 }))
     };
   });
@@ -187,7 +196,7 @@ function combinePhases(entries: DailyEntry[], palletTypes: PalletType[]): EntryP
   const phases = base.map((_basePhase, index) => {
     const lineSets: (ProductionLine[] | undefined)[] = [];
     let bypassed = false;
-    let photoDataUrl: string | undefined;
+    const photoDataUrls: string[] = [];
     entries.forEach((entry) => {
       const phs = normalizePhases(entry.phases);
       const phase = phs[index];
@@ -195,17 +204,19 @@ function combinePhases(entries: DailyEntry[], palletTypes: PalletType[]): EntryP
       if ((phase.lines ?? []).length > 0) lineSets.push(phase.lines);
       else if (index === 0 && !entryHasPhaseLines) lineSets.push(entry.lines);
       bypassed = bypassed || phase.bypassed;
-      photoDataUrl = photoDataUrl || phase.photoDataUrl;
+      phasePhotos(phase).forEach((photo) => {
+        if (!photoDataUrls.includes(photo)) photoDataUrls.push(photo);
+      });
     });
     const lines = sumLines(lineSets).filter((line) => line.quantity !== 0);
-    return { amount: 0, bypassed, photoDataUrl, lines };
+    return { amount: 0, bypassed, photoDataUrls, lines };
   });
   return phases.map((phase) => ({ ...phase, amount: phasePalletCount(phase, palletTypes) }));
 }
 
 // True once a phase has pallets entered, a photo, or has been bypassed.
 function isPhaseDone(phase: EntryPhase): boolean {
-  return phase.bypassed || phase.amount > 0 || (phase.lines ?? []).length > 0 || Boolean(phase.photoDataUrl);
+  return phase.bypassed || phase.amount > 0 || (phase.lines ?? []).length > 0 || phasePhotos(phase).length > 0;
 }
 
 // The highest phase number that has been completed (0 = none yet).
@@ -1549,15 +1560,28 @@ function PhaseTracker({
     onChange(phases.map((phase, current) => (current === index ? { ...phase, ...patch } : phase)));
   }
 
-  async function handlePhasePhoto(index: number, file?: File) {
-    if (!file) return;
-    const compressed = await compressImage(file);
-    const reader = new FileReader();
-    reader.onload = () => updatePhase(index, { photoDataUrl: String(reader.result) });
-    reader.readAsDataURL(compressed);
+  function readAsDataUrl(file: File): Promise<string> {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  // Add one or more photos to a phase, keeping any already there.
+  async function handlePhasePhoto(index: number, files: File[]) {
+    if (!files.length) return;
+    const added = await Promise.all(files.map(async (file) => readAsDataUrl(await compressImage(file))));
+    const existing = phasePhotos(phases[index]);
+    updatePhase(index, { photoDataUrl: undefined, photoDataUrls: [...existing, ...added] });
+  }
+
+  function removePhasePhoto(index: number, photo: string) {
+    updatePhase(index, { photoDataUrl: undefined, photoDataUrls: phasePhotos(phases[index]).filter((item) => item !== photo) });
   }
 
   const active = phases[selected];
+  const activePhotos = phasePhotos(active);
 
   return (
     <div className="grid gap-3 rounded border border-steel-100 bg-white p-3 text-steel-900 md:grid-cols-[1fr_300px]">
@@ -1644,28 +1668,42 @@ function PhaseTracker({
             </button>
           </div>
           <div className="sm:col-span-2">
-            <p className="mb-1 flex items-center gap-1.5 text-sm font-black"><Camera size={15} /> Phase {selected + 1} photo</p>
-            {active.photoDataUrl ? (
-              <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => setZoomPhoto(active.photoDataUrl ?? null)}
-                  className="group relative shrink-0 rounded ring-1 ring-steel-200 transition-transform hover:scale-105"
-                  title="Tap to enlarge"
-                >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={active.photoDataUrl} alt={`Phase ${selected + 1}`} className="h-16 w-16 rounded object-cover" />
-                  <span className="absolute inset-0 flex items-center justify-center rounded bg-black/0 text-transparent transition-colors group-hover:bg-black/40 group-hover:text-white">
-                    <Maximize2 size={18} />
-                  </span>
-                </button>
-                <button type="button" className="rounded bg-steel-100 px-3 py-2 text-sm font-black text-steel-900" onClick={() => updatePhase(selected, { photoDataUrl: undefined })}>
-                  Remove
-                </button>
+            <p className="mb-1 flex items-center gap-1.5 text-sm font-black">
+              <Camera size={15} /> Phase {selected + 1} photos
+              {activePhotos.length > 0 && <span className="font-bold text-steel-500">({activePhotos.length})</span>}
+            </p>
+            {activePhotos.length > 0 && (
+              <div className="mb-3 flex flex-wrap gap-2">
+                {activePhotos.map((photo, photoIndex) => (
+                  <div key={photoIndex} className="relative shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setZoomPhoto(photo)}
+                      className="group relative block rounded ring-1 ring-steel-200 transition-transform hover:scale-105"
+                      title="Tap to enlarge"
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={photo} alt={`Phase ${selected + 1} photo ${photoIndex + 1}`} className="h-16 w-16 rounded object-cover" />
+                      <span className="absolute inset-0 flex items-center justify-center rounded bg-black/0 text-transparent transition-colors group-hover:bg-black/40 group-hover:text-white">
+                        <Maximize2 size={18} />
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => removePhasePhoto(selected, photo)}
+                      aria-label="Remove photo"
+                      className="absolute -right-1.5 -top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-red-700 text-white shadow ring-2 ring-white"
+                    >
+                      <X size={13} />
+                    </button>
+                  </div>
+                ))}
               </div>
-            ) : (
-              <DropZone onFiles={(dropped) => handlePhasePhoto(selected, dropped[0])} label="Drag & drop or tap to add a phase photo" multiple={false} />
             )}
+            <DropZone
+              onFiles={(dropped) => handlePhasePhoto(selected, dropped)}
+              label={activePhotos.length > 0 ? "Add more photos" : "Drag & drop or tap to add phase photos"}
+            />
           </div>
         </div>
       </div>
@@ -1682,9 +1720,9 @@ function PhaseTracker({
           //   completed  -> every phase is complete
           //   incomplete -> started, but at least one phase still needs a photo
           //   not started -> nothing entered at all
-          const phaseComplete = (phase: EntryPhase | undefined) => Boolean(phase?.photoDataUrl) || Boolean(phase?.bypassed);
+          const phaseComplete = (phase: EntryPhase | undefined) => phasePhotos(phase).length > 0 || Boolean(phase?.bypassed);
           const phaseActive = (phase: EntryPhase | undefined) =>
-            (phase?.amount ?? 0) > 0 || Boolean(phase?.bypassed) || Boolean(phase?.photoDataUrl);
+            (phase?.amount ?? 0) > 0 || Boolean(phase?.bypassed) || phasePhotos(phase).length > 0;
           const hasActivity = (member: typeof crew[number]) => (member.phases ?? []).some((phase) => phaseActive(phase ?? undefined));
           const allComplete = (member: typeof crew[number]) => phases.every((_p, i) => phaseComplete(member.phases?.[i] ?? undefined));
           const byFirstName = (a: typeof crew[number], b: typeof crew[number]) => {
