@@ -1,13 +1,14 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { UploadCloud } from "lucide-react";
+import { Camera, ImagePlus, UploadCloud } from "lucide-react";
 
-// A drag-and-drop upload area that also opens the file picker on tap. Use it
-// anywhere photos can be added.
+// A drag-and-drop upload area with explicit buttons so it works well on phones:
+// "Take Photo" opens the camera directly, "Choose Photo" opens the library/file
+// picker. On desktop you can also drag & drop or tap the area.
 export default function DropZone({
   onFiles,
-  label = "Drag & drop photos here, or tap to choose",
+  label = "Drag & drop photos here",
   hint = "PNG or JPG",
   accept = "image/*",
   multiple = true
@@ -19,7 +20,8 @@ export default function DropZone({
   multiple?: boolean;
 }) {
   const [over, setOver] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const libraryRef = useRef<HTMLInputElement>(null);
+  const cameraRef = useRef<HTMLInputElement>(null);
 
   function emit(list: FileList | null) {
     if (!list || list.length === 0) return;
@@ -29,7 +31,7 @@ export default function DropZone({
 
   return (
     <div
-      onClick={() => inputRef.current?.click()}
+      onClick={() => libraryRef.current?.click()}
       onDragOver={(event) => {
         event.preventDefault();
         setOver(true);
@@ -51,12 +53,52 @@ export default function DropZone({
       <UploadCloud size={26} className="text-workshop-700" />
       <p className="font-black text-steel-700">{label}</p>
       <p className="text-xs font-bold text-steel-500">{hint}</p>
+
+      {/* Explicit, touch-friendly choices. stopPropagation so they don't also
+          trigger the surrounding area's library picker. */}
+      <div className="mt-3 flex w-full flex-wrap items-center justify-center gap-2">
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            cameraRef.current?.click();
+          }}
+          className="touch-target flex items-center justify-center gap-1.5 rounded-lg bg-workshop-700 px-4 py-2.5 text-sm font-black text-white shadow-sm transition-colors hover:bg-workshop-500"
+        >
+          <Camera size={17} /> Take Photo
+        </button>
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            libraryRef.current?.click();
+          }}
+          className="touch-target flex items-center justify-center gap-1.5 rounded-lg border border-steel-200 bg-white px-4 py-2.5 text-sm font-black text-steel-900 shadow-sm transition-colors hover:border-workshop-500"
+        >
+          <ImagePlus size={17} /> {multiple ? "Choose Photos" : "Choose Photo"}
+        </button>
+      </div>
+
+      {/* Library / file picker. On phones this offers Photo Library + Files. */}
       <input
-        ref={inputRef}
+        ref={libraryRef}
         className="hidden"
         type="file"
         accept={accept}
         multiple={multiple}
+        onChange={(event) => {
+          emit(event.target.files);
+          event.target.value = "";
+        }}
+      />
+      {/* Camera capture. `capture` opens the camera directly on phones; it is
+          ignored on desktop, where it falls back to the file dialog. */}
+      <input
+        ref={cameraRef}
+        className="hidden"
+        type="file"
+        accept="image/*"
+        capture="environment"
         onChange={(event) => {
           emit(event.target.files);
           event.target.value = "";
