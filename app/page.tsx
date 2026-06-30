@@ -487,8 +487,9 @@ function QuantityInput({
   mode?: "total" | "parts";
 }) {
   const [editing, setEditing] = useState<string | null>(null);
-  const editable = parts && parts.length > 1 ? parts.join(" ") : value === 0 ? "" : String(value);
-  const blurred = mode === "parts" ? editable : value === 0 ? "" : String(value);
+  // Show the added numbers with + signs, e.g. "6 + 4 + 2 + 7".
+  const expression = parts && parts.length > 1 ? parts.join(" + ") : value === 0 ? "" : String(value);
+  const blurred = mode === "parts" ? expression : value === 0 ? "" : String(value);
   const display = editing !== null ? editing : blurred;
   function commit() {
     if (editing === null) return;
@@ -508,7 +509,7 @@ function QuantityInput({
       type="text"
       placeholder="0"
       value={display}
-      onFocus={() => setEditing(editable)}
+      onFocus={() => setEditing(expression)}
       onChange={(event) => setEditing(event.target.value)}
       onBlur={commit}
       onKeyDown={(event) => {
@@ -2412,7 +2413,7 @@ function ProductionEntry({
                 {!hidePricing && <th className="p-3">{t("Category")}</th>}
                 <th className={cellPad}>{t("Pallet Description")}</th>
                 {!hidePricing && <th className="p-3">{t("Rate")}</th>}
-                <th className={classNames(cellPad, hidePricing && "w-[180px]")}>{t("Quantity")}</th>
+                <th className={classNames(cellPad, hidePricing && "w-[196px]")}>{t("Quantity")}</th>
                 {!hidePricing && <th className="p-3">{t("Total Earned")}</th>}
               </tr>
             </thead>
@@ -2455,6 +2456,7 @@ function ProductionEntry({
                             parts={line.parts}
                             onCommit={(sum, parts) => onQuantityChange(selectedPhase, pallet.id, sum, parts)}
                           />
+                          <span className="shrink-0 text-lg font-black text-steel-400">=</span>
                           <QuantityInput
                             mode="total"
                             className="w-16 shrink-0 rounded border border-steel-200 bg-white px-1 py-2.5 text-center font-black text-steel-900 outline-none focus:border-workshop-500"
