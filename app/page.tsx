@@ -2057,11 +2057,12 @@ function ProductionEntry({
             <p className={classNames("text-sm", darkMode ? "text-steel-100" : "text-steel-500")}>{saveStatus}</p>
           </div>
         </div>
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {/* Managers don't see pay figures — just the pallet count. */}
+        <div className={classNames("grid grid-cols-2 gap-2", hidePricing ? "sm:grid-cols-1" : "sm:grid-cols-4")}>
           <Metric label="Pallets" value={wholeNumber(calculation.quantity)} />
-          <Metric label="Piece Pay" value={currency(calculation.pieceEarnings)} />
-          <Metric label="Make-up" value={currency(calculation.additionalOwed)} />
-          <Metric label="Total" value={currency(calculation.totalPay)} />
+          {!hidePricing && <Metric label="Piece Pay" value={currency(calculation.pieceEarnings)} />}
+          {!hidePricing && <Metric label="Make-up" value={currency(calculation.additionalOwed)} />}
+          {!hidePricing && <Metric label="Total" value={currency(calculation.totalPay)} />}
         </div>
       </div>
 
@@ -2228,20 +2229,23 @@ function ProductionEntry({
         </div>
       </div>
 
-      <div className={classNames("grid gap-2 rounded border p-3 text-sm", darkMode ? "border-white/10 bg-white/[0.08]" : "border-steel-100 bg-steel-50")}>
-        <div className="flex justify-between">
-          <span>Hourly equivalent</span>
-          <strong>{currency(calculation.hourlyEquivalent)}/hr</strong>
+      {/* Pay-rate breakdown is hidden from managers. */}
+      {!hidePricing && (
+        <div className={classNames("grid gap-2 rounded border p-3 text-sm", darkMode ? "border-white/10 bg-white/[0.08]" : "border-steel-100 bg-steel-50")}>
+          <div className="flex justify-between">
+            <span>Hourly equivalent</span>
+            <strong>{currency(calculation.hourlyEquivalent)}/hr</strong>
+          </div>
+          <div className="flex justify-between">
+            <span>Minimum required</span>
+            <strong>{currency(calculation.minimumWageRequired)}</strong>
+          </div>
+          <div className="flex justify-between">
+            <span>Daily overtime</span>
+            <strong>{calculation.overtimeHours.toFixed(2)} hrs</strong>
+          </div>
         </div>
-        <div className="flex justify-between">
-          <span>Minimum required</span>
-          <strong>{currency(calculation.minimumWageRequired)}</strong>
-        </div>
-        <div className="flex justify-between">
-          <span>Daily overtime</span>
-          <strong>{calculation.overtimeHours.toFixed(2)} hrs</strong>
-        </div>
-      </div>
+      )}
 
       <Label title="Notes" icon={<FileSpreadsheet size={17} />}>
         <textarea className="field min-h-20 resize-none" value={form.notes} onChange={(event) => onFormChange("notes", event.target.value)} placeholder="Supervisor notes, trailer, customer, or repair issues" />
