@@ -131,6 +131,9 @@ function slugToName(id: string): string {
 
 const PHASE_COUNT = 3;
 
+// Time window each phase covers, shown alongside the phase number.
+const PHASE_TIMES = ["6–9 AM", "9 AM–12:30 PM", "12:30–3:30 PM"];
+
 function createPhases(): EntryPhase[] {
   return Array.from({ length: PHASE_COUNT }, () => ({ amount: 0, bypassed: false, lines: [] as ProductionLine[] }));
 }
@@ -1846,7 +1849,7 @@ function PhaseTracker({
           >
             {phases.map((_phase, index) => (
               <option key={index} value={index}>
-                {t("Phase {n}", { n: index + 1 })}
+                {t("Phase {n}", { n: index + 1 })} · {PHASE_TIMES[index]}
               </option>
             ))}
           </select>
@@ -1878,6 +1881,7 @@ function PhaseTracker({
                   {phase.bypassed ? <X size={15} /> : done ? <CheckCircle2 size={15} /> : <span className="h-3.5 w-3.5 rounded-full border border-steel-300" />}
                   {t("Phase {n}", { n: index + 1 })}
                 </span>
+                <span className="text-[10px] font-bold uppercase tracking-wide text-steel-400">{PHASE_TIMES[index]}</span>
                 <span className="flex items-center gap-1.5">
                   <span className="text-base text-steel-900">{phase.bypassed ? "—" : count}</span>
                   {showDelta && !phase.bypassed && (
@@ -1895,7 +1899,7 @@ function PhaseTracker({
             straight from the quantity grid below (entered per phase). */}
         <div className="grid gap-3 rounded-lg bg-steel-50 p-3 sm:grid-cols-[1fr_auto]">
           <div className="grid gap-1">
-            <p className="flex items-center gap-1.5 text-sm font-black"><FileSpreadsheet size={16} /> {t("Phase {n} pallets", { n: selected + 1 })}</p>
+            <p className="flex items-center gap-1.5 text-sm font-black"><FileSpreadsheet size={16} /> {t("Phase {n} pallets", { n: selected + 1 })} <span className="font-bold text-steel-500">{PHASE_TIMES[selected]}</span></p>
             <div className="flex items-baseline gap-2">
               <span className="text-2xl font-black text-steel-900">{active.bypassed ? "—" : phaseCounts[selected] ?? 0}</span>
               {!active.bypassed && (phaseQcCounts[selected] ?? 0) > 0 && (
@@ -2317,7 +2321,7 @@ function ProductionEntry({
 
       <div className="flex items-center justify-between gap-2">
         <p className="text-sm font-black text-steel-900">
-          {t("Phase {n} quantities", { n: selectedPhase + 1 })}
+          {t("Phase {n} quantities", { n: selectedPhase + 1 })} <span className="font-bold text-workshop-700">{PHASE_TIMES[selectedPhase]}</span>
           <span className="ml-1 font-bold text-steel-500">{t("— enter this phase's pallets, then switch phases above")}</span>
         </p>
         <span className="rounded bg-workshop-100 px-2.5 py-1 text-xs font-black text-workshop-700">{t("{n} pallets", { n: phaseCounts[selectedPhase] })}</span>
