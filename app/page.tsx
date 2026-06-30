@@ -2412,7 +2412,7 @@ function ProductionEntry({
                 {!hidePricing && <th className="p-3">{t("Category")}</th>}
                 <th className={cellPad}>{t("Pallet Description")}</th>
                 {!hidePricing && <th className="p-3">{t("Rate")}</th>}
-                <th className={classNames(cellPad, hidePricing && "w-[168px]")}>{t("Quantity")}</th>
+                <th className={classNames(cellPad, hidePricing && "w-[180px]")}>{t("Quantity")}</th>
                 {!hidePricing && <th className="p-3">{t("Total Earned")}</th>}
               </tr>
             </thead>
@@ -2445,18 +2445,19 @@ function ProductionEntry({
                       {line?.parts && line.parts.length > 1 ? (
                         // Formula in its own editable box on the left; the
                         // original box on the right shows the sum. Editing the
-                        // formula re-sums automatically.
-                        <div className="flex items-center justify-end gap-1.5">
+                        // formula re-sums automatically. Explicit widths (not the
+                        // full-width `.field`) so the two boxes sit side by side.
+                        <div className="flex items-center gap-1.5">
                           <QuantityInput
                             mode="parts"
-                            className="field min-w-0 flex-1 px-1 text-center text-sm font-black"
+                            className="min-w-0 flex-1 rounded border border-steel-200 bg-white px-1 py-2.5 text-center text-sm font-black text-steel-900 outline-none focus:border-workshop-500"
                             value={quantity}
                             parts={line.parts}
                             onCommit={(sum, parts) => onQuantityChange(selectedPhase, pallet.id, sum, parts)}
                           />
                           <QuantityInput
                             mode="total"
-                            className="field w-12 shrink-0 px-1 text-center font-black"
+                            className="w-16 shrink-0 rounded border border-steel-200 bg-white px-1 py-2.5 text-center font-black text-steel-900 outline-none focus:border-workshop-500"
                             value={quantity}
                             parts={line.parts}
                             onCommit={(sum, parts) => onQuantityChange(selectedPhase, pallet.id, sum, parts)}
