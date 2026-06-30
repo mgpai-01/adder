@@ -475,15 +475,21 @@ function QuantityInput({
   value,
   parts,
   onCommit,
-  className
+  className,
+  mode = "total"
 }: {
   value: number;
   parts?: number[];
   onCommit: (sum: number, parts: number[]) => void;
   className?: string;
+  // "total" shows the summed number when blurred; "parts" shows the editable
+  // list of numbers (e.g. "3 3 6 2 3 5") so the breakdown can be corrected.
+  mode?: "total" | "parts";
 }) {
   const [editing, setEditing] = useState<string | null>(null);
-  const display = editing !== null ? editing : value === 0 ? "" : String(value);
+  const editable = parts && parts.length > 1 ? parts.join(" ") : value === 0 ? "" : String(value);
+  const blurred = mode === "parts" ? editable : value === 0 ? "" : String(value);
+  const display = editing !== null ? editing : blurred;
   function commit() {
     if (editing === null) return;
     const nums = parseQuantityParts(editing);
@@ -502,7 +508,7 @@ function QuantityInput({
       type="text"
       placeholder="0"
       value={display}
-      onFocus={() => setEditing(parts && parts.length > 1 ? parts.join(" ") : value === 0 ? "" : String(value))}
+      onFocus={() => setEditing(editable)}
       onChange={(event) => setEditing(event.target.value)}
       onBlur={commit}
       onKeyDown={(event) => {
@@ -2406,7 +2412,7 @@ function ProductionEntry({
                 {!hidePricing && <th className="p-3">{t("Category")}</th>}
                 <th className={cellPad}>{t("Pallet Description")}</th>
                 {!hidePricing && <th className="p-3">{t("Rate")}</th>}
-                <th className={classNames(cellPad, hidePricing && "w-[88px]")}>{t("Quantity")}</th>
+                <th className={classNames(cellPad, hidePricing && "w-[150px]")}>{t("Quantity")}</th>
                 {!hidePricing && <th className="p-3">{t("Total Earned")}</th>}
               </tr>
             </thead>
@@ -2436,7 +2442,21 @@ function ProductionEntry({
                       <td className={classNames("p-3 font-black", pallet.rate < 0 ? "text-red-700" : "text-workshop-700")}>{currency(pallet.rate)}</td>
                     )}
                     <td className={cellPad}>
-                      {hidePricing ? (
+                      {line?.parts && line.parts.length > 1 ? (
+                        // Breakdown on the side: an editable list of numbers and
+                        // the running total. Edit the list and it re-sums.
+                        <div className="flex items-center justify-end gap-1.5">
+                          <QuantityInput
+                            mode="parts"
+                            className="field min-w-0 flex-1 px-1 text-center text-sm font-black"
+                            value={quantity}
+                            parts={line.parts}
+                            onCommit={(sum, parts) => onQuantityChange(selectedPhase, pallet.id, sum, parts)}
+                          />
+                          <span className="shrink-0 font-black text-steel-400">=</span>
+                          <span className="w-10 shrink-0 text-center text-lg font-black text-workshop-700">{quantity}</span>
+                        </div>
+                      ) : hidePricing ? (
                         <QuantityInput
                           className="field min-w-0 px-1 text-center font-black"
                           value={quantity}
@@ -2458,9 +2478,6 @@ function ProductionEntry({
                             <Plus size={18} />
                           </button>
                         </div>
-                      )}
-                      {line?.parts && line.parts.length > 1 && (
-                        <p className="mt-1 text-center text-[11px] font-bold text-workshop-700">{line.parts.join(" + ")} = {quantity}</p>
                       )}
                     </td>
                     {!hidePricing && (
@@ -4482,10 +4499,12 @@ function EntryEditorModal({
                       <td className="p-3"><strong>{pallet.code}</strong><span className="block text-steel-500">{pallet.description}</span></td>
                       <td className="p-3">{currency(pallet.rate)}</td>
                       <td className="p-3">
-                        <input disabled={readOnly} className="field max-w-28 text-center font-black" type="number" min="0" placeholder="0" value={quantity === 0 ? "" : quantity} onChange={(event) => updateQuantity(pallet.id, Number(event.target.value))} />
-                        {parts && parts.length > 1 && (
-                          <p className="mt-1 text-center text-[11px] font-bold text-workshop-700">{parts.join(" + ")} = {quantity}</p>
-                        )}
+                        <div className="flex items-center gap-2">
+                          <input disabled={readOnly} className="field max-w-28 text-center font-black" type="number" min="0" placeholder="0" value={quantity === 0 ? "" : quantity} onChange={(event) => updateQuantity(pallet.id, Number(event.target.value))} />
+                          {parts && parts.length > 1 && (
+                            <span className="text-xs font-bold text-workshop-700">{parts.join(" + ")} = {quantity}</span>
+                          )}
+                        </div>
                       </td>
                       <td className="p-3 font-black">{currency(quantity * pallet.rate)}</td>
                     </tr>
