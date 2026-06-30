@@ -2418,7 +2418,7 @@ function ProductionEntry({
                 {!hidePricing && <th className="p-3">{t("Category")}</th>}
                 <th className={cellPad}>{t("Pallet Description")}</th>
                 {!hidePricing && <th className="p-3">{t("Rate")}</th>}
-                <th className={classNames(cellPad, hidePricing && "w-[170px]")}>{t("Quantity")}</th>
+                <th className={classNames(cellPad, hidePricing && "w-[55%]")}>{t("Quantity")}</th>
                 {!hidePricing && <th className="p-3">{t("Total Earned")}</th>}
               </tr>
             </thead>
@@ -2449,39 +2449,37 @@ function ProductionEntry({
                     )}
                     <td className={cellPad}>
                       {line?.parts && line.parts.length > 1 ? (
-                        // Once numbers are added it splits into two boxes: the
-                        // formula on the left and the sum on the right (the
-                        // original box stays its normal size). Right-aligned so the
-                        // sum stays put and the formula sits to its left.
-                        <div className="flex items-center justify-end gap-1.5">
-                          <input
-                            inputMode="text"
-                            type="text"
-                            className="min-w-0 flex-1 rounded border border-steel-200 bg-white px-2 py-2.5 text-center text-sm font-black text-steel-900 outline-none focus:border-workshop-500"
-                            defaultValue={line.parts.join(" + ")}
-                            key={line.parts.join("+")}
-                            onBlur={(event) => {
-                              const nums = parseQuantityParts(event.target.value);
-                              onQuantityChange(selectedPhase, pallet.id, nums.reduce((a, b) => a + b, 0), nums);
-                            }}
-                            onKeyDown={(event) => {
-                              if (event.key === "Enter") (event.target as HTMLInputElement).blur();
-                            }}
+                        // Two boxes: the formula on the left (auto-width, so it
+                        // grows LEFT to show the whole equation without scrolling)
+                        // and the sum on the right. Right-aligned so the sum stays
+                        // anchored and the formula extends into the space at left.
+                        <div className="flex items-center justify-end gap-1.5 overflow-x-auto">
+                          <QuantityInput
+                            mode="parts"
+                            autoWidth
+                            className="shrink-0 rounded border border-steel-200 bg-white px-2 py-2.5 text-center text-sm font-black text-steel-900 outline-none focus:border-workshop-500"
+                            value={quantity}
+                            parts={line.parts}
+                            onCommit={(sum, parts) => onQuantityChange(selectedPhase, pallet.id, sum, parts)}
                           />
                           <span className="shrink-0 text-lg font-black text-steel-400">=</span>
                           <input
                             readOnly
-                            className="w-14 shrink-0 rounded border border-steel-200 bg-steel-50 px-1 py-2.5 text-center font-black text-steel-900 outline-none"
+                            className="w-[60px] shrink-0 rounded border border-steel-200 bg-steel-50 px-1 py-2.5 text-center font-black text-steel-900 outline-none"
                             value={quantity}
                           />
                         </div>
                       ) : hidePricing ? (
-                        <QuantityInput
-                          className="field min-w-0 px-1 text-center font-black"
-                          value={quantity}
-                          parts={line?.parts}
-                          onCommit={(sum, parts) => onQuantityChange(selectedPhase, pallet.id, sum, parts)}
-                        />
+                        // Default box: normal size, right-aligned. Type the numbers
+                        // here and the row splits into the two boxes above.
+                        <div className="flex justify-end">
+                          <QuantityInput
+                            className="w-[96px] rounded border border-steel-200 bg-white px-1 py-2.5 text-center font-black text-steel-900 outline-none focus:border-workshop-500"
+                            value={quantity}
+                            parts={line?.parts}
+                            onCommit={(sum, parts) => onQuantityChange(selectedPhase, pallet.id, sum, parts)}
+                          />
+                        </div>
                       ) : (
                         <div className={classNames("grid", qtyCols)}>
                           <button type="button" className="touch-target flex items-center justify-center rounded bg-steel-800 text-white" onClick={() => onQuantityChange(selectedPhase, pallet.id, quantity - 1)}>
