@@ -80,7 +80,37 @@ export const esDict: Record<string, string> = {
   "Choose Photo": "Elegir Foto",
   "Drag & drop photos here": "Arrastre las fotos aquí",
   "Drag & drop count sheet photos here": "Arrastre las fotos de la hoja de conteo aquí",
-  "PNG or JPG": "PNG o JPG"
+  "PNG or JPG": "PNG o JPG",
+
+  // Live board
+  Live: "En Vivo",
+  "Pallet Tracker": "Rastreador de Tarimas",
+  Fullscreen: "Pantalla Completa",
+  "All Yards": "Todos los Patios",
+  "All Shifts": "Todos los Turnos",
+  "All Locations": "Todas las Ubicaciones",
+  "{shift} Shift": "Turno {shift}",
+  Today: "Hoy",
+  "Specific Date": "Fecha Específica",
+  "Current Week": "Semana Actual",
+  "Previous Week": "Semana Anterior",
+  "Custom Week": "Semana Personalizada",
+  "Custom Range": "Rango Personalizado",
+  Week: "Semana",
+  to: "a",
+  Ranking: "Clasificación",
+  "Location Totals": "Totales por Ubicación",
+  "Company Total": "Total de la Compañía",
+  "Live · auto-refresh": "En vivo · actualización automática",
+  "Last updated {time}": "Actualizado {time}",
+  "Loading…": "Cargando…",
+  "of {goal}": "de {goal}",
+  "Today's Goal": "Meta de Hoy",
+  Leader: "Líder",
+  "2nd": "2°",
+  "3rd": "3°",
+  pallets: "tarimas",
+  "No production entries for this selection.": "No hay registros de producción para esta selección."
 };
 
 // Translate `text` into `language`, substituting {key} placeholders from `vars`.

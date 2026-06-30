@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { employees, locations, palletTypes, payrollSettings, shifts } from "@/lib/data";
 import { findPalletType } from "@/lib/payroll";
 import { getWeekKey, wholeNumber } from "@/lib/payroll";
+import { LanguageProvider, translate, useT, type Language } from "@/lib/i18n";
 import type { DailyEntry, PayrollSettings, Shift } from "@/lib/types";
 
 type PeriodMode = "today" | "date" | "current-week" | "previous-week" | "custom-week" | "custom-range";
@@ -102,6 +103,23 @@ export default function LiveBoardPage() {
   const [now, setNow] = useState(new Date());
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [cursorHidden, setCursorHidden] = useState(false);
+  // The board is shown publicly; default to English with an option to switch to
+  // Spanish. The choice is remembered separately from the manager-app language.
+  const [language, setLanguage] = useState<Language>("en");
+  useEffect(() => {
+    const stored = window.localStorage.getItem("mgp-board-language");
+    if (stored === "en" || stored === "es") setLanguage(stored);
+  }, []);
+  function changeLanguage(next: Language) {
+    setLanguage(next);
+    try {
+      window.localStorage.setItem("mgp-board-language", next);
+    } catch {
+      // ignore storage errors
+    }
+  }
+  const t = (text: string, vars?: Record<string, string | number>) => translate(language, text, vars);
+  const dateLocale = language === "es" ? "es-ES" : "en-US";
   const [roster, setRoster] = useState<Record<string, { name: string; photo?: string }>>({});
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [scale, setScale] = useState(1);
@@ -236,32 +254,33 @@ export default function LiveBoardPage() {
   const companyTotal = repairerRows.reduce((total, row) => total + row.quantity, 0);
   const goal = Math.max(0, settings.dailyProductionGoal || 4500);
   const goalPercent = goal > 0 ? Math.min(100, Math.round((companyTotal / goal) * 100)) : 0;
-  const selectedLocationLabel = locationFilter === "all" ? "All Locations" : getLocationName(locationFilter);
-  const selectedShiftLabel = shiftFilter === "all" ? "All Shifts" : `${shiftFilter} Shift`;
+  const selectedLocationLabel = locationFilter === "all" ? t("All Locations") : getLocationName(locationFilter);
+  const selectedShiftLabel = shiftFilter === "all" ? t("All Shifts") : t("{shift} Shift", { shift: shiftFilter });
   const periodLabel =
     periodMode === "today"
-      ? new Intl.DateTimeFormat("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" }).format(now)
+      ? new Intl.DateTimeFormat(dateLocale, { weekday: "long", month: "long", day: "numeric", year: "numeric" }).format(now)
       : periodMode === "date"
-        ? new Intl.DateTimeFormat("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" }).format(new Date(`${selectedDate}T12:00:00`))
+        ? new Intl.DateTimeFormat(dateLocale, { weekday: "long", month: "long", day: "numeric", year: "numeric" }).format(new Date(`${selectedDate}T12:00:00`))
         : periodMode === "custom-range"
           ? (() => {
               const [from, to] = rangeStart <= rangeEnd ? [rangeStart, rangeEnd] : [rangeEnd, rangeStart];
-              const fmt = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" });
+              const fmt = new Intl.DateTimeFormat(dateLocale, { month: "short", day: "numeric", year: "numeric" });
               return from === to
                 ? fmt.format(new Date(`${from}T12:00:00`))
                 : `${fmt.format(new Date(`${from}T12:00:00`))} – ${fmt.format(new Date(`${to}T12:00:00`))}`;
             })()
-          : `${periodMode === "previous-week" ? "Previous Week" : "Week"} of ${new Intl.DateTimeFormat("en-US", { month: "long", day: "numeric", year: "numeric" }).format(new Date(`${periodMode === "custom-week" ? selectedWeek : getWeekKey(getToday())}T12:00:00`))}`;
+          : `${periodMode === "previous-week" ? t("Previous Week") : t("Week")} ${t("of {goal}", { goal: new Intl.DateTimeFormat(dateLocale, { month: "long", day: "numeric", year: "numeric" }).format(new Date(`${periodMode === "custom-week" ? selectedWeek : getWeekKey(getToday())}T12:00:00`)) })}`;
 
   async function enterFullscreen() {
     await document.documentElement.requestFullscreen?.();
   }
 
   const maxQuantity = repairerRows[0]?.quantity || 1;
-  const clockLabel = now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  const clockLabel = now.toLocaleTimeString(dateLocale, { hour: "numeric", minute: "2-digit" });
   const control = "h-11 rounded-xl border border-white/10 bg-white/[0.04] px-3 text-base font-semibold text-white/90 outline-none backdrop-blur";
 
   return (
+    <LanguageProvider value={{ language, setLanguage: changeLanguage, t }}>
     <main
       className={`fixed inset-0 flex items-center justify-center overflow-hidden text-white ${cursorHidden ? "cursor-none" : ""}`}
       style={{
@@ -288,30 +307,42 @@ export default function LiveBoardPage() {
           <div>
             <div className="flex items-center gap-3">
               <h1 className="text-4xl font-black tracking-tight 2xl:text-5xl">
-                Live <span className="bg-gradient-to-r from-[#92d6a1] to-[#aef2bc] bg-clip-text text-transparent">Pallet Tracker</span>
+                {t("Live")} <span className="bg-gradient-to-r from-[#92d6a1] to-[#aef2bc] bg-clip-text text-transparent">{t("Pallet Tracker")}</span>
               </h1>
               <span className="flex items-center gap-1.5 rounded-full border border-[#92d6a1]/40 bg-[#92d6a1]/10 px-3 py-1 text-xs font-bold uppercase tracking-[0.2em] text-[#aef2bc]">
                 <span className="h-2 w-2 rounded-full bg-[#92d6a1] [animation:board-pulse-dot_1.6s_ease-in-out_infinite]" />
-                Live
+                {t("Live")}
               </span>
             </div>
             <p className="mt-1.5 text-lg font-medium text-white/50 2xl:text-xl">{periodLabel} · {clockLabel} · {selectedLocationLabel} · {selectedShiftLabel}</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <div className="flex overflow-hidden rounded-xl border border-white/10 text-sm font-bold">
+            {(["en", "es"] as Language[]).map((code) => (
+              <button
+                key={code}
+                type="button"
+                onClick={() => changeLanguage(code)}
+                className={`px-3 py-2.5 ${language === code ? "bg-gradient-to-r from-[#2a6b40] to-[#3f8a55] text-white" : "bg-white/[0.05] text-white/60 hover:text-white"}`}
+              >
+                {code.toUpperCase()}
+              </button>
+            ))}
+          </div>
           <button type="button" aria-label="Refresh" className="flex h-12 w-12 items-center justify-center rounded-xl border border-white/10 bg-white/[0.05] text-white/70 backdrop-blur transition-colors hover:text-white" onClick={() => loadData().catch(() => undefined)}>
             <RefreshCw size={20} />
           </button>
           <button type="button" className="flex h-12 items-center gap-2 rounded-xl bg-gradient-to-r from-[#2a6b40] to-[#3f8a55] px-5 font-bold text-white shadow-lg shadow-[#2a6b40]/25 transition-transform hover:scale-[1.03]" onClick={enterFullscreen}>
             <Expand size={20} />
-            Fullscreen
+            {t("Fullscreen")}
           </button>
         </div>
       </header>
 
       <div className="flex shrink-0 px-10 pt-4">
         <div className="flex flex-wrap gap-1 rounded-2xl border border-white/10 bg-white/[0.04] p-1.5 backdrop-blur">
-          <YardTab active={locationFilter === "all"} onClick={() => setLocationFilter("all")}>All Yards</YardTab>
+          <YardTab active={locationFilter === "all"} onClick={() => setLocationFilter("all")}>{t("All Yards")}</YardTab>
           {locations.map((location) => (
             <YardTab key={location.id} active={locationFilter === location.id} onClick={() => setLocationFilter(location.id)}>
               {location.name}
@@ -323,21 +354,21 @@ export default function LiveBoardPage() {
       {!isFullscreen && (
         <div className="flex shrink-0 flex-wrap gap-2 px-10 pt-4">
           <select className={control} value={shiftFilter} onChange={(event) => setShiftFilter(event.target.value)}>
-            <option className="text-steel-900" value="all">All Shifts</option>
+            <option className="text-steel-900" value="all">{t("All Shifts")}</option>
             {shifts.map((shift) => <option className="text-steel-900" key={shift} value={shift}>{shift}</option>)}
           </select>
           <select className={control} value={periodMode} onChange={(event) => setPeriodMode(event.target.value as PeriodMode)}>
-            <option className="text-steel-900" value="today">Today</option>
-            <option className="text-steel-900" value="date">Specific Date</option>
-            <option className="text-steel-900" value="current-week">Current Week</option>
-            <option className="text-steel-900" value="previous-week">Previous Week</option>
-            <option className="text-steel-900" value="custom-week">Custom Week</option>
-            <option className="text-steel-900" value="custom-range">Custom Range</option>
+            <option className="text-steel-900" value="today">{t("Today")}</option>
+            <option className="text-steel-900" value="date">{t("Specific Date")}</option>
+            <option className="text-steel-900" value="current-week">{t("Current Week")}</option>
+            <option className="text-steel-900" value="previous-week">{t("Previous Week")}</option>
+            <option className="text-steel-900" value="custom-week">{t("Custom Week")}</option>
+            <option className="text-steel-900" value="custom-range">{t("Custom Range")}</option>
           </select>
           {periodMode === "custom-range" ? (
             <div className="flex items-center gap-2">
               <input className={control} type="date" value={rangeStart} max={rangeEnd} onChange={(event) => setRangeStart(event.target.value)} />
-              <span className="text-white/50">to</span>
+              <span className="text-white/50">{t("to")}</span>
               <input className={control} type="date" value={rangeEnd} min={rangeStart} onChange={(event) => setRangeEnd(event.target.value)} />
             </div>
           ) : (
@@ -349,7 +380,7 @@ export default function LiveBoardPage() {
       <section className="min-h-0 flex-1 overflow-hidden px-10 pb-5 pt-3">
         <div className="grid h-full gap-6 xl:grid-cols-[1.5fr_0.9fr]">
           <GlassCard className="flex min-h-0 flex-col">
-            <SectionLabel icon={<Trophy size={22} />}>Ranking</SectionLabel>
+            <SectionLabel icon={<Trophy size={22} />}>{t("Ranking")}</SectionLabel>
             {repairerRows.length === 0 ? (
               <EmptyBoardMessage />
             ) : (
@@ -383,7 +414,7 @@ export default function LiveBoardPage() {
             <GrandTotal total={companyTotal} />
             <GoalTracker actual={companyTotal} goal={goal} percent={goalPercent} />
             <GlassCard className="flex min-h-0 flex-col">
-              <SectionLabel icon={<MapPin size={22} />}>Location Totals</SectionLabel>
+              <SectionLabel icon={<MapPin size={22} />}>{t("Location Totals")}</SectionLabel>
               <div
                 className="grid min-h-0 flex-1 gap-3 overflow-hidden"
                 style={{ gridTemplateRows: `repeat(${Math.max(locationRows.length, 1)}, minmax(0, 1fr))` }}
@@ -410,11 +441,12 @@ export default function LiveBoardPage() {
       </section>
 
       <footer className="flex shrink-0 items-center justify-between border-t border-white/10 bg-black/30 px-10 py-2.5 text-sm font-medium text-white/40 backdrop-blur-xl">
-        <span>Live · auto-refresh every 15s</span>
-        <span>{lastUpdated ? `Last updated ${lastUpdated.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit" })}` : "Loading…"}</span>
+        <span>{t("Live · auto-refresh")}</span>
+        <span>{lastUpdated ? t("Last updated {time}", { time: lastUpdated.toLocaleTimeString(dateLocale, { hour: "numeric", minute: "2-digit", second: "2-digit" }) }) : t("Loading…")}</span>
       </footer>
       </div>
     </main>
+    </LanguageProvider>
   );
 }
 
@@ -489,6 +521,7 @@ function Podium({ rows }: { rows: BoardRow[] }) {
 }
 
 function PodiumCard({ row, rank }: { row: BoardRow; rank: number }) {
+  const { t } = useT();
   const isFirst = rank === 1;
   return (
     <div
@@ -500,18 +533,19 @@ function PodiumCard({ row, rank }: { row: BoardRow; rank: number }) {
       }`}
     >
       <span className={`absolute -top-3.5 rounded-full border px-3 py-1 text-xs font-black uppercase tracking-[0.2em] ${isFirst ? "border-[#92d6a1]/50 bg-[#0c1512] text-[#aef2bc]" : "border-white/15 bg-[#0c1512] text-white/50"}`}>
-        {rank === 1 ? "Leader" : rank === 2 ? "2nd" : "3rd"}
+        {rank === 1 ? t("Leader") : rank === 2 ? t("2nd") : t("3rd")}
       </span>
       {isFirst && <Crown size={30} className="mb-1 text-[#aef2bc]" />}
       <BoardAvatar name={row.name} photo={row.photo} size={isFirst ? 104 : 80} ring />
       <span className={`mt-4 w-full truncate font-bold ${isFirst ? "text-3xl" : "text-2xl"}`}>{row.name}</span>
       <span className={`mt-1 font-black tabular-nums ${isFirst ? "bg-gradient-to-b from-white to-[#aef2bc] bg-clip-text text-7xl text-transparent" : "text-6xl text-[#aef2bc]"}`}>{wholeNumber(row.quantity)}</span>
-      <span className="text-sm font-bold uppercase tracking-[0.2em] text-white/35">pallets</span>
+      <span className="text-sm font-bold uppercase tracking-[0.2em] text-white/35">{t("pallets")}</span>
     </div>
   );
 }
 
 function GrandTotal({ total }: { total: number }) {
+  const { t } = useT();
   const shown = useCountUp(total);
   return (
     <div className="relative overflow-hidden rounded-3xl border border-[#92d6a1]/25 bg-gradient-to-b from-[#92d6a1]/[0.12] to-white/[0.02] p-6 text-center shadow-[0_14px_50px_rgba(0,0,0,0.45)] backdrop-blur-xl">
@@ -519,14 +553,15 @@ function GrandTotal({ total }: { total: number }) {
       <span className="pointer-events-none absolute left-1/2 top-1/2 h-40 w-40 -translate-x-1/2 -translate-y-1/3 rounded-full bg-[#92d6a1]/20 blur-3xl" />
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src="/logo.svg" alt="" className="pointer-events-none absolute -right-10 -top-10 h-40 w-40 opacity-[0.05]" />
-      <span className="relative text-sm font-black uppercase tracking-[0.25em] text-[#aef2bc]">Company Total</span>
+      <span className="relative text-sm font-black uppercase tracking-[0.25em] text-[#aef2bc]">{t("Company Total")}</span>
       <p className="relative mt-2 bg-gradient-to-b from-white to-[#bdecca] bg-clip-text text-7xl font-black tabular-nums text-transparent">{wholeNumber(shown)}</p>
-      <span className="relative mt-1 block text-base font-bold uppercase tracking-[0.2em] text-white/45">Pallets</span>
+      <span className="relative mt-1 block text-base font-bold uppercase tracking-[0.2em] text-white/45">{t("Pallets")}</span>
     </div>
   );
 }
 
 function GoalTracker({ actual, goal, percent }: { actual: number; goal: number; percent: number }) {
+  const { t } = useT();
   const radius = 56;
   const circumference = 2 * Math.PI * radius;
   return (
@@ -534,7 +569,7 @@ function GoalTracker({ actual, goal, percent }: { actual: number; goal: number; 
       <span className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/25 to-transparent" />
       <div className="flex items-center gap-2.5">
         <Target size={22} className="text-[#92d6a1]" />
-        <h2 className="text-xl font-black uppercase tracking-[0.2em] text-white/80">Today&apos;s Goal</h2>
+        <h2 className="text-xl font-black uppercase tracking-[0.2em] text-white/80">{t("Today's Goal")}</h2>
       </div>
       <div className="mt-4 flex items-center justify-center gap-8">
         <div className="relative h-36 w-36">
@@ -554,7 +589,7 @@ function GoalTracker({ actual, goal, percent }: { actual: number; goal: number; 
         </div>
         <div className="text-right">
           <p className="text-4xl font-black tabular-nums">{wholeNumber(actual)}</p>
-          <p className="text-base font-semibold text-white/40">of {wholeNumber(goal)}</p>
+          <p className="text-base font-semibold text-white/40">{t("of {goal}", { goal: wholeNumber(goal) })}</p>
         </div>
       </div>
     </div>
@@ -586,5 +621,6 @@ function BoardAvatar({ name, photo, size = 56, ring = false }: { name: string; p
 }
 
 function EmptyBoardMessage() {
-  return <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-10 text-center text-2xl font-semibold text-white/40">No production entries for this selection.</div>;
+  const { t } = useT();
+  return <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-10 text-center text-2xl font-semibold text-white/40">{t("No production entries for this selection.")}</div>;
 }
