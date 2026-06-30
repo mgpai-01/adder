@@ -496,7 +496,9 @@ function QuantityInput({
   return (
     <input
       className={className}
-      inputMode="numeric"
+      // Use the full keyboard (not the numeric keypad) so the space bar is
+      // available on phones — that's what separates the numbers to add.
+      inputMode="text"
       type="text"
       placeholder="0"
       value={display}
