@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import { Camera, ImagePlus, UploadCloud } from "lucide-react";
+import { useT } from "@/lib/i18n";
 
 // A drag-and-drop upload area with explicit buttons so it works well on phones:
 // "Take Photo" opens the camera directly, "Choose Photo" opens the library/file
@@ -19,6 +20,7 @@ export default function DropZone({
   accept?: string;
   multiple?: boolean;
 }) {
+  const { t } = useT();
   const [over, setOver] = useState(false);
   const libraryRef = useRef<HTMLInputElement>(null);
   const cameraRef = useRef<HTMLInputElement>(null);
@@ -51,8 +53,8 @@ export default function DropZone({
       }
     >
       <UploadCloud size={26} className="text-workshop-700" />
-      <p className="font-black text-steel-700">{label}</p>
-      <p className="text-xs font-bold text-steel-500">{hint}</p>
+      <p className="font-black text-steel-700">{t(label)}</p>
+      <p className="text-xs font-bold text-steel-500">{t(hint)}</p>
 
       {/* Explicit, touch-friendly choices. stopPropagation so they don't also
           trigger the surrounding area's library picker. */}
@@ -65,7 +67,7 @@ export default function DropZone({
           }}
           className="touch-target flex items-center justify-center gap-1.5 rounded-lg bg-workshop-700 px-4 py-2.5 text-sm font-black text-white shadow-sm transition-colors hover:bg-workshop-500"
         >
-          <Camera size={17} /> Take Photo
+          <Camera size={17} /> {t("Take Photo")}
         </button>
         <button
           type="button"
@@ -75,7 +77,7 @@ export default function DropZone({
           }}
           className="touch-target flex items-center justify-center gap-1.5 rounded-lg border border-steel-200 bg-white px-4 py-2.5 text-sm font-black text-steel-900 shadow-sm transition-colors hover:border-workshop-500"
         >
-          <ImagePlus size={17} /> {multiple ? "Choose Photos" : "Choose Photo"}
+          <ImagePlus size={17} /> {multiple ? t("Choose Photos") : t("Choose Photo")}
         </button>
       </div>
 

@@ -54,6 +54,7 @@ import {
 } from "@/lib/data";
 import { calculateEntry, currency, getWeekKey, wholeNumber } from "@/lib/payroll";
 import { getAccessToken, roleLabels, roleViews, useAuth } from "@/lib/auth";
+import { LanguageProvider, translate, useT, type Language } from "@/lib/i18n";
 import type { ChangeLogEntry } from "@/lib/cloudChangeLog";
 import AuthGate from "@/components/AuthGate";
 import DropZone from "@/components/DropZone";
@@ -575,6 +576,9 @@ export default function Home() {
   const [view, setView] = useState<View>("entry");
   const [adminTab, setAdminTab] = useState<AdminTab>("settings");
   const [darkMode, setDarkMode] = useState(false);
+  // UI language. Managers default to Spanish (most read Spanish) but anyone can
+  // toggle; the choice is remembered.
+  const [language, setLanguage] = useState<Language>("en");
   const [entries, setEntries] = useState<DailyEntry[]>([]);
   const [countSheets, setCountSheets] = useState<CountSheet[]>([]);
   const [palletTypes, setPalletTypes] = useState<PalletType[]>(defaultPalletTypes);
@@ -1059,6 +1063,24 @@ export default function Home() {
     setForm((current) => ({ ...current, [key]: value }));
   }
 
+  // Pick the starting language: a saved choice wins; otherwise managers start in
+  // Spanish and everyone else in English.
+  useEffect(() => {
+    const stored = window.localStorage.getItem("mgp-language");
+    if (stored === "en" || stored === "es") {
+      setLanguage(stored);
+    } else if (configured && profile?.role === "supervisor") {
+      setLanguage("es");
+    }
+  }, [configured, profile?.role]);
+
+  function changeLanguage(next: Language) {
+    setLanguage(next);
+    safeSetItem("mgp-language", next);
+  }
+
+  const t = (text: string, vars?: Record<string, string | number>) => translate(language, text, vars);
+
   // Human name for an employee id, tolerant of id changes: checks the live
   // roster, then the built-in roster, then falls back to de-slugging the id.
   function nameOfEmployeeId(id: string): string {
@@ -1184,7 +1206,7 @@ export default function Home() {
     // grid totals reflect what was just saved and match the live board.
     setEditingEntryId(entryId);
     setSaveStatus("Saving…");
-    showToast("Daily grid saved");
+    showToast(t("Daily grid saved"));
 
     try {
       const response = await fetch("/api/entries", {
@@ -1471,6 +1493,7 @@ export default function Home() {
 
   return (
     <AuthGate>
+    <LanguageProvider value={{ language, setLanguage: changeLanguage, t }}>
     <main className={classNames("min-h-screen pb-24 transition-colors", darkMode ? "bg-steel-900/[0.95] text-white" : "bg-steel-50/[0.88] text-steel-900")}>
       <header className={classNames("sticky top-0 z-20 border-b backdrop-blur", darkMode ? "border-white/10 bg-steel-900/[0.92]" : "border-steel-100 bg-white/[0.92]")}>
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-3">
@@ -1486,12 +1509,29 @@ export default function Home() {
                   rel="noreferrer"
                   className="shrink-0 rounded-full bg-workshop-100 px-3 py-1 text-xs font-black text-workshop-700 hover:bg-workshop-500 hover:text-white"
                 >
-                  Live Pallet Tracker →
+                  {t("Live Pallet Tracker →")}
                 </a>
               </div>
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {configured && profile?.role === "supervisor" && (
+              <div className={classNames("flex overflow-hidden rounded border text-xs font-black", darkMode ? "border-white/20" : "border-steel-200")}>
+                {(["es", "en"] as Language[]).map((code) => (
+                  <button
+                    key={code}
+                    type="button"
+                    onClick={() => changeLanguage(code)}
+                    className={classNames(
+                      "px-2.5 py-2",
+                      language === code ? "bg-workshop-500 text-white" : darkMode ? "bg-white/10 text-white" : "bg-white text-steel-500"
+                    )}
+                  >
+                    {code.toUpperCase()}
+                  </button>
+                ))}
+              </div>
+            )}
             {configured && profile && (
               <div className="hidden text-right sm:block">
                 <p className="text-sm font-black leading-tight">{profile.fullName || profile.username}</p>
@@ -1523,11 +1563,11 @@ export default function Home() {
 
       <div className="mx-auto grid max-w-7xl gap-4 px-4 py-4">
         <nav className={classNames("no-scrollbar flex gap-2 overflow-x-auto rounded border p-2", darkMode ? "border-white/10 bg-white/[0.08]" : "border-steel-100 bg-white/90")}>
-          {allowedViews.includes("entry") && <NavButton icon={<Plus size={19} />} label="Entry" active={view === "entry"} onClick={() => setView("entry")} />}
-          {allowedViews.includes("count-sheets") && <NavButton icon={<Camera size={19} />} label="Count Sheets" active={view === "count-sheets"} onClick={() => setView("count-sheets")} />}
-          {allowedViews.includes("production-grid") && <NavButton icon={<FileSpreadsheet size={19} />} label="Production Grid" active={view === "production-grid"} onClick={() => setView("production-grid")} />}
-          {allowedViews.includes("dashboard") && <NavButton icon={<BarChart3 size={19} />} label="Dashboard" active={view === "dashboard"} onClick={() => setView("dashboard")} />}
-          {allowedViews.includes("payroll") && <NavButton icon={<FileSpreadsheet size={19} />} label="Payroll" active={view === "payroll"} onClick={() => setView("payroll")} />}
+          {allowedViews.includes("entry") && <NavButton icon={<Plus size={19} />} label={t("Entry")} active={view === "entry"} onClick={() => setView("entry")} />}
+          {allowedViews.includes("count-sheets") && <NavButton icon={<Camera size={19} />} label={t("Count Sheets")} active={view === "count-sheets"} onClick={() => setView("count-sheets")} />}
+          {allowedViews.includes("production-grid") && <NavButton icon={<FileSpreadsheet size={19} />} label={t("Production Grid")} active={view === "production-grid"} onClick={() => setView("production-grid")} />}
+          {allowedViews.includes("dashboard") && <NavButton icon={<BarChart3 size={19} />} label={t("Dashboard")} active={view === "dashboard"} onClick={() => setView("dashboard")} />}
+          {allowedViews.includes("payroll") && <NavButton icon={<FileSpreadsheet size={19} />} label={t("Payroll")} active={view === "payroll"} onClick={() => setView("payroll")} />}
           {allowedViews.includes("cloud") && <NavButton icon={<Database size={19} />} label="Cloud" active={view === "cloud"} onClick={() => setView("cloud")} />}
           {allowedViews.includes("users") && <NavButton icon={<UserRound size={19} />} label="Users" active={view === "users"} onClick={() => setView("users")} />}
           {allowedViews.includes("settings") && <NavButton icon={<ShieldCheck size={19} />} label="Admin" active={view === "settings"} onClick={() => setView("settings")} />}
@@ -1700,6 +1740,7 @@ export default function Home() {
         </div>
       )}
     </main>
+    </LanguageProvider>
     </AuthGate>
   );
 }
@@ -1735,6 +1776,7 @@ function PhaseTracker({
   phaseCounts: number[];
   phaseQcCounts: number[];
 }) {
+  const { t } = useT();
   const lastDone = lastPhaseDone(phases);
   // Full-screen view of a phase photo so count sheets can be read.
   const [zoomPhoto, setZoomPhoto] = useState<string | null>(null);
@@ -1793,7 +1835,7 @@ function PhaseTracker({
           <div>
             <p className="text-lg font-black">{repairerName}</p>
             <p className="text-xs font-bold text-steel-500">
-              {lastDone > 0 ? `Last entered: Phase ${lastDone}` : "No phases entered yet"}
+              {lastDone > 0 ? t("Last entered: Phase {n}", { n: lastDone }) : t("No phases entered yet")}
             </p>
           </div>
           {/* Dropdown under the name to pick which phase to input. */}
@@ -1804,7 +1846,7 @@ function PhaseTracker({
           >
             {phases.map((_phase, index) => (
               <option key={index} value={index}>
-                Phase {index + 1}
+                {t("Phase {n}", { n: index + 1 })}
               </option>
             ))}
           </select>
@@ -1834,7 +1876,7 @@ function PhaseTracker({
               >
                 <span className="flex items-center gap-1.5">
                   {phase.bypassed ? <X size={15} /> : done ? <CheckCircle2 size={15} /> : <span className="h-3.5 w-3.5 rounded-full border border-steel-300" />}
-                  Phase {index + 1}
+                  {t("Phase {n}", { n: index + 1 })}
                 </span>
                 <span className="flex items-center gap-1.5">
                   <span className="text-base text-steel-900">{phase.bypassed ? "—" : count}</span>
@@ -1853,7 +1895,7 @@ function PhaseTracker({
             straight from the quantity grid below (entered per phase). */}
         <div className="grid gap-3 rounded-lg bg-steel-50 p-3 sm:grid-cols-[1fr_auto]">
           <div className="grid gap-1">
-            <p className="flex items-center gap-1.5 text-sm font-black"><FileSpreadsheet size={16} /> Phase {selected + 1} pallets</p>
+            <p className="flex items-center gap-1.5 text-sm font-black"><FileSpreadsheet size={16} /> {t("Phase {n} pallets", { n: selected + 1 })}</p>
             <div className="flex items-baseline gap-2">
               <span className="text-2xl font-black text-steel-900">{active.bypassed ? "—" : phaseCounts[selected] ?? 0}</span>
               {!active.bypassed && (phaseQcCounts[selected] ?? 0) > 0 && (
@@ -1867,12 +1909,12 @@ function PhaseTracker({
               onClick={() => updatePhase(selected, { bypassed: !active.bypassed })}
               className={classNames("field font-black", active.bypassed ? "bg-amber-100 text-amber-700" : "text-steel-500")}
             >
-              {active.bypassed ? "Bypassed ✓" : "Bypass"}
+              {active.bypassed ? t("Bypassed ✓") : t("Bypass")}
             </button>
           </div>
           <div className="sm:col-span-2">
             <p className="mb-1 flex items-center gap-1.5 text-sm font-black">
-              <Camera size={15} /> Phase {selected + 1} photos
+              <Camera size={15} /> {t("Phase {n} photos", { n: selected + 1 })}
               {activePhotos.length > 0 && <span className="font-bold text-steel-500">({activePhotos.length})</span>}
             </p>
             {activePhotos.length > 0 && (
@@ -1883,14 +1925,14 @@ function PhaseTracker({
                   <div key={photoIndex} className="relative shrink-0">
                     {broken ? (
                       <div className="flex h-16 w-24 flex-col items-center justify-center rounded bg-amber-50 px-1 text-center text-[10px] font-black leading-tight text-amber-700 ring-1 ring-amber-200">
-                        Can&apos;t preview — remove &amp; re-add
+                        {t("Can't preview — remove & re-add")}
                       </div>
                     ) : (
                       <button
                         type="button"
                         onClick={() => setZoomPhoto(photo)}
                         className="group relative block rounded ring-1 ring-steel-200 transition-transform hover:scale-105"
-                        title="Tap to enlarge"
+                        title={t("Tap to enlarge")}
                       >
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
@@ -1919,7 +1961,7 @@ function PhaseTracker({
             )}
             <DropZone
               onFiles={(dropped) => handlePhasePhoto(selected, dropped)}
-              label={activePhotos.length > 0 ? "Add more photos" : "Drag & drop or tap to add phase photos"}
+              label={activePhotos.length > 0 ? t("Add more photos") : t("Drag & drop or tap to add phase photos")}
             />
           </div>
         </div>
@@ -1930,7 +1972,7 @@ function PhaseTracker({
           scrolls on its own so every name shows, and the most-completed phase
           sits at the top. */}
       <div className="grid max-h-[80vh] content-start gap-3 overflow-y-auto rounded-lg bg-steel-900 p-3 text-white">
-        <p className="sticky top-0 -mx-3 -mt-3 bg-steel-900 px-3 pb-2 pt-3 text-xs font-black uppercase tracking-wide text-steel-100">Phase check-ins</p>
+        <p className="sticky top-0 -mx-3 -mt-3 bg-steel-900 px-3 pb-2 pt-3 text-xs font-black uppercase tracking-wide text-steel-100">{t("Phase check-ins")}</p>
         {(() => {
           // A phase counts as complete only once it has a photo (a bypassed
           // phase needs no photo, so it's complete too). Classify each repairer:
@@ -1952,11 +1994,11 @@ function PhaseTracker({
           const notStarted = crew.filter((m) => !hasActivity(m)).sort(byFirstName);
 
           const groups = [
-            { key: "completed", label: "Completed", members: completed, dim: false,
+            { key: "completed", label: t("Completed"), members: completed, dim: false,
               icon: <CheckCircle2 size={14} className="shrink-0 text-safety-400" /> },
-            { key: "incomplete", label: "Incomplete", members: incomplete, dim: false,
+            { key: "incomplete", label: t("Incomplete"), members: incomplete, dim: false,
               icon: <span className="h-3.5 w-3.5 shrink-0 rounded-full bg-amber-400" /> },
-            { key: "not-started", label: "Not started", members: notStarted, dim: true,
+            { key: "not-started", label: t("Not started"), members: notStarted, dim: true,
               icon: <span className="h-3.5 w-3.5 shrink-0 rounded-full border border-steel-500" /> }
           ];
 
@@ -1969,7 +2011,7 @@ function PhaseTracker({
                 )}
               </div>
               {group.members.length === 0 ? (
-                <p className="rounded bg-white/5 px-3 py-1.5 text-xs font-bold text-steel-400">None</p>
+                <p className="rounded bg-white/5 px-3 py-1.5 text-xs font-bold text-steel-400">{t("None")}</p>
               ) : (
                 group.members.map((member) => {
                   // Which phases are done (photo/bypassed) vs still incomplete.
@@ -2038,8 +2080,8 @@ function PhaseTracker({
             <button
               type="button"
               onClick={() => setZoomRotation((value) => value - 90)}
-              aria-label="Rotate left"
-              title="Rotate left"
+              aria-label={t("Rotate left")}
+              title={t("Rotate left")}
               className="flex h-11 w-11 items-center justify-center rounded-full bg-white/15 text-white backdrop-blur transition-colors hover:bg-white/30"
             >
               <RotateCcw size={20} />
@@ -2047,8 +2089,8 @@ function PhaseTracker({
             <button
               type="button"
               onClick={() => setZoomRotation((value) => value + 90)}
-              aria-label="Rotate right"
-              title="Rotate right"
+              aria-label={t("Rotate right")}
+              title={t("Rotate right")}
               className="flex h-11 w-11 items-center justify-center rounded-full bg-white/15 text-white backdrop-blur transition-colors hover:bg-white/30"
             >
               <RotateCw size={20} />
@@ -2056,8 +2098,8 @@ function PhaseTracker({
             <button
               type="button"
               onClick={() => downloadPhoto(zoomPhoto, zoomRotation, `count-sheet-${Date.now()}.jpg`)}
-              aria-label="Download photo"
-              title="Download"
+              aria-label={t("Download")}
+              title={t("Download")}
               className="flex h-11 w-11 items-center justify-center rounded-full bg-white/15 text-white backdrop-blur transition-colors hover:bg-white/30"
             >
               <Download size={20} />
@@ -2065,8 +2107,8 @@ function PhaseTracker({
             <button
               type="button"
               onClick={() => setZoomPhoto(null)}
-              aria-label="Close"
-              title="Close (Esc)"
+              aria-label={t("Close (Esc)")}
+              title={t("Close (Esc)")}
               className="flex h-11 w-11 items-center justify-center rounded-full bg-white/15 text-white backdrop-blur transition-colors hover:bg-white/30"
             >
               <X size={22} />
@@ -2128,6 +2170,7 @@ function ProductionEntry({
   // pallet table fits a phone screen without scrolling sideways.
   hidePricing?: boolean;
 }) {
+  const { t } = useT();
   const yardRepairers = employees.filter((employee) => employee.locationId === form.locationId && employee.role !== "supervisor");
   const yardManagers = employees.filter((employee) => employee.locationId === form.locationId && employee.role === "supervisor");
   const displayedPallets = palletsForYard(palletTypes, form.locationId);
@@ -2167,13 +2210,13 @@ function ProductionEntry({
         <div className="flex items-center gap-3">
           <Avatar employee={selectedEmployee} size="lg" />
           <div>
-            <h2 className="text-2xl font-black">Daily Production Grid</h2>
-            <p className={classNames("text-sm", darkMode ? "text-steel-100" : "text-steel-500")}>{saveStatus}</p>
+            <h2 className="text-2xl font-black">{t("Daily Production Grid")}</h2>
+            <p className={classNames("text-sm", darkMode ? "text-steel-100" : "text-steel-500")}>{t(saveStatus)}</p>
           </div>
         </div>
         {/* Managers don't see pay figures — just the pallet count. */}
         <div className={classNames("grid grid-cols-2 gap-2", hidePricing ? "sm:grid-cols-1" : "sm:grid-cols-4")}>
-          <Metric label="Pallets" value={wholeNumber(calculation.quantity)} />
+          <Metric label={t("Pallets")} value={wholeNumber(calculation.quantity)} />
           {!hidePricing && <Metric label="Piece Pay" value={currency(calculation.pieceEarnings)} />}
           {!hidePricing && <Metric label="Make-up" value={currency(calculation.additionalOwed)} />}
           {!hidePricing && <Metric label="Total" value={currency(calculation.totalPay)} />}
@@ -2181,10 +2224,10 @@ function ProductionEntry({
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-4">
-        <Label title="Date" icon={<CalendarDays size={17} />}>
+        <Label title={t("Date")} icon={<CalendarDays size={17} />}>
           <input className="field" type="date" onClick={openDatePicker} value={form.date} onChange={(event) => onDateChange(event.target.value)} />
         </Label>
-        <Label title="Yard" icon={<MapPin size={17} />}>
+        <Label title={t("Yard")} icon={<MapPin size={17} />}>
           <select className="field" value={form.locationId} onChange={(event) => onYardChange(event.target.value)}>
             {locations.filter((location) => location.active).map((location) => (
               <option key={location.id} value={location.id}>
@@ -2194,9 +2237,9 @@ function ProductionEntry({
           </select>
         </Label>
         {!hideYardManager && (
-          <Label title="Yard Manager" icon={<ShieldCheck size={17} />}>
+          <Label title={t("Yard Manager")} icon={<ShieldCheck size={17} />}>
             <select className="field" value={form.yardManagerId ?? ""} onChange={(event) => onFormChange("yardManagerId", event.target.value)}>
-              <option value="">— No manager —</option>
+              <option value="">{t("— No manager —")}</option>
               {yardManagers.map((employee) => (
                 <option key={employee.id} value={employee.id}>
                   {employee.name}
@@ -2205,9 +2248,9 @@ function ProductionEntry({
             </select>
           </Label>
         )}
-        <Label title="Repairer" icon={<UserRound size={17} />}>
+        <Label title={t("Repairer")} icon={<UserRound size={17} />}>
           <select className="field" value={form.employeeId} onChange={(event) => onEmployeeChange(event.target.value)}>
-            {yardRepairers.length === 0 && <option value="">No repairers in this yard</option>}
+            {yardRepairers.length === 0 && <option value="">{t("No repairers in this yard")}</option>}
             {yardRepairers.map((employee) => (
               <option key={employee.id} value={employee.id}>
                 {employee.name}
@@ -2274,10 +2317,10 @@ function ProductionEntry({
 
       <div className="flex items-center justify-between gap-2">
         <p className="text-sm font-black text-steel-900">
-          Phase {selectedPhase + 1} quantities
-          <span className="ml-1 font-bold text-steel-500">— enter this phase&apos;s pallets, then switch phases above</span>
+          {t("Phase {n} quantities", { n: selectedPhase + 1 })}
+          <span className="ml-1 font-bold text-steel-500">{t("— enter this phase's pallets, then switch phases above")}</span>
         </p>
-        <span className="rounded bg-workshop-100 px-2.5 py-1 text-xs font-black text-workshop-700">{phaseCounts[selectedPhase]} pallets</span>
+        <span className="rounded bg-workshop-100 px-2.5 py-1 text-xs font-black text-workshop-700">{t("{n} pallets", { n: phaseCounts[selectedPhase] })}</span>
       </div>
 
       <div className="overflow-hidden rounded border border-steel-100 bg-white text-steel-900">
@@ -2285,11 +2328,11 @@ function ProductionEntry({
           <table className={classNames("w-full text-left text-sm", hidePricing ? "table-fixed" : "min-w-[760px]")}>
             <thead className="bg-steel-900 text-white">
               <tr>
-                {!hidePricing && <th className="p-3">Category</th>}
-                <th className={cellPad}>Pallet Description</th>
-                {!hidePricing && <th className="p-3">Rate</th>}
-                <th className={classNames(cellPad, hidePricing && "w-[88px]")}>Quantity</th>
-                {!hidePricing && <th className="p-3">Total Earned</th>}
+                {!hidePricing && <th className="p-3">{t("Category")}</th>}
+                <th className={cellPad}>{t("Pallet Description")}</th>
+                {!hidePricing && <th className="p-3">{t("Rate")}</th>}
+                <th className={classNames(cellPad, hidePricing && "w-[88px]")}>{t("Quantity")}</th>
+                {!hidePricing && <th className="p-3">{t("Total Earned")}</th>}
               </tr>
             </thead>
             <tbody>
@@ -2361,13 +2404,13 @@ function ProductionEntry({
         </div>
       )}
 
-      <Label title="Notes" icon={<FileSpreadsheet size={17} />}>
-        <textarea className="field min-h-20 resize-none" value={form.notes} onChange={(event) => onFormChange("notes", event.target.value)} placeholder="Supervisor notes, trailer, customer, or repair issues" />
+      <Label title={t("Notes")} icon={<FileSpreadsheet size={17} />}>
+        <textarea className="field min-h-20 resize-none" value={form.notes} onChange={(event) => onFormChange("notes", event.target.value)} placeholder={t("Supervisor notes, trailer, customer, or repair issues")} />
       </Label>
 
       <button type="button" className="touch-target flex items-center justify-center gap-2 rounded bg-workshop-500 px-4 py-3 text-lg font-black text-white shadow-panel" onClick={onSave}>
         <Save size={22} />
-        Save Daily Grid
+        {t("Save Daily Grid")}
       </button>
     </div>
   );
