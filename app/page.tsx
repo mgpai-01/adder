@@ -22,6 +22,8 @@ import {
   Minus,
   Moon,
   Plus,
+  RotateCcw,
+  RotateCw,
   Save,
   Search,
   ShieldCheck,
@@ -434,6 +436,57 @@ async function toRenderableImage(file: File): Promise<File> {
     return new File([blob], `${name}.jpg`, { type: "image/jpeg" });
   } catch {
     return file;
+  }
+}
+
+// Trigger a browser download for a URL (data: or blob:).
+function triggerDownload(href: string, fileName: string) {
+  const anchor = document.createElement("a");
+  anchor.href = href;
+  anchor.download = fileName;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+}
+
+function loadImageElement(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = src;
+  });
+}
+
+// Download a photo to the device, baking in any on-screen rotation so the saved
+// file is oriented the way the viewer is showing it.
+async function downloadPhoto(dataUrl: string, rotationDeg: number, fileName: string) {
+  const rotation = (((rotationDeg % 360) + 360) % 360);
+  try {
+    let blob: Blob;
+    if (rotation === 0) {
+      blob = await (await fetch(dataUrl)).blob();
+    } else {
+      const img = await loadImageElement(dataUrl);
+      const swap = rotation === 90 || rotation === 270;
+      const canvas = document.createElement("canvas");
+      canvas.width = swap ? img.naturalHeight : img.naturalWidth;
+      canvas.height = swap ? img.naturalWidth : img.naturalHeight;
+      const context = canvas.getContext("2d");
+      if (!context) throw new Error("no canvas context");
+      context.translate(canvas.width / 2, canvas.height / 2);
+      context.rotate((rotation * Math.PI) / 180);
+      context.drawImage(img, -img.naturalWidth / 2, -img.naturalHeight / 2);
+      blob = await new Promise<Blob>((resolve, reject) =>
+        canvas.toBlob((result) => (result ? resolve(result) : reject(new Error("toBlob failed"))), "image/jpeg", 0.92)
+      );
+    }
+    const url = URL.createObjectURL(blob);
+    triggerDownload(url, fileName);
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  } catch {
+    // Fallback: download the original data URL directly.
+    triggerDownload(dataUrl, fileName);
   }
 }
 
@@ -1674,9 +1727,26 @@ function PhaseTracker({
   const lastDone = lastPhaseDone(phases);
   // Full-screen view of a phase photo so count sheets can be read.
   const [zoomPhoto, setZoomPhoto] = useState<string | null>(null);
+  // Rotation (degrees) applied to the zoomed photo so a sideways count sheet can
+  // be turned upright; resets each time a new photo is opened.
+  const [zoomRotation, setZoomRotation] = useState(0);
   // Photos that fail to render (e.g. an old HEIC saved before conversion) so we
   // can show a clear "re-upload" placeholder instead of a broken-image icon.
   const [brokenPhotos, setBrokenPhotos] = useState<string[]>([]);
+
+  useEffect(() => {
+    setZoomRotation(0);
+  }, [zoomPhoto]);
+
+  // Close the full-screen viewer with the Escape key.
+  useEffect(() => {
+    if (!zoomPhoto) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setZoomPhoto(null);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [zoomPhoto]);
 
   function updatePhase(index: number, patch: Partial<EntryPhase>) {
     onChange(phases.map((phase, current) => (current === index ? { ...phase, ...patch } : phase)));
@@ -1943,7 +2013,8 @@ function PhaseTracker({
         })()}
       </div>
 
-      {/* Full-screen photo viewer so count sheets can be read up close. */}
+      {/* Full-screen photo viewer so count sheets can be read up close.
+          Click the backdrop or press Escape to close. */}
       {zoomPhoto && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-4 [animation:board-rise_0.2s_ease-out]"
@@ -1951,21 +2022,53 @@ function PhaseTracker({
           role="dialog"
           aria-modal="true"
         >
+          {/* Toolbar: rotate, download, close. */}
+          <div className="absolute right-3 top-3 z-10 flex items-center gap-2" onClick={(event) => event.stopPropagation()}>
+            <button
+              type="button"
+              onClick={() => setZoomRotation((value) => value - 90)}
+              aria-label="Rotate left"
+              title="Rotate left"
+              className="flex h-11 w-11 items-center justify-center rounded-full bg-white/15 text-white backdrop-blur transition-colors hover:bg-white/30"
+            >
+              <RotateCcw size={20} />
+            </button>
+            <button
+              type="button"
+              onClick={() => setZoomRotation((value) => value + 90)}
+              aria-label="Rotate right"
+              title="Rotate right"
+              className="flex h-11 w-11 items-center justify-center rounded-full bg-white/15 text-white backdrop-blur transition-colors hover:bg-white/30"
+            >
+              <RotateCw size={20} />
+            </button>
+            <button
+              type="button"
+              onClick={() => downloadPhoto(zoomPhoto, zoomRotation, `count-sheet-${Date.now()}.jpg`)}
+              aria-label="Download photo"
+              title="Download"
+              className="flex h-11 w-11 items-center justify-center rounded-full bg-white/15 text-white backdrop-blur transition-colors hover:bg-white/30"
+            >
+              <Download size={20} />
+            </button>
+            <button
+              type="button"
+              onClick={() => setZoomPhoto(null)}
+              aria-label="Close"
+              title="Close (Esc)"
+              className="flex h-11 w-11 items-center justify-center rounded-full bg-white/15 text-white backdrop-blur transition-colors hover:bg-white/30"
+            >
+              <X size={22} />
+            </button>
+          </div>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={zoomPhoto}
             alt="Phase photo"
-            className="max-h-full max-w-full rounded-lg object-contain shadow-2xl"
+            style={{ transform: `rotate(${zoomRotation}deg)` }}
+            className="max-h-full max-w-full rounded-lg object-contain shadow-2xl transition-transform"
             onClick={(event) => event.stopPropagation()}
           />
-          <button
-            type="button"
-            onClick={() => setZoomPhoto(null)}
-            aria-label="Close"
-            className="absolute right-4 top-4 flex h-11 w-11 items-center justify-center rounded-full bg-white/15 text-white backdrop-blur transition-colors hover:bg-white/30"
-          >
-            <X size={22} />
-          </button>
         </div>
       )}
     </div>
