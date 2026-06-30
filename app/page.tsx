@@ -2412,7 +2412,7 @@ function ProductionEntry({
                 {!hidePricing && <th className="p-3">{t("Category")}</th>}
                 <th className={cellPad}>{t("Pallet Description")}</th>
                 {!hidePricing && <th className="p-3">{t("Rate")}</th>}
-                <th className={classNames(cellPad, hidePricing && "w-[150px]")}>{t("Quantity")}</th>
+                <th className={classNames(cellPad, hidePricing && "w-[168px]")}>{t("Quantity")}</th>
                 {!hidePricing && <th className="p-3">{t("Total Earned")}</th>}
               </tr>
             </thead>
@@ -2443,8 +2443,9 @@ function ProductionEntry({
                     )}
                     <td className={cellPad}>
                       {line?.parts && line.parts.length > 1 ? (
-                        // Breakdown on the side: an editable list of numbers and
-                        // the running total. Edit the list and it re-sums.
+                        // Formula in its own editable box on the left; the
+                        // original box on the right shows the sum. Editing the
+                        // formula re-sums automatically.
                         <div className="flex items-center justify-end gap-1.5">
                           <QuantityInput
                             mode="parts"
@@ -2453,8 +2454,13 @@ function ProductionEntry({
                             parts={line.parts}
                             onCommit={(sum, parts) => onQuantityChange(selectedPhase, pallet.id, sum, parts)}
                           />
-                          <span className="shrink-0 font-black text-steel-400">=</span>
-                          <span className="w-10 shrink-0 text-center text-lg font-black text-workshop-700">{quantity}</span>
+                          <QuantityInput
+                            mode="total"
+                            className="field w-12 shrink-0 px-1 text-center font-black"
+                            value={quantity}
+                            parts={line.parts}
+                            onCommit={(sum, parts) => onQuantityChange(selectedPhase, pallet.id, sum, parts)}
+                          />
                         </div>
                       ) : hidePricing ? (
                         <QuantityInput
