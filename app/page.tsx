@@ -2418,7 +2418,7 @@ function ProductionEntry({
                 {!hidePricing && <th className="p-3">{t("Category")}</th>}
                 <th className={cellPad}>{t("Pallet Description")}</th>
                 {!hidePricing && <th className="p-3">{t("Rate")}</th>}
-                <th className={classNames(cellPad, hidePricing && "w-[196px]")}>{t("Quantity")}</th>
+                <th className={classNames(cellPad, hidePricing && "w-[42%]")}>{t("Quantity")}</th>
                 {!hidePricing && <th className="p-3">{t("Total Earned")}</th>}
               </tr>
             </thead>
@@ -2453,9 +2453,10 @@ function ProductionEntry({
                         // original box on the right shows the sum. Editing the
                         // formula re-sums automatically. Explicit widths (not the
                         // full-width `.field`) so the two boxes sit side by side.
-                        // Scrollable so the formula box can grow sideways with a
-                        // long list without stretching the whole table.
-                        <div className="flex items-center gap-1.5 overflow-x-auto">
+                        // Right-aligned so the sum (= total) stays anchored on the
+                        // right and the formula box grows to the LEFT as numbers
+                        // are added. Scrollable as a safety for very long lists.
+                        <div className="flex items-center justify-end gap-1.5 overflow-x-auto">
                           <QuantityInput
                             mode="parts"
                             autoWidth
