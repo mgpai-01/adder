@@ -477,7 +477,7 @@ function QuantityInput({
   onCommit,
   className,
   mode = "total",
-  autoWidth = false
+  multiline = false
 }: {
   value: number;
   parts?: number[];
@@ -486,14 +486,24 @@ function QuantityInput({
   // "total" shows the summed number when blurred; "parts" shows the editable
   // list of numbers (e.g. "3 3 6 2 3 5") so the breakdown can be corrected.
   mode?: "total" | "parts";
-  // When true, the input widens with its content (stays one line, grows sideways).
-  autoWidth?: boolean;
+  // When true, renders a textarea that stays one line for short content and
+  // wraps to more lines (growing taller) only when it can't fit — so a long
+  // equation is fully visible without horizontal scrolling, especially on phones.
+  multiline?: boolean;
 }) {
   const [editing, setEditing] = useState<string | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   // Show the added numbers with + signs, e.g. "6 + 4 + 2 + 7".
   const expression = parts && parts.length > 1 ? parts.join(" + ") : value === 0 ? "" : String(value);
   const blurred = mode === "parts" ? expression : value === 0 ? "" : String(value);
   const display = editing !== null ? editing : blurred;
+  // Grow the textarea's height to fit its content (wrapping when needed).
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!multiline || !el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [display, multiline]);
   function commit() {
     if (editing === null) return;
     const nums = parseQuantityParts(editing);
@@ -503,19 +513,36 @@ function QuantityInput({
     );
     setEditing(null);
   }
+  const shared = {
+    className,
+    // Use the full keyboard (not the numeric keypad) so the space bar — which
+    // separates the numbers to add — is available on phones.
+    inputMode: "text" as const,
+    placeholder: "0",
+    value: display,
+    onFocus: () => setEditing(expression),
+    onChange: (event: { target: { value: string } }) => setEditing(event.target.value)
+  };
+  if (multiline) {
+    return (
+      <textarea
+        {...shared}
+        ref={textareaRef}
+        rows={1}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            (event.target as HTMLTextAreaElement).blur();
+          }
+        }}
+      />
+    );
+  }
   return (
     <input
-      className={className}
-      // Use the full keyboard (not the numeric keypad) so the space bar — which
-      // separates the numbers to add — is available on phones.
-      inputMode="text"
+      {...shared}
       type="text"
-      placeholder="0"
-      // Grow the box width with the content so a long list expands sideways.
-      size={autoWidth ? Math.max(4, Math.min(60, display.length + 1)) : undefined}
-      value={display}
-      onFocus={() => setEditing(expression)}
-      onChange={(event) => setEditing(event.target.value)}
       onBlur={commit}
       onKeyDown={(event) => {
         if (event.key === "Enter") (event.target as HTMLInputElement).blur();
@@ -2418,7 +2445,7 @@ function ProductionEntry({
                 {!hidePricing && <th className="p-3">{t("Category")}</th>}
                 <th className={cellPad}>{t("Pallet Description")}</th>
                 {!hidePricing && <th className="p-3">{t("Rate")}</th>}
-                <th className={classNames(cellPad, hidePricing && "w-[55%]")}>{t("Quantity")}</th>
+                <th className={classNames(cellPad, hidePricing && "w-[190px]")}>{t("Quantity")}</th>
                 {!hidePricing && <th className="p-3">{t("Total Earned")}</th>}
               </tr>
             </thead>
@@ -2449,15 +2476,15 @@ function ProductionEntry({
                     )}
                     <td className={cellPad}>
                       {line?.parts && line.parts.length > 1 ? (
-                        // Two boxes: the formula on the left (auto-width, so it
-                        // grows LEFT to show the whole equation without scrolling)
-                        // and the sum on the right. Right-aligned so the sum stays
-                        // anchored and the formula extends into the space at left.
-                        <div className="flex items-center justify-end gap-1.5 overflow-x-auto">
+                        // Two boxes: the formula on the left and the sum on the
+                        // right. The formula box stays one line when it fits and
+                        // wraps to more lines only when it can't — so the whole
+                        // equation is always visible without horizontal scrolling.
+                        <div className="flex items-center gap-1.5">
                           <QuantityInput
                             mode="parts"
-                            autoWidth
-                            className="shrink-0 rounded border border-steel-200 bg-white px-2 py-2.5 text-center text-sm font-black text-steel-900 outline-none focus:border-workshop-500"
+                            multiline
+                            className="min-w-0 flex-1 resize-none overflow-hidden rounded border border-steel-200 bg-white px-2 py-2 text-center text-sm font-black leading-snug text-steel-900 outline-none focus:border-workshop-500"
                             value={quantity}
                             parts={line.parts}
                             onCommit={(sum, parts) => onQuantityChange(selectedPhase, pallet.id, sum, parts)}
@@ -2465,21 +2492,19 @@ function ProductionEntry({
                           <span className="shrink-0 text-lg font-black text-steel-400">=</span>
                           <input
                             readOnly
-                            className="w-[60px] shrink-0 rounded border border-steel-200 bg-steel-50 px-1 py-2.5 text-center font-black text-steel-900 outline-none"
+                            className="w-[56px] shrink-0 rounded border border-steel-200 bg-steel-50 px-1 py-2.5 text-center font-black text-steel-900 outline-none"
                             value={quantity}
                           />
                         </div>
                       ) : hidePricing ? (
-                        // Default box: normal size, right-aligned. Type the numbers
-                        // here and the row splits into the two boxes above.
-                        <div className="flex justify-end">
-                          <QuantityInput
-                            className="w-[96px] rounded border border-steel-200 bg-white px-1 py-2.5 text-center font-black text-steel-900 outline-none focus:border-workshop-500"
-                            value={quantity}
-                            parts={line?.parts}
-                            onCommit={(sum, parts) => onQuantityChange(selectedPhase, pallet.id, sum, parts)}
-                          />
-                        </div>
+                        // Default box: normal full-width box. Type the numbers here
+                        // and the row splits into the two boxes above.
+                        <QuantityInput
+                          className="field min-w-0 px-1 text-center font-black"
+                          value={quantity}
+                          parts={line?.parts}
+                          onCommit={(sum, parts) => onQuantityChange(selectedPhase, pallet.id, sum, parts)}
+                        />
                       ) : (
                         <div className={classNames("grid", qtyCols)}>
                           <button type="button" className="touch-target flex items-center justify-center rounded bg-steel-800 text-white" onClick={() => onQuantityChange(selectedPhase, pallet.id, quantity - 1)}>
