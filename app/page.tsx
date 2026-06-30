@@ -439,6 +439,17 @@ async function toRenderableImage(file: File): Promise<File> {
   }
 }
 
+// Open the native date picker when the field is clicked anywhere — not just on
+// the little calendar icon. showPicker() is a no-op where unsupported.
+function openDatePicker(event: { currentTarget: HTMLInputElement }) {
+  const input = event.currentTarget as HTMLInputElement & { showPicker?: () => void };
+  try {
+    input.showPicker?.();
+  } catch {
+    // showPicker throws if unsupported or not user-activated — ignore.
+  }
+}
+
 // Trigger a browser download for a URL (data: or blob:).
 function triggerDownload(href: string, fileName: string) {
   const anchor = document.createElement("a");
@@ -2171,7 +2182,7 @@ function ProductionEntry({
 
       <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-4">
         <Label title="Date" icon={<CalendarDays size={17} />}>
-          <input className="field" type="date" value={form.date} onChange={(event) => onDateChange(event.target.value)} />
+          <input className="field" type="date" onClick={openDatePicker} value={form.date} onChange={(event) => onDateChange(event.target.value)} />
         </Label>
         <Label title="Yard" icon={<MapPin size={17} />}>
           <select className="field" value={form.locationId} onChange={(event) => onYardChange(event.target.value)}>
@@ -2508,7 +2519,7 @@ function CountSheetsModule({
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
             <Label title="Date" icon={<CalendarDays size={17} />}>
-              <input className="field" type="date" value={date} onChange={(event) => setDate(event.target.value)} />
+              <input className="field" type="date" onClick={openDatePicker} value={date} onChange={(event) => setDate(event.target.value)} />
             </Label>
             <Label title="Shift" icon={<Clock size={17} />}>
               <select className="field" value={shift} onChange={(event) => setShift(event.target.value as Shift)}>
@@ -2588,16 +2599,16 @@ function CountSheetsModule({
               <input className="field" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search photos" />
             </Label>
             <Label title="Single Date" icon={<CalendarDays size={17} />}>
-              <input className="field" type="date" value={singleDateFilter} onChange={(event) => setSingleDateFilter(event.target.value)} />
+              <input className="field" type="date" onClick={openDatePicker} value={singleDateFilter} onChange={(event) => setSingleDateFilter(event.target.value)} />
             </Label>
             <Label title="Week" icon={<CalendarDays size={17} />}>
-              <input className="field" type="date" value={weekFilter} onChange={(event) => setWeekFilter(event.target.value)} />
+              <input className="field" type="date" onClick={openDatePicker} value={weekFilter} onChange={(event) => setWeekFilter(event.target.value)} />
             </Label>
             <Label title="From" icon={<CalendarDays size={17} />}>
-              <input className="field" type="date" value={fromDateFilter} onChange={(event) => setFromDateFilter(event.target.value)} />
+              <input className="field" type="date" onClick={openDatePicker} value={fromDateFilter} onChange={(event) => setFromDateFilter(event.target.value)} />
             </Label>
             <Label title="To" icon={<CalendarDays size={17} />}>
-              <input className="field" type="date" value={toDateFilter} onChange={(event) => setToDateFilter(event.target.value)} />
+              <input className="field" type="date" onClick={openDatePicker} value={toDateFilter} onChange={(event) => setToDateFilter(event.target.value)} />
             </Label>
             <Label title="Location" icon={<MapPin size={17} />}>
               <select className="field" value={locationFilter} onChange={(event) => setLocationFilter(event.target.value)}>
@@ -2853,10 +2864,10 @@ function Dashboard({
         </div>
         <div className="flex flex-wrap items-end gap-2">
           <Label title="From" icon={<CalendarDays size={16} />}>
-            <input className="field" type="date" value={from} max={to || undefined} onChange={(event) => setFrom(event.target.value)} />
+            <input className="field" type="date" onClick={openDatePicker} value={from} max={to || undefined} onChange={(event) => setFrom(event.target.value)} />
           </Label>
           <Label title="To" icon={<CalendarDays size={16} />}>
-            <input className="field" type="date" value={to} min={from || undefined} onChange={(event) => setTo(event.target.value)} />
+            <input className="field" type="date" onClick={openDatePicker} value={to} min={from || undefined} onChange={(event) => setTo(event.target.value)} />
           </Label>
           <div className="flex flex-wrap gap-1">
             <button type="button" className="touch-target rounded bg-steel-900 px-3 text-sm font-black text-white" onClick={() => applyPreset(7)}>7d</button>
@@ -2971,10 +2982,10 @@ function Payroll({
         <FilterSelect label="Location" value={locationFilter} onChange={setLocationFilter} options={[{ id: "all", name: "All Locations" }, ...locations.map((location) => ({ id: location.id, name: location.name }))]} />
         <FilterSelect label="Shift" value={shiftFilter} onChange={setShiftFilter} options={[{ id: "all", name: "All Shifts" }, ...shifts.map((shift) => ({ id: shift, name: shift }))]} />
         <Label title="Start" icon={<CalendarDays size={17} />}>
-          <input className="field" type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} />
+          <input className="field" type="date" onClick={openDatePicker} value={startDate} onChange={(event) => setStartDate(event.target.value)} />
         </Label>
         <Label title="End" icon={<CalendarDays size={17} />}>
-          <input className="field" type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} />
+          <input className="field" type="date" onClick={openDatePicker} value={endDate} onChange={(event) => setEndDate(event.target.value)} />
         </Label>
       </div>
 
@@ -3011,7 +3022,7 @@ function WeekControls({ selectedWeek, onWeekChange }: { selectedWeek: string; on
       <button type="button" aria-label="Previous week" className="touch-target rounded bg-steel-900 font-black text-white" onClick={() => onWeekChange(addDays(selectedWeek, -7))}>
         ‹
       </button>
-      <input className="field" type="date" value={selectedWeek} onChange={(event) => onWeekChange(getWeekKey(event.target.value))} />
+      <input className="field" type="date" onClick={openDatePicker} value={selectedWeek} onChange={(event) => onWeekChange(getWeekKey(event.target.value))} />
       <button type="button" aria-label="Next week" className="touch-target rounded bg-steel-900 font-black text-white" onClick={() => onWeekChange(addDays(selectedWeek, 7))}>
         ›
       </button>
@@ -3240,10 +3251,10 @@ function ProductionGrid({
           </div>
           <div className="flex flex-wrap items-end gap-2">
             <Label title="From" icon={<CalendarDays size={16} />}>
-              <input className="field" type="date" value={photoFrom} max={photoTo || undefined} onChange={(event) => setPhotoFrom(event.target.value)} />
+              <input className="field" type="date" onClick={openDatePicker} value={photoFrom} max={photoTo || undefined} onChange={(event) => setPhotoFrom(event.target.value)} />
             </Label>
             <Label title="To" icon={<CalendarDays size={16} />}>
-              <input className="field" type="date" value={photoTo} min={photoFrom || undefined} onChange={(event) => setPhotoTo(event.target.value)} />
+              <input className="field" type="date" onClick={openDatePicker} value={photoTo} min={photoFrom || undefined} onChange={(event) => setPhotoTo(event.target.value)} />
             </Label>
           </div>
         </div>
@@ -4256,7 +4267,7 @@ function EntryEditorModal({
       <div className="grid gap-4">
         <div className="grid gap-3 md:grid-cols-4">
           <Label title="Date" icon={<CalendarDays size={17} />}>
-            <input disabled={readOnly} className="field" type="date" value={draft.date} onChange={(event) => updateDraft("date", event.target.value)} />
+            <input disabled={readOnly} className="field" type="date" onClick={openDatePicker} value={draft.date} onChange={(event) => updateDraft("date", event.target.value)} />
           </Label>
           <Label title="Repairer" icon={<UserRound size={17} />}>
             <select disabled={readOnly} className="field" value={draft.employeeId} onChange={(event) => updateDraft("employeeId", event.target.value)}>
