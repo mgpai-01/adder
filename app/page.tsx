@@ -2418,7 +2418,7 @@ function ProductionEntry({
                 {!hidePricing && <th className="p-3">{t("Category")}</th>}
                 <th className={cellPad}>{t("Pallet Description")}</th>
                 {!hidePricing && <th className="p-3">{t("Rate")}</th>}
-                <th className={classNames(cellPad, hidePricing && "w-[42%]")}>{t("Quantity")}</th>
+                <th className={classNames(cellPad, hidePricing && "w-[170px]")}>{t("Quantity")}</th>
                 {!hidePricing && <th className="p-3">{t("Total Earned")}</th>}
               </tr>
             </thead>
@@ -2449,29 +2449,30 @@ function ProductionEntry({
                     )}
                     <td className={cellPad}>
                       {line?.parts && line.parts.length > 1 ? (
-                        // Formula in its own editable box on the left; the
-                        // original box on the right shows the sum. Editing the
-                        // formula re-sums automatically. Explicit widths (not the
-                        // full-width `.field`) so the two boxes sit side by side.
-                        // Right-aligned so the sum (= total) stays anchored on the
-                        // right and the formula box grows to the LEFT as numbers
-                        // are added. Scrollable as a safety for very long lists.
-                        <div className="flex items-center justify-end gap-1.5 overflow-x-auto">
-                          <QuantityInput
-                            mode="parts"
-                            autoWidth
-                            className="shrink-0 whitespace-nowrap rounded border border-steel-200 bg-white px-2 py-2.5 text-center text-sm font-black text-steel-900 outline-none focus:border-workshop-500"
-                            value={quantity}
-                            parts={line.parts}
-                            onCommit={(sum, parts) => onQuantityChange(selectedPhase, pallet.id, sum, parts)}
+                        // Once numbers are added it splits into two boxes: the
+                        // formula on the left and the sum on the right (the
+                        // original box stays its normal size). Right-aligned so the
+                        // sum stays put and the formula sits to its left.
+                        <div className="flex items-center justify-end gap-1.5">
+                          <input
+                            inputMode="text"
+                            type="text"
+                            className="min-w-0 flex-1 rounded border border-steel-200 bg-white px-2 py-2.5 text-center text-sm font-black text-steel-900 outline-none focus:border-workshop-500"
+                            defaultValue={line.parts.join(" + ")}
+                            key={line.parts.join("+")}
+                            onBlur={(event) => {
+                              const nums = parseQuantityParts(event.target.value);
+                              onQuantityChange(selectedPhase, pallet.id, nums.reduce((a, b) => a + b, 0), nums);
+                            }}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter") (event.target as HTMLInputElement).blur();
+                            }}
                           />
                           <span className="shrink-0 text-lg font-black text-steel-400">=</span>
-                          <QuantityInput
-                            mode="total"
-                            className="w-16 shrink-0 rounded border border-steel-200 bg-white px-1 py-2.5 text-center font-black text-steel-900 outline-none focus:border-workshop-500"
+                          <input
+                            readOnly
+                            className="w-14 shrink-0 rounded border border-steel-200 bg-steel-50 px-1 py-2.5 text-center font-black text-steel-900 outline-none"
                             value={quantity}
-                            parts={line.parts}
-                            onCommit={(sum, parts) => onQuantityChange(selectedPhase, pallet.id, sum, parts)}
                           />
                         </div>
                       ) : hidePricing ? (
