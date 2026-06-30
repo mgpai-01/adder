@@ -40,6 +40,10 @@ export type BreakProfile = "standard" | "paidLunch" | "noLunch";
 export type ProductionLine = {
   palletTypeId: string;
   quantity: number;
+  // When a count is entered as several numbers added together (e.g. "13 7 14"),
+  // the individual numbers are kept here so the breakdown can be shown. `quantity`
+  // is always their sum. Omitted for a plain single-number entry.
+  parts?: number[];
 };
 
 // A repairer's day is tracked in three phases. Each phase records its own

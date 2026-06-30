@@ -155,7 +155,11 @@ function normalizePhases(phases?: EntryPhase[]): EntryPhase[] {
       amount: Number(phase?.amount) || 0,
       bypassed: Boolean(phase?.bypassed),
       photoDataUrls: phasePhotos(phase),
-      lines: (phase?.lines ?? []).map((line) => ({ palletTypeId: line.palletTypeId, quantity: Number(line.quantity) || 0 }))
+      lines: (phase?.lines ?? []).map((line) => ({
+        palletTypeId: line.palletTypeId,
+        quantity: Number(line.quantity) || 0,
+        ...(Array.isArray(line.parts) && line.parts.length > 1 ? { parts: line.parts.map(Number) } : {})
+      }))
     };
   });
   return base;
@@ -164,10 +168,19 @@ function normalizePhases(phases?: EntryPhase[]): EntryPhase[] {
 // Sum per-pallet quantities across a set of line arrays into one list.
 function sumLines(lineSets: (ProductionLine[] | undefined)[]): ProductionLine[] {
   const map = new Map<string, number>();
+  const partsByPallet = new Map<string, number[]>();
   lineSets.forEach((lines) =>
-    (lines ?? []).forEach((line) => map.set(line.palletTypeId, (map.get(line.palletTypeId) ?? 0) + Number(line.quantity || 0)))
+    (lines ?? []).forEach((line) => {
+      map.set(line.palletTypeId, (map.get(line.palletTypeId) ?? 0) + Number(line.quantity || 0));
+      if (Array.isArray(line.parts) && line.parts.length) {
+        partsByPallet.set(line.palletTypeId, [...(partsByPallet.get(line.palletTypeId) ?? []), ...line.parts]);
+      }
+    })
   );
-  return Array.from(map, ([palletTypeId, quantity]) => ({ palletTypeId, quantity }));
+  return Array.from(map, ([palletTypeId, quantity]) => {
+    const parts = partsByPallet.get(palletTypeId);
+    return parts && parts.length > 1 ? { palletTypeId, quantity, parts } : { palletTypeId, quantity };
+  });
 }
 
 // The day's full pallet list is the sum of every phase's lines.
@@ -441,6 +454,60 @@ async function toRenderableImage(file: File): Promise<File> {
   } catch {
     return file;
   }
+}
+
+// Parse a quantity entry that may be several numbers added together, e.g.
+// "13 7 14" or "13+7+14" -> [13, 7, 14]. Used so a count sheet's stacked
+// numbers can be typed and summed.
+function parseQuantityParts(text: string): number[] {
+  return text
+    .split(/[\s+,]+/)
+    .map((piece) => piece.trim())
+    .filter(Boolean)
+    .map(Number)
+    .filter((value) => Number.isFinite(value) && value > 0);
+}
+
+// A quantity box that accepts a single number or several numbers separated by
+// spaces/plus signs. While focused it shows what you type; on blur it commits
+// the sum (and the list of numbers, so a breakdown can be shown).
+function QuantityInput({
+  value,
+  parts,
+  onCommit,
+  className
+}: {
+  value: number;
+  parts?: number[];
+  onCommit: (sum: number, parts: number[]) => void;
+  className?: string;
+}) {
+  const [editing, setEditing] = useState<string | null>(null);
+  const display = editing !== null ? editing : value === 0 ? "" : String(value);
+  function commit() {
+    if (editing === null) return;
+    const nums = parseQuantityParts(editing);
+    onCommit(
+      nums.reduce((total, n) => total + n, 0),
+      nums
+    );
+    setEditing(null);
+  }
+  return (
+    <input
+      className={className}
+      inputMode="numeric"
+      type="text"
+      placeholder="0"
+      value={display}
+      onFocus={() => setEditing(parts && parts.length > 1 ? parts.join(" ") : value === 0 ? "" : String(value))}
+      onChange={(event) => setEditing(event.target.value)}
+      onBlur={commit}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") (event.target as HTMLInputElement).blur();
+      }}
+    />
+  );
 }
 
 // Open the native date picker when the field is clicked anywhere — not just on
@@ -1166,14 +1233,16 @@ export default function Home() {
   // Quantities are entered per phase. Updating a phase's line also refreshes
   // that phase's non-QC count (`amount`) and the day's aggregate `lines`, which
   // is what pay and the live board read.
-  function updatePhaseLineQuantity(phaseIndex: number, palletTypeId: string, quantity: number) {
+  function updatePhaseLineQuantity(phaseIndex: number, palletTypeId: string, quantity: number, parts?: number[]) {
     formDirtyRef.current = true;
     setForm((current) => {
       const qty = Math.max(0, Number(quantity) || 0);
+      // Keep the breakdown only when it's genuinely several numbers added.
+      const keepParts = parts && parts.length > 1 ? parts : undefined;
       const phases = normalizePhases(current.phases).map((phase, index) => {
         if (index !== phaseIndex) return phase;
         const without = (phase.lines ?? []).filter((line) => line.palletTypeId !== palletTypeId);
-        const lines = qty === 0 ? without : [...without, { palletTypeId, quantity: qty }];
+        const lines = qty === 0 ? without : [...without, { palletTypeId, quantity: qty, ...(keepParts ? { parts: keepParts } : {}) }];
         return { ...phase, lines };
       });
       const withAmounts = phases.map((phase) => ({ ...phase, amount: phasePalletCount(phase, palletTypes) }));
@@ -2166,7 +2235,7 @@ function ProductionEntry({
   onYardChange: (locationId: string) => void;
   onDateChange: (date: string) => void;
   onFormChange: <T extends keyof EntryForm>(key: T, value: EntryForm[T]) => void;
-  onQuantityChange: (phaseIndex: number, palletTypeId: string, quantity: number) => void;
+  onQuantityChange: (phaseIndex: number, palletTypeId: string, quantity: number, parts?: number[]) => void;
   onSave: () => void;
   // When a Manager is signed in, the Yard Manager picker is hidden entirely.
   hideYardManager?: boolean;
@@ -2366,17 +2435,30 @@ function ProductionEntry({
                     )}
                     <td className={cellPad}>
                       {hidePricing ? (
-                        <input className="field min-w-0 px-1 text-center font-black" inputMode="numeric" type="number" min="0" placeholder="0" value={quantity === 0 ? "" : quantity} onChange={(event) => onQuantityChange(selectedPhase, pallet.id, Number(event.target.value))} />
+                        <QuantityInput
+                          className="field min-w-0 px-1 text-center font-black"
+                          value={quantity}
+                          parts={line?.parts}
+                          onCommit={(sum, parts) => onQuantityChange(selectedPhase, pallet.id, sum, parts)}
+                        />
                       ) : (
                         <div className={classNames("grid", qtyCols)}>
                           <button type="button" className="touch-target flex items-center justify-center rounded bg-steel-800 text-white" onClick={() => onQuantityChange(selectedPhase, pallet.id, quantity - 1)}>
                             <Minus size={18} />
                           </button>
-                          <input className="field min-w-0 px-1 text-center font-black" inputMode="numeric" type="number" min="0" placeholder="0" value={quantity === 0 ? "" : quantity} onChange={(event) => onQuantityChange(selectedPhase, pallet.id, Number(event.target.value))} />
+                          <QuantityInput
+                            className="field min-w-0 px-1 text-center font-black"
+                            value={quantity}
+                            parts={line?.parts}
+                            onCommit={(sum, parts) => onQuantityChange(selectedPhase, pallet.id, sum, parts)}
+                          />
                           <button type="button" className="touch-target flex items-center justify-center rounded bg-safety-400 text-steel-900" onClick={() => onQuantityChange(selectedPhase, pallet.id, quantity + 1)}>
                             <Plus size={18} />
                           </button>
                         </div>
+                      )}
+                      {line?.parts && line.parts.length > 1 && (
+                        <p className="mt-1 text-center text-[11px] font-bold text-workshop-700">{line.parts.join(" + ")} = {quantity}</p>
                       )}
                     </td>
                     {!hidePricing && (
@@ -3082,9 +3164,13 @@ function WeekControls({ selectedWeek, onWeekChange }: { selectedWeek: string; on
 
 function entryToForm(entry: DailyEntry, palletTypes: PalletType[]): EntryForm {
   const entryLines = new Map<string, number>();
+  const entryParts = new Map<string, number[]>();
   for (const line of entry.lines) {
     const resolvedId = getResolvedPalletTypeId(palletTypes, line.palletTypeId);
     entryLines.set(resolvedId, (entryLines.get(resolvedId) ?? 0) + line.quantity);
+    if (Array.isArray(line.parts) && line.parts.length) {
+      entryParts.set(resolvedId, [...(entryParts.get(resolvedId) ?? []), ...line.parts]);
+    }
   }
   const lineIds = new Set([...palletTypes.map((pallet) => pallet.id), ...entryLines.keys()]);
 
@@ -3093,10 +3179,14 @@ function entryToForm(entry: DailyEntry, palletTypes: PalletType[]): EntryForm {
     employeeId: entry.employeeId,
     locationId: entry.locationId,
     shift: entry.shift,
-    lines: Array.from(lineIds).map((palletTypeId) => ({
-      palletTypeId,
-      quantity: entryLines.get(palletTypeId) ?? 0
-    })),
+    lines: Array.from(lineIds).map((palletTypeId) => {
+      const parts = entryParts.get(palletTypeId);
+      return {
+        palletTypeId,
+        quantity: entryLines.get(palletTypeId) ?? 0,
+        ...(parts && parts.length > 1 ? { parts } : {})
+      };
+    }),
     phases: normalizePhases(entry.phases),
     clockIn: entry.clockIn,
     clockOut: entry.clockOut,
@@ -4294,7 +4384,7 @@ function EntryEditorModal({
     setDraft((current) => {
       const existing = current.lines.some((line) => line.palletTypeId === palletTypeId);
       const lines = existing
-        ? current.lines.map((line) => (line.palletTypeId === palletTypeId ? { ...line, quantity: Math.max(0, Number(quantity) || 0) } : line))
+        ? current.lines.map((line) => (line.palletTypeId === palletTypeId ? { palletTypeId, quantity: Math.max(0, Number(quantity) || 0) } : line))
         : [...current.lines, { palletTypeId, quantity: Math.max(0, Number(quantity) || 0) }];
       return { ...current, lines };
     });
@@ -4381,7 +4471,9 @@ function EntryEditorModal({
               </thead>
               <tbody>
                 {visiblePallets.map((pallet) => {
-                  const quantity = draft.lines.find((line) => line.palletTypeId === pallet.id)?.quantity ?? 0;
+                  const lineForPallet = draft.lines.find((line) => line.palletTypeId === pallet.id);
+                  const quantity = lineForPallet?.quantity ?? 0;
+                  const parts = lineForPallet?.parts;
                   return (
                     <tr key={pallet.id} className="border-t border-steel-100">
                       <td className="p-3 font-black">{pallet.category}</td>
@@ -4389,6 +4481,9 @@ function EntryEditorModal({
                       <td className="p-3">{currency(pallet.rate)}</td>
                       <td className="p-3">
                         <input disabled={readOnly} className="field max-w-28 text-center font-black" type="number" min="0" placeholder="0" value={quantity === 0 ? "" : quantity} onChange={(event) => updateQuantity(pallet.id, Number(event.target.value))} />
+                        {parts && parts.length > 1 && (
+                          <p className="mt-1 text-center text-[11px] font-bold text-workshop-700">{parts.join(" + ")} = {quantity}</p>
+                        )}
                       </td>
                       <td className="p-3 font-black">{currency(quantity * pallet.rate)}</td>
                     </tr>
