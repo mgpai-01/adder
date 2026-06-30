@@ -476,7 +476,8 @@ function QuantityInput({
   parts,
   onCommit,
   className,
-  mode = "total"
+  mode = "total",
+  multiline = false
 }: {
   value: number;
   parts?: number[];
@@ -485,12 +486,23 @@ function QuantityInput({
   // "total" shows the summed number when blurred; "parts" shows the editable
   // list of numbers (e.g. "3 3 6 2 3 5") so the breakdown can be corrected.
   mode?: "total" | "parts";
+  // When true, renders an auto-growing textarea so a long list of added numbers
+  // wraps onto more lines instead of scrolling out of view.
+  multiline?: boolean;
 }) {
   const [editing, setEditing] = useState<string | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   // Show the added numbers with + signs, e.g. "6 + 4 + 2 + 7".
   const expression = parts && parts.length > 1 ? parts.join(" + ") : value === 0 ? "" : String(value);
   const blurred = mode === "parts" ? expression : value === 0 ? "" : String(value);
   const display = editing !== null ? editing : blurred;
+  // Grow the textarea to fit its content.
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!multiline || !el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [display, multiline]);
   function commit() {
     if (editing === null) return;
     const nums = parseQuantityParts(editing);
@@ -500,17 +512,36 @@ function QuantityInput({
     );
     setEditing(null);
   }
+  const shared = {
+    className,
+    // Use the full keyboard (not the numeric keypad) so the space bar — which
+    // separates the numbers to add — is available on phones.
+    inputMode: "text" as const,
+    placeholder: "0",
+    value: display,
+    onFocus: () => setEditing(expression),
+    onChange: (event: { target: { value: string } }) => setEditing(event.target.value)
+  };
+  if (multiline) {
+    return (
+      <textarea
+        {...shared}
+        ref={textareaRef}
+        rows={1}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            (event.target as HTMLTextAreaElement).blur();
+          }
+        }}
+      />
+    );
+  }
   return (
     <input
-      className={className}
-      // Use the full keyboard (not the numeric keypad) so the space bar is
-      // available on phones — that's what separates the numbers to add.
-      inputMode="text"
+      {...shared}
       type="text"
-      placeholder="0"
-      value={display}
-      onFocus={() => setEditing(expression)}
-      onChange={(event) => setEditing(event.target.value)}
       onBlur={commit}
       onKeyDown={(event) => {
         if (event.key === "Enter") (event.target as HTMLInputElement).blur();
@@ -2451,7 +2482,8 @@ function ProductionEntry({
                         <div className="flex items-center gap-1.5">
                           <QuantityInput
                             mode="parts"
-                            className="min-w-0 flex-1 rounded border border-steel-200 bg-white px-1 py-2.5 text-center text-sm font-black text-steel-900 outline-none focus:border-workshop-500"
+                            multiline
+                            className="min-w-0 flex-1 resize-none overflow-hidden rounded border border-steel-200 bg-white px-1 py-2.5 text-center text-sm font-black leading-snug text-steel-900 outline-none focus:border-workshop-500"
                             value={quantity}
                             parts={line.parts}
                             onCommit={(sum, parts) => onQuantityChange(selectedPhase, pallet.id, sum, parts)}
