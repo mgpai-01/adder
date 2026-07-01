@@ -2368,28 +2368,26 @@ function ProductionEntry({
 
   return (
     <div className="grid gap-4">
-      {/* One sticky header: shows who (and which station) you're entering for,
-          the save status, and the totals — pinned just below the app header so
-          it stays visible while scrolling the long pallet grid. */}
+      {/* Sticky bar — ONLY the repairer's name and their station · spot — pinned
+          just below the app header so it stays visible while scrolling. */}
       <div
         style={{ top: stickyTop }}
         className={classNames(
-          "sticky z-10 -mx-4 -mt-4 flex flex-wrap items-center justify-between gap-2 border-b px-4 py-2.5 shadow-sm",
+          "sticky z-10 flex items-center gap-2.5 rounded-lg border px-3 py-2 shadow-sm",
           darkMode ? "border-white/10 bg-steel-800" : "border-steel-100 bg-white"
         )}
       >
-        <div className="flex min-w-0 items-center gap-2.5">
-          <Avatar employee={stationEmployee} size="sm" />
-          <div className="min-w-0">
-            <p className="truncate text-base font-black leading-tight">{stationEmployee?.name ?? t("Repairer")}</p>
-            <p className="truncate text-xs font-bold leading-tight">
-              <span className={stationEmployee?.station ? "text-workshop-700" : "text-steel-400"}>{stationLabel}</span>
-              <span className={darkMode ? "text-steel-300" : "text-steel-400"}> · {t(saveStatus)}</span>
-            </p>
-          </div>
+        <Avatar employee={stationEmployee} size="sm" />
+        <div className="min-w-0">
+          <p className="truncate text-base font-black leading-tight">{stationEmployee?.name ?? t("Repairer")}</p>
+          <p className={classNames("truncate text-xs font-bold leading-tight", stationEmployee?.station ? "text-workshop-700" : "text-steel-400")}>{stationLabel}</p>
         </div>
-        {/* Managers don't see pay figures — just the pallet count. */}
-        <div className={classNames("grid grid-cols-2 gap-1.5", hidePricing ? "sm:grid-cols-1" : "sm:grid-cols-4")}>
+      </div>
+
+      {/* Save status + totals (not sticky). */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className={classNames("text-sm", darkMode ? "text-steel-100" : "text-steel-500")}>{t(saveStatus)}</p>
+        <div className={classNames("grid grid-cols-2 gap-2", hidePricing ? "sm:grid-cols-1" : "sm:grid-cols-4")}>
           <Metric label={t("Pallets")} value={wholeNumber(calculation.quantity)} />
           {!hidePricing && <Metric label="Piece Pay" value={currency(calculation.pieceEarnings)} />}
           {!hidePricing && <Metric label="Make-up" value={currency(calculation.additionalOwed)} />}
