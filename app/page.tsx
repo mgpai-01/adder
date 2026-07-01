@@ -1641,7 +1641,7 @@ export default function Home() {
                   href="/live-board"
                   target="_blank"
                   rel="noreferrer"
-                  className="shrink-0 rounded-full bg-workshop-100 px-3 py-1 text-xs font-black text-workshop-700 hover:bg-workshop-500 hover:text-white"
+                  className="hidden shrink-0 rounded-full bg-workshop-100 px-3 py-1 text-xs font-black text-workshop-700 hover:bg-workshop-500 hover:text-white sm:inline-block"
                 >
                   {t("Live Pallet Tracker →")}
                 </a>
