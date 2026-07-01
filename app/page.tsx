@@ -687,23 +687,6 @@ export default function Home() {
   const [view, setView] = useState<View>("entry");
   const [adminTab, setAdminTab] = useState<AdminTab>("settings");
   const [darkMode, setDarkMode] = useState(false);
-  // Measured height of the sticky app header so sub-bars can pin right below it
-  // (the header wraps and gets taller on narrow phones, so a fixed offset breaks).
-  const headerRef = useRef<HTMLElement>(null);
-  const [headerHeight, setHeaderHeight] = useState(72);
-  useEffect(() => {
-    const el = headerRef.current;
-    if (!el) return;
-    const update = () => setHeaderHeight(el.getBoundingClientRect().height);
-    update();
-    const observer = new ResizeObserver(update);
-    observer.observe(el);
-    window.addEventListener("resize", update);
-    return () => {
-      observer.disconnect();
-      window.removeEventListener("resize", update);
-    };
-  }, []);
   // UI language. Managers default to Spanish (most read Spanish) but anyone can
   // toggle; the choice is remembered.
   const [language, setLanguage] = useState<Language>("en");
@@ -1635,11 +1618,18 @@ export default function Home() {
     URL.revokeObjectURL(url);
   }
 
+  // Current repairer + station, shown as a second row inside the app header
+  // while on the Entry screen, so managers always see who they're entering for.
+  const entryStationEmployee = employeeList.find((employee) => employee.id === form.employeeId) ?? selectedEmployee;
+  const entryStationLabel = entryStationEmployee?.station
+    ? `${t(entryStationEmployee.station === "sorter" ? "Sorter" : "Repair Line")}${entryStationEmployee.stationSpot ? ` · ${t("Spot {n}", { n: entryStationEmployee.stationSpot })}` : ""}`
+    : t("No station set");
+
   return (
     <AuthGate>
     <LanguageProvider value={{ language, setLanguage: changeLanguage, t }}>
     <main className={classNames("min-h-screen pb-24 transition-colors", darkMode ? "bg-steel-900/[0.95] text-white" : "bg-steel-50/[0.88] text-steel-900")}>
-      <header ref={headerRef} className={classNames("sticky top-0 z-20 border-b backdrop-blur", darkMode ? "border-white/10 bg-steel-900/[0.92]" : "border-steel-100 bg-white/[0.92]")}>
+      <header className={classNames("sticky top-0 z-20 border-b backdrop-blur", darkMode ? "border-white/10 bg-steel-900/[0.92]" : "border-steel-100 bg-white/[0.92]")}>
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-3">
           <div className="flex min-w-0 items-center gap-3">
             <img src="/logo.svg" alt="Manufacturing Green Products" className="h-12 w-12 shrink-0 rounded-full sm:h-14 sm:w-14" />
@@ -1703,6 +1693,17 @@ export default function Home() {
             )}
           </div>
         </div>
+        {/* Second header row (Entry screen only): who + station you're entering
+            for. It lives INSIDE the sticky header, so it can never overlap it. */}
+        {view === "entry" && configured && profile && (
+          <div className={classNames("mx-auto flex max-w-7xl items-center gap-2.5 border-t px-4 py-2", darkMode ? "border-white/10" : "border-steel-100")}>
+            <Avatar employee={entryStationEmployee} size="sm" />
+            <div className="min-w-0">
+              <p className="truncate text-sm font-black leading-tight">{entryStationEmployee?.name ?? t("Repairer")}</p>
+              <p className={classNames("truncate text-xs font-bold leading-tight", entryStationEmployee?.station ? "text-workshop-700" : darkMode ? "text-steel-300" : "text-steel-400")}>{entryStationLabel}</p>
+            </div>
+          </div>
+        )}
       </header>
 
       <div className="mx-auto grid max-w-7xl gap-4 px-4 py-4">
@@ -1736,7 +1737,6 @@ export default function Home() {
               onFormChange={updateForm}
               onQuantityChange={updatePhaseLineQuantity}
               onStationChange={(employeeId, patch) => updateEmployee(employeeId, patch)}
-              stickyTop={headerHeight}
               onSave={saveEntry}
               hideYardManager={configured && profile?.role === "supervisor"}
               hidePricing={configured && profile?.role === "supervisor"}
@@ -2292,7 +2292,6 @@ function ProductionEntry({
   onFormChange,
   onQuantityChange,
   onStationChange,
-  stickyTop,
   onSave,
   hideYardManager,
   hidePricing
@@ -2314,8 +2313,6 @@ function ProductionEntry({
   onQuantityChange: (phaseIndex: number, palletTypeId: string, quantity: number, parts?: number[]) => void;
   // Updates a repairer's station assignment (persisted on the roster).
   onStationChange: (employeeId: string, patch: Partial<Employee>) => void;
-  // Height of the app header, so the sticky banner pins right below it.
-  stickyTop?: number;
   onSave: () => void;
   // When a Manager is signed in, the Yard Manager picker is hidden entirely.
   hideYardManager?: boolean;
@@ -2361,32 +2358,17 @@ function ProductionEntry({
   const phaseQcCounts = activePhases.map((phase) => phaseQcCount(phase, palletTypes));
   const phaseLines = activePhases[selectedPhase]?.lines ?? [];
 
-  // Short "Station · Spot" label for the current repairer.
-  const stationLabel = stationEmployee?.station
-    ? `${t(stationEmployee.station === "sorter" ? "Sorter" : "Repair Line")}${stationEmployee.stationSpot ? ` · ${t("Spot {n}", { n: stationEmployee.stationSpot })}` : ""}`
-    : t("No station set");
-
   return (
     <div className="grid gap-4">
-      {/* Sticky bar — ONLY the repairer's name and their station · spot — pinned
-          just below the app header so it stays visible while scrolling. */}
-      <div
-        style={{ top: stickyTop }}
-        className={classNames(
-          "sticky z-10 flex items-center gap-2.5 rounded-lg border px-3 py-2 shadow-sm",
-          darkMode ? "border-white/10 bg-steel-800" : "border-steel-100 bg-white"
-        )}
-      >
-        <Avatar employee={stationEmployee} size="sm" />
-        <div className="min-w-0">
-          <p className="truncate text-base font-black leading-tight">{stationEmployee?.name ?? t("Repairer")}</p>
-          <p className={classNames("truncate text-xs font-bold leading-tight", stationEmployee?.station ? "text-workshop-700" : "text-steel-400")}>{stationLabel}</p>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <Avatar employee={selectedEmployee} size="lg" />
+          <div>
+            <h2 className="text-2xl font-black">{t("Daily Production Grid")}</h2>
+            <p className={classNames("text-sm", darkMode ? "text-steel-100" : "text-steel-500")}>{t(saveStatus)}</p>
+          </div>
         </div>
-      </div>
-
-      {/* Save status + totals (not sticky). */}
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className={classNames("text-sm", darkMode ? "text-steel-100" : "text-steel-500")}>{t(saveStatus)}</p>
+        {/* Managers don't see pay figures — just the pallet count. */}
         <div className={classNames("grid grid-cols-2 gap-2", hidePricing ? "sm:grid-cols-1" : "sm:grid-cols-4")}>
           <Metric label={t("Pallets")} value={wholeNumber(calculation.quantity)} />
           {!hidePricing && <Metric label="Piece Pay" value={currency(calculation.pieceEarnings)} />}
