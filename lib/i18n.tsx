@@ -38,6 +38,8 @@ export const esDict: Record<string, string> = {
   Spot: "Puesto",
   "— None —": "— Ninguno —",
   "Spot {n}": "Puesto {n}",
+  "No station set": "Sin estación asignada",
+  "Entering for": "Ingresando para",
   Notes: "Notas",
   "Supervisor notes, trailer, customer, or repair issues":
     "Notas del supervisor, tráiler, cliente o problemas de reparación",

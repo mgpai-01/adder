@@ -2340,8 +2340,27 @@ function ProductionEntry({
   const phaseQcCounts = activePhases.map((phase) => phaseQcCount(phase, palletTypes));
   const phaseLines = activePhases[selectedPhase]?.lines ?? [];
 
+  // Short "Station · Spot" label for the current repairer.
+  const stationLabel = stationEmployee?.station
+    ? `${t(stationEmployee.station === "sorter" ? "Sorter" : "Repair Line")}${stationEmployee.stationSpot ? ` · ${t("Spot {n}", { n: stationEmployee.stationSpot })}` : ""}`
+    : t("No station set");
+
   return (
     <div className="grid gap-4">
+      {/* Sticky banner so managers always see who (and which station) they're
+          entering for while scrolling the long pallet grid. */}
+      <div
+        className={classNames(
+          "sticky top-[72px] z-10 -mx-4 -mt-4 flex items-center gap-3 border-b px-4 py-2.5 backdrop-blur sm:top-[80px]",
+          darkMode ? "border-white/10 bg-steel-800/95" : "border-steel-100 bg-white/95"
+        )}
+      >
+        <Avatar employee={stationEmployee} size="sm" />
+        <div className="min-w-0">
+          <p className="truncate text-sm font-black leading-tight">{stationEmployee?.name ?? t("Repairer")}</p>
+          <p className={classNames("truncate text-xs font-bold", stationEmployee?.station ? "text-workshop-700" : "text-steel-400")}>{stationLabel}</p>
+        </div>
+      </div>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <Avatar employee={selectedEmployee} size="lg" />
