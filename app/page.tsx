@@ -687,6 +687,23 @@ export default function Home() {
   const [view, setView] = useState<View>("entry");
   const [adminTab, setAdminTab] = useState<AdminTab>("settings");
   const [darkMode, setDarkMode] = useState(false);
+  // Measured height of the sticky app header so sub-bars can pin right below it
+  // (the header wraps and gets taller on narrow phones, so a fixed offset breaks).
+  const headerRef = useRef<HTMLElement>(null);
+  const [headerHeight, setHeaderHeight] = useState(72);
+  useEffect(() => {
+    const el = headerRef.current;
+    if (!el) return;
+    const update = () => setHeaderHeight(el.getBoundingClientRect().height);
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(el);
+    window.addEventListener("resize", update);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", update);
+    };
+  }, []);
   // UI language. Managers default to Spanish (most read Spanish) but anyone can
   // toggle; the choice is remembered.
   const [language, setLanguage] = useState<Language>("en");
@@ -1622,7 +1639,7 @@ export default function Home() {
     <AuthGate>
     <LanguageProvider value={{ language, setLanguage: changeLanguage, t }}>
     <main className={classNames("min-h-screen pb-24 transition-colors", darkMode ? "bg-steel-900/[0.95] text-white" : "bg-steel-50/[0.88] text-steel-900")}>
-      <header className={classNames("sticky top-0 z-20 border-b backdrop-blur", darkMode ? "border-white/10 bg-steel-900/[0.92]" : "border-steel-100 bg-white/[0.92]")}>
+      <header ref={headerRef} className={classNames("sticky top-0 z-20 border-b backdrop-blur", darkMode ? "border-white/10 bg-steel-900/[0.92]" : "border-steel-100 bg-white/[0.92]")}>
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-3">
           <div className="flex min-w-0 items-center gap-3">
             <img src="/logo.svg" alt="Manufacturing Green Products" className="h-12 w-12 shrink-0 rounded-full sm:h-14 sm:w-14" />
@@ -1719,6 +1736,7 @@ export default function Home() {
               onFormChange={updateForm}
               onQuantityChange={updatePhaseLineQuantity}
               onStationChange={(employeeId, patch) => updateEmployee(employeeId, patch)}
+              stickyTop={headerHeight}
               onSave={saveEntry}
               hideYardManager={configured && profile?.role === "supervisor"}
               hidePricing={configured && profile?.role === "supervisor"}
@@ -2274,6 +2292,7 @@ function ProductionEntry({
   onFormChange,
   onQuantityChange,
   onStationChange,
+  stickyTop,
   onSave,
   hideYardManager,
   hidePricing
@@ -2295,6 +2314,8 @@ function ProductionEntry({
   onQuantityChange: (phaseIndex: number, palletTypeId: string, quantity: number, parts?: number[]) => void;
   // Updates a repairer's station assignment (persisted on the roster).
   onStationChange: (employeeId: string, patch: Partial<Employee>) => void;
+  // Height of the app header, so the sticky banner pins right below it.
+  stickyTop?: number;
   onSave: () => void;
   // When a Manager is signed in, the Yard Manager picker is hidden entirely.
   hideYardManager?: boolean;
@@ -2348,11 +2369,13 @@ function ProductionEntry({
   return (
     <div className="grid gap-4">
       {/* Sticky banner so managers always see who (and which station) they're
-          entering for while scrolling the long pallet grid. */}
+          entering for while scrolling the long pallet grid. Pinned just below the
+          app header (whose measured height comes in as stickyTop). */}
       <div
+        style={{ top: stickyTop }}
         className={classNames(
-          "sticky top-[72px] z-10 -mx-4 -mt-4 flex items-center gap-3 border-b px-4 py-2.5 backdrop-blur sm:top-[80px]",
-          darkMode ? "border-white/10 bg-steel-800/95" : "border-steel-100 bg-white/95"
+          "sticky z-10 -mx-4 -mt-4 flex items-center gap-3 border-b px-4 py-2.5 shadow-sm",
+          darkMode ? "border-white/10 bg-steel-800" : "border-steel-100 bg-white"
         )}
       >
         <Avatar employee={stationEmployee} size="sm" />
