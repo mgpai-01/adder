@@ -32,6 +32,12 @@ export const esDict: Record<string, string> = {
   "— No manager —": "— Sin gerente —",
   Repairer: "Reparador",
   "No repairers in this yard": "No hay reparadores en este patio",
+  Station: "Estación",
+  Sorter: "Clasificador",
+  "Repair Line": "Línea de Reparación",
+  Spot: "Puesto",
+  "— None —": "— Ninguno —",
+  "Spot {n}": "Puesto {n}",
   Notes: "Notas",
   "Supervisor notes, trailer, customer, or repair issues":
     "Notas del supervisor, tráiler, cliente o problemas de reparación",

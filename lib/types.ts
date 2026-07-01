@@ -18,6 +18,10 @@ export type Employee = {
   notes?: string;
   photoDataUrl?: string;
   photoPath?: string;
+  // Station assignment, remembered per repairer until changed: which station
+  // (sorter or repair line) and which of that station's 5 spots.
+  station?: "sorter" | "repair";
+  stationSpot?: number;
 };
 
 export type PalletCategory = "Stacker" | "Repair" | "Extend" | "Cut" | "Outside" | "QC Deductions";
