@@ -2289,6 +2289,10 @@ function ProductionEntry({
   hidePricing?: boolean;
 }) {
   const { t } = useT();
+  // The repairer the station dropdowns read from must be the exact one they
+  // write to (form.employeeId) — not the fallback selectedEmployee, which can
+  // differ — otherwise the choice never sticks.
+  const stationEmployee = employees.find((employee) => employee.id === form.employeeId) ?? selectedEmployee;
   const yardRepairers = employees.filter((employee) => employee.locationId === form.locationId && employee.role !== "supervisor");
   const yardManagers = employees.filter((employee) => employee.locationId === form.locationId && employee.role === "supervisor");
   const displayedPallets = palletsForYard(palletTypes, form.locationId);
@@ -2381,7 +2385,7 @@ function ProductionEntry({
         <Label title={t("Station")} icon={<MapPin size={17} />}>
           <select
             className="field"
-            value={selectedEmployee?.station ?? ""}
+            value={stationEmployee?.station ?? ""}
             disabled={!form.employeeId}
             onChange={(event) => onStationChange({ station: (event.target.value || undefined) as Employee["station"] })}
           >
@@ -2393,8 +2397,8 @@ function ProductionEntry({
         <Label title={t("Spot")} icon={<UserRound size={17} />}>
           <select
             className="field"
-            value={selectedEmployee?.stationSpot ?? ""}
-            disabled={!form.employeeId || !selectedEmployee?.station}
+            value={stationEmployee?.stationSpot ?? ""}
+            disabled={!form.employeeId || !stationEmployee?.station}
             onChange={(event) => onStationChange({ stationSpot: event.target.value ? Number(event.target.value) : undefined })}
           >
             <option value="">{t("— None —")}</option>
