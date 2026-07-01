@@ -58,6 +58,7 @@ import { LanguageProvider, translate, useT, type Language } from "@/lib/i18n";
 import type { ChangeLogEntry } from "@/lib/cloudChangeLog";
 import AuthGate from "@/components/AuthGate";
 import DropZone from "@/components/DropZone";
+import CalendarField, { type DateSelection } from "@/components/CalendarField";
 import type { BreakProfile, CountSheet, CountSheetStatus, DailyEntry, Employee, EntryPhase, Location, PalletCategory, PalletType, PayrollSettings, ProductionLine, Role, Shift } from "@/lib/types";
 
 const entryStorageKey = "mgp-daily-entries-v2";
@@ -549,17 +550,6 @@ function QuantityInput({
       }}
     />
   );
-}
-
-// Open the native date picker when the field is clicked anywhere — not just on
-// the little calendar icon. showPicker() is a no-op where unsupported.
-function openDatePicker(event: { currentTarget: HTMLInputElement }) {
-  const input = event.currentTarget as HTMLInputElement & { showPicker?: () => void };
-  try {
-    input.showPicker?.();
-  } catch {
-    // showPicker throws if unsupported or not user-activated — ignore.
-  }
 }
 
 // Trigger a browser download for a URL (data: or blob:).
@@ -2379,7 +2369,11 @@ function ProductionEntry({
 
       <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-4">
         <Label title={t("Date")} icon={<CalendarDays size={17} />}>
-          <input className="field" type="date" onClick={openDatePicker} value={form.date} onChange={(event) => onDateChange(event.target.value)} />
+          <CalendarField
+            single
+            value={{ mode: "day", start: form.date, end: form.date }}
+            onChange={(selection) => onDateChange(selection.start)}
+          />
         </Label>
         <Label title={t("Yard")} icon={<MapPin size={17} />}>
           <select className="field" value={form.locationId} onChange={(event) => onYardChange(event.target.value)}>
@@ -2666,10 +2660,7 @@ function CountSheetsModule({
   const [selectedSheetId, setSelectedSheetId] = useState<string | null>(null);
   const [selectedPhotoIndex, setSelectedPhotoIndex] = useState(0);
   const [search, setSearch] = useState("");
-  const [singleDateFilter, setSingleDateFilter] = useState("");
-  const [weekFilter, setWeekFilter] = useState("");
-  const [fromDateFilter, setFromDateFilter] = useState("");
-  const [toDateFilter, setToDateFilter] = useState("");
+  const [dateFilter, setDateFilter] = useState<DateSelection>({ mode: "day", start: "", end: "" });
   const [locationFilter, setLocationFilter] = useState("all");
   const [shiftFilter, setShiftFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState<"All" | CountSheetStatus>("All");
@@ -2680,10 +2671,11 @@ function CountSheetsModule({
     .filter((sheet) => {
       const location = locations.find((item) => item.id === sheet.locationId)?.name ?? sheet.locationId;
       const query = search.toLowerCase();
-      if (singleDateFilter && sheet.date !== singleDateFilter) return false;
-      if (weekFilter && getWeekKey(sheet.date) !== getWeekKey(weekFilter)) return false;
-      if (fromDateFilter && sheet.date < fromDateFilter) return false;
-      if (toDateFilter && sheet.date > toDateFilter) return false;
+      if (dateFilter.start) {
+        if (dateFilter.mode === "day" && sheet.date !== dateFilter.start) return false;
+        if (dateFilter.mode === "week" && getWeekKey(sheet.date) !== getWeekKey(dateFilter.start)) return false;
+        if (dateFilter.mode === "range" && (sheet.date < dateFilter.start || sheet.date > dateFilter.end)) return false;
+      }
       if (locationFilter !== "all" && sheet.locationId !== locationFilter) return false;
       if (shiftFilter !== "all" && sheet.shift !== shiftFilter) return false;
       if (statusFilter !== "All" && sheet.status !== statusFilter) return false;
@@ -2743,10 +2735,7 @@ function CountSheetsModule({
 
   function clearFilters() {
     setSearch("");
-    setSingleDateFilter("");
-    setWeekFilter("");
-    setFromDateFilter("");
-    setToDateFilter("");
+    setDateFilter({ mode: "day", start: "", end: "" });
     setLocationFilter("all");
     setShiftFilter("all");
     setStatusFilter("All");
@@ -2781,7 +2770,11 @@ function CountSheetsModule({
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
             <Label title="Date" icon={<CalendarDays size={17} />}>
-              <input className="field" type="date" onClick={openDatePicker} value={date} onChange={(event) => setDate(event.target.value)} />
+              <CalendarField
+                single
+                value={{ mode: "day", start: date, end: date }}
+                onChange={(selection) => setDate(selection.start)}
+              />
             </Label>
             <Label title="Shift" icon={<Clock size={17} />}>
               <select className="field" value={shift} onChange={(event) => setShift(event.target.value as Shift)}>
@@ -2860,17 +2853,8 @@ function CountSheetsModule({
             <Label title="Search" icon={<Search size={17} />}>
               <input className="field" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search photos" />
             </Label>
-            <Label title="Single Date" icon={<CalendarDays size={17} />}>
-              <input className="field" type="date" onClick={openDatePicker} value={singleDateFilter} onChange={(event) => setSingleDateFilter(event.target.value)} />
-            </Label>
-            <Label title="Week" icon={<CalendarDays size={17} />}>
-              <input className="field" type="date" onClick={openDatePicker} value={weekFilter} onChange={(event) => setWeekFilter(event.target.value)} />
-            </Label>
-            <Label title="From" icon={<CalendarDays size={17} />}>
-              <input className="field" type="date" onClick={openDatePicker} value={fromDateFilter} onChange={(event) => setFromDateFilter(event.target.value)} />
-            </Label>
-            <Label title="To" icon={<CalendarDays size={17} />}>
-              <input className="field" type="date" onClick={openDatePicker} value={toDateFilter} onChange={(event) => setToDateFilter(event.target.value)} />
+            <Label title="Date" icon={<CalendarDays size={17} />}>
+              <CalendarField allowClear value={dateFilter} onChange={setDateFilter} />
             </Label>
             <Label title="Location" icon={<MapPin size={17} />}>
               <select className="field" value={locationFilter} onChange={(event) => setLocationFilter(event.target.value)}>
@@ -3125,11 +3109,20 @@ function Dashboard({
           <p className={classNames("text-sm", darkMode ? "text-steel-100" : "text-steel-500")}>Showing: {rangeLabel}</p>
         </div>
         <div className="flex flex-wrap items-end gap-2">
-          <Label title="From" icon={<CalendarDays size={16} />}>
-            <input className="field" type="date" onClick={openDatePicker} value={from} max={to || undefined} onChange={(event) => setFrom(event.target.value)} />
-          </Label>
-          <Label title="To" icon={<CalendarDays size={16} />}>
-            <input className="field" type="date" onClick={openDatePicker} value={to} min={from || undefined} onChange={(event) => setTo(event.target.value)} />
+          <Label title="Date" icon={<CalendarDays size={16} />}>
+            <CalendarField
+              allowClear
+              value={{ mode: from && to && from !== to ? "range" : "day", start: from, end: to || from }}
+              onChange={(selection) => {
+                if (selection.mode === "day") {
+                  setFrom(selection.start);
+                  setTo(selection.start);
+                } else {
+                  setFrom(selection.start);
+                  setTo(selection.end);
+                }
+              }}
+            />
           </Label>
           <div className="flex flex-wrap gap-1">
             <button type="button" className="touch-target rounded bg-steel-900 px-3 text-sm font-black text-white" onClick={() => applyPreset(7)}>7d</button>
@@ -3243,11 +3236,20 @@ function Payroll({
         <FilterSelect label="Employee" value={employeeFilter} onChange={setEmployeeFilter} options={[{ id: "all", name: "All Employees" }, ...employees.map((employee) => ({ id: employee.id, name: employee.name }))]} />
         <FilterSelect label="Location" value={locationFilter} onChange={setLocationFilter} options={[{ id: "all", name: "All Locations" }, ...locations.map((location) => ({ id: location.id, name: location.name }))]} />
         <FilterSelect label="Shift" value={shiftFilter} onChange={setShiftFilter} options={[{ id: "all", name: "All Shifts" }, ...shifts.map((shift) => ({ id: shift, name: shift }))]} />
-        <Label title="Start" icon={<CalendarDays size={17} />}>
-          <input className="field" type="date" onClick={openDatePicker} value={startDate} onChange={(event) => setStartDate(event.target.value)} />
-        </Label>
-        <Label title="End" icon={<CalendarDays size={17} />}>
-          <input className="field" type="date" onClick={openDatePicker} value={endDate} onChange={(event) => setEndDate(event.target.value)} />
+        <Label title="Date" icon={<CalendarDays size={17} />}>
+          <CalendarField
+            allowClear
+            value={{ mode: startDate && endDate && startDate !== endDate ? "range" : "day", start: startDate, end: endDate || startDate }}
+            onChange={(selection) => {
+              if (selection.mode === "day") {
+                setStartDate(selection.start);
+                setEndDate(selection.start);
+              } else {
+                setStartDate(selection.start);
+                setEndDate(selection.end);
+              }
+            }}
+          />
         </Label>
       </div>
 
@@ -3284,7 +3286,11 @@ function WeekControls({ selectedWeek, onWeekChange }: { selectedWeek: string; on
       <button type="button" aria-label="Previous week" className="touch-target rounded bg-steel-900 font-black text-white" onClick={() => onWeekChange(addDays(selectedWeek, -7))}>
         ‹
       </button>
-      <input className="field" type="date" onClick={openDatePicker} value={selectedWeek} onChange={(event) => onWeekChange(getWeekKey(event.target.value))} />
+      <CalendarField
+        lockWeek
+        value={{ mode: "week", start: selectedWeek, end: addDays(selectedWeek, 6) }}
+        onChange={(selection) => onWeekChange(getWeekKey(selection.start))}
+      />
       <button type="button" aria-label="Next week" className="touch-target rounded bg-steel-900 font-black text-white" onClick={() => onWeekChange(addDays(selectedWeek, 7))}>
         ›
       </button>
@@ -3520,11 +3526,21 @@ function ProductionGrid({
             <p className="text-sm font-bold text-steel-500">{rangeSheets.length} count sheet{rangeSheets.length === 1 ? "" : "s"} · {rangePhotos.length} photo{rangePhotos.length === 1 ? "" : "s"} in range</p>
           </div>
           <div className="flex flex-wrap items-end gap-2">
-            <Label title="From" icon={<CalendarDays size={16} />}>
-              <input className="field" type="date" onClick={openDatePicker} value={photoFrom} max={photoTo || undefined} onChange={(event) => setPhotoFrom(event.target.value)} />
-            </Label>
-            <Label title="To" icon={<CalendarDays size={16} />}>
-              <input className="field" type="date" onClick={openDatePicker} value={photoTo} min={photoFrom || undefined} onChange={(event) => setPhotoTo(event.target.value)} />
+            <Label title="Date" icon={<CalendarDays size={16} />}>
+              <CalendarField
+                allowClear
+                align="right"
+                value={{ mode: photoFrom && photoTo && photoFrom !== photoTo ? "range" : "day", start: photoFrom, end: photoTo || photoFrom }}
+                onChange={(selection) => {
+                  if (selection.mode === "day") {
+                    setPhotoFrom(selection.start);
+                    setPhotoTo(selection.start);
+                  } else {
+                    setPhotoFrom(selection.start);
+                    setPhotoTo(selection.end);
+                  }
+                }}
+              />
             </Label>
           </div>
         </div>
@@ -4537,7 +4553,12 @@ function EntryEditorModal({
       <div className="grid gap-4">
         <div className="grid gap-3 md:grid-cols-4">
           <Label title="Date" icon={<CalendarDays size={17} />}>
-            <input disabled={readOnly} className="field" type="date" onClick={openDatePicker} value={draft.date} onChange={(event) => updateDraft("date", event.target.value)} />
+            <CalendarField
+              single
+              disabled={readOnly}
+              value={{ mode: "day", start: draft.date, end: draft.date }}
+              onChange={(selection) => updateDraft("date", selection.start)}
+            />
           </Label>
           <Label title="Repairer" icon={<UserRound size={17} />}>
             <select disabled={readOnly} className="field" value={draft.employeeId} onChange={(event) => updateDraft("employeeId", event.target.value)}>

@@ -69,6 +69,13 @@ export const esDict: Record<string, string> = {
   "Tap to enlarge": "Toque para ampliar",
   Remove: "Quitar",
 
+  // Calendar field
+  "Any date": "Cualquier fecha",
+  "Week of": "Semana del",
+  Weekly: "Semanal",
+  Clear: "Borrar",
+  "Tap one day, or tap two days for a range.": "Toque un día, o toque dos días para un rango.",
+
   // Photo viewer
   "Rotate left": "Girar a la izquierda",
   "Rotate right": "Girar a la derecha",

@@ -8,6 +8,7 @@ import { findPalletType } from "@/lib/payroll";
 import { getWeekKey, wholeNumber } from "@/lib/payroll";
 import { LanguageProvider, translate, useT, type Language } from "@/lib/i18n";
 import type { DailyEntry, PayrollSettings, Shift } from "@/lib/types";
+import CalendarField, { type DateSelection } from "@/components/CalendarField";
 
 type PeriodMode = "today" | "date" | "current-week" | "previous-week" | "custom-week" | "custom-range";
 
@@ -279,6 +280,26 @@ export default function LiveBoardPage() {
   const clockLabel = now.toLocaleTimeString(dateLocale, { hour: "numeric", minute: "2-digit" });
   const control = "h-11 rounded-xl border border-white/10 bg-white/[0.04] px-3 text-base font-semibold text-white/90 outline-none backdrop-blur";
 
+  // The date box mirrors periodMode so the calendar shows whatever is active,
+  // and writing a selection back updates the matching custom mode.
+  const boardToday = getToday();
+  const boardCurrentWeek = getWeekKey(boardToday);
+  const boardPreviousWeek = addDays(boardCurrentWeek, -7);
+  const calendarValue: DateSelection =
+    periodMode === "date"
+      ? { mode: "day", start: selectedDate, end: selectedDate }
+      : periodMode === "current-week"
+        ? { mode: "week", start: boardCurrentWeek, end: addDays(boardCurrentWeek, 6) }
+        : periodMode === "previous-week"
+          ? { mode: "week", start: boardPreviousWeek, end: addDays(boardPreviousWeek, 6) }
+          : periodMode === "custom-week"
+            ? { mode: "week", start: selectedWeek, end: addDays(selectedWeek, 6) }
+            : periodMode === "custom-range"
+              ? { mode: "range", start: rangeStart, end: rangeEnd }
+              : { mode: "day", start: boardToday, end: boardToday };
+  const presetButton = (mode: PeriodMode) =>
+    `${control} px-4 ${periodMode === mode ? "!border-white/40 !bg-white/15 text-white" : ""}`;
+
   return (
     <LanguageProvider value={{ language, setLanguage: changeLanguage, t }}>
     <main
@@ -357,23 +378,26 @@ export default function LiveBoardPage() {
             <option className="text-steel-900" value="all">{t("All Shifts")}</option>
             {shifts.map((shift) => <option className="text-steel-900" key={shift} value={shift}>{shift}</option>)}
           </select>
-          <select className={control} value={periodMode} onChange={(event) => setPeriodMode(event.target.value as PeriodMode)}>
-            <option className="text-steel-900" value="today">{t("Today")}</option>
-            <option className="text-steel-900" value="date">{t("Specific Date")}</option>
-            <option className="text-steel-900" value="current-week">{t("Current Week")}</option>
-            <option className="text-steel-900" value="previous-week">{t("Previous Week")}</option>
-            <option className="text-steel-900" value="custom-week">{t("Custom Week")}</option>
-            <option className="text-steel-900" value="custom-range">{t("Custom Range")}</option>
-          </select>
-          {periodMode === "custom-range" ? (
-            <div className="flex items-center gap-2">
-              <input className={control} type="date" value={rangeStart} max={rangeEnd} onChange={(event) => setRangeStart(event.target.value)} />
-              <span className="text-white/50">{t("to")}</span>
-              <input className={control} type="date" value={rangeEnd} min={rangeStart} onChange={(event) => setRangeEnd(event.target.value)} />
-            </div>
-          ) : (
-            <input className={control} type="date" value={periodMode === "custom-week" ? selectedWeek : selectedDate} onChange={(event) => periodMode === "custom-week" ? setSelectedWeek(getWeekKey(event.target.value)) : setSelectedDate(event.target.value)} disabled={periodMode !== "date" && periodMode !== "custom-week"} />
-          )}
+          <button type="button" className={presetButton("today")} onClick={() => setPeriodMode("today")}>{t("Today")}</button>
+          <button type="button" className={presetButton("current-week")} onClick={() => setPeriodMode("current-week")}>{t("Current Week")}</button>
+          <button type="button" className={presetButton("previous-week")} onClick={() => setPeriodMode("previous-week")}>{t("Previous Week")}</button>
+          <CalendarField
+            className={`${control} min-w-[12rem]`}
+            value={calendarValue}
+            onChange={(selection) => {
+              if (selection.mode === "day") {
+                setSelectedDate(selection.start);
+                setPeriodMode("date");
+              } else if (selection.mode === "week") {
+                setSelectedWeek(getWeekKey(selection.start));
+                setPeriodMode("custom-week");
+              } else {
+                setRangeStart(selection.start);
+                setRangeEnd(selection.end);
+                setPeriodMode("custom-range");
+              }
+            }}
+          />
         </div>
       )}
 
