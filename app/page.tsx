@@ -1061,6 +1061,20 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [allowedYards]);
 
+  // Keep the selected repairer valid. Roster reconciliation can change employee
+  // ids (e.g. "jose-ramirez" -> "mgp-jose-ramirez"), leaving form.employeeId
+  // pointing at nothing — which made the card, the Repairer dropdown, and the
+  // station edits disagree. If the current id isn't a real repairer in this
+  // yard, snap to the first one so everything points at the same person.
+  useEffect(() => {
+    if (!rosterLoaded) return;
+    const repairers = activeEmployees.filter((employee) => employee.locationId === form.locationId && !isManager(employee));
+    if (repairers.length > 0 && !repairers.some((employee) => employee.id === form.employeeId)) {
+      handleEmployeeChange(repairers[0].id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeEmployees, form.locationId, rosterLoaded]);
+
   useEffect(() => {
     setForm((current) => {
       const currentLines = new Map(current.lines.map((line) => [line.palletTypeId, line.quantity]));
