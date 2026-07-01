@@ -2492,19 +2492,22 @@ function ProductionEntry({
                           <span className="shrink-0 text-lg font-black text-steel-400">=</span>
                           <input
                             readOnly
-                            className="w-[56px] shrink-0 rounded border border-steel-200 bg-steel-50 px-1 py-2.5 text-center font-black text-steel-900 outline-none"
+                            className="w-20 shrink-0 rounded border border-steel-200 bg-steel-50 px-1 py-2.5 text-center font-black text-steel-900 outline-none"
                             value={quantity}
                           />
                         </div>
                       ) : hidePricing ? (
-                        // Default box: normal full-width box. Type the numbers here
-                        // and the row splits into the two boxes above.
-                        <QuantityInput
-                          className="field min-w-0 px-1 text-center font-black"
-                          value={quantity}
-                          parts={line?.parts}
-                          onCommit={(sum, parts) => onQuantityChange(selectedPhase, pallet.id, sum, parts)}
-                        />
+                        // Default box: a normal small box (not stretched), aligned
+                        // right. Type the numbers here and the row splits into the
+                        // formula + sum boxes above.
+                        <div className="flex justify-end">
+                          <QuantityInput
+                            className="w-20 rounded border border-steel-200 bg-white px-1 py-2.5 text-center font-black text-steel-900 outline-none focus:border-workshop-500"
+                            value={quantity}
+                            parts={line?.parts}
+                            onCommit={(sum, parts) => onQuantityChange(selectedPhase, pallet.id, sum, parts)}
+                          />
+                        </div>
                       ) : (
                         <div className={classNames("grid", qtyCols)}>
                           <button type="button" className="touch-target flex items-center justify-center rounded bg-steel-800 text-white" onClick={() => onQuantityChange(selectedPhase, pallet.id, quantity - 1)}>
