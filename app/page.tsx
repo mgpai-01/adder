@@ -2370,7 +2370,6 @@ function ProductionEntry({
       <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-4">
         <Label title={t("Date")} icon={<CalendarDays size={17} />}>
           <CalendarField
-            single
             value={{ mode: "day", start: form.date, end: form.date }}
             onChange={(selection) => onDateChange(selection.start)}
           />
@@ -2771,7 +2770,6 @@ function CountSheetsModule({
           <div className="grid gap-3 sm:grid-cols-2">
             <Label title="Date" icon={<CalendarDays size={17} />}>
               <CalendarField
-                single
                 value={{ mode: "day", start: date, end: date }}
                 onChange={(selection) => setDate(selection.start)}
               />
@@ -4554,7 +4552,6 @@ function EntryEditorModal({
         <div className="grid gap-3 md:grid-cols-4">
           <Label title="Date" icon={<CalendarDays size={17} />}>
             <CalendarField
-              single
               disabled={readOnly}
               value={{ mode: "day", start: draft.date, end: draft.date }}
               onChange={(selection) => updateDraft("date", selection.start)}
