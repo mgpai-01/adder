@@ -74,7 +74,8 @@ export const esDict: Record<string, string> = {
   "Week of": "Semana del",
   Weekly: "Semanal",
   Clear: "Borrar",
-  "Tap one day, or tap two days for a range.": "Toque un día, o toque dos días para un rango.",
+  "Tap a start date, then an end date": "Toque una fecha de inicio, luego una fecha de fin",
+  "Now tap the end date": "Ahora toque la fecha de fin",
 
   // Photo viewer
   "Rotate left": "Girar a la izquierda",

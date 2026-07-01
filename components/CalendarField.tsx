@@ -128,13 +128,14 @@ export default function CalendarField({
       return;
     }
     if (!anchor) {
-      // First tap: provisional single day; a second tap turns it into a range.
+      // First tap = the start date. Wait for a second tap (the end date) so
+      // "tap two dates to get everything in between" is the primary behaviour.
       setAnchor(key);
-      onChange({ mode: "day", start: key, end: key });
       return;
     }
+    // Second tap = the end date. Same day twice means just that one day.
     const [start, end] = key < anchor ? [key, anchor] : [anchor, key];
-    onChange({ mode: "range", start, end });
+    onChange(start === end ? { mode: "day", start, end } : { mode: "range", start, end });
     setAnchor(null);
     setOpen(false);
   }
@@ -162,6 +163,8 @@ export default function CalendarField({
   for (let day = 1; day <= daysInMonth; day += 1) cells.push(`${viewYear}-${pad(viewMonth + 1)}-${pad(day)}`);
 
   function cellState(key: string): "single" | "start" | "end" | "mid" | "none" {
+    // While a range is being picked, only the chosen start date is highlighted.
+    if (anchor) return key === anchor ? "single" : "none";
     const { mode, start, end } = value;
     if (!start) return "none";
     if (mode === "day") return key === start ? "single" : "none";
@@ -216,6 +219,12 @@ export default function CalendarField({
               <ChevronRight size={18} />
             </button>
           </div>
+
+          {showWeeklyToggle && !weekly && (
+            <div className="mb-2 rounded-lg bg-workshop-100 px-3 py-2 text-center text-xs font-black text-workshop-700">
+              {anchor ? t("Now tap the end date") : t("Tap a start date, then an end date")}
+            </div>
+          )}
 
           <div className="mb-1 grid grid-cols-7 gap-1 text-center text-[0.65rem] font-black uppercase text-steel-400">
             {WEEKDAYS.map((weekday) => (
@@ -283,16 +292,22 @@ export default function CalendarField({
             </div>
             <button
               type="button"
-              onClick={() => pick(today)}
+              onClick={() => {
+                if (weekly) {
+                  const monday = mondayOf(today);
+                  onChange({ mode: "week", start: monday, end: addDaysKey(monday, 6) });
+                } else {
+                  onChange({ mode: "day", start: today, end: today });
+                }
+                setAnchor(null);
+                setOpen(false);
+              }}
               className="rounded-lg px-3 py-1.5 text-xs font-black text-workshop-700 hover:bg-workshop-100"
             >
               {t("Today")}
             </button>
           </div>
 
-          {showWeeklyToggle && !weekly && (
-            <p className="mt-2 text-[0.65rem] font-bold leading-tight text-steel-400">{t("Tap one day, or tap two days for a range.")}</p>
-          )}
         </div>
       )}
     </div>
