@@ -1704,7 +1704,7 @@ export default function Home() {
               onDateChange={handleDateChange}
               onFormChange={updateForm}
               onQuantityChange={updatePhaseLineQuantity}
-              onStationChange={(patch) => form.employeeId && updateEmployee(form.employeeId, patch)}
+              onStationChange={(employeeId, patch) => updateEmployee(employeeId, patch)}
               onSave={saveEntry}
               hideYardManager={configured && profile?.role === "supervisor"}
               hidePricing={configured && profile?.role === "supervisor"}
@@ -2279,8 +2279,8 @@ function ProductionEntry({
   onDateChange: (date: string) => void;
   onFormChange: <T extends keyof EntryForm>(key: T, value: EntryForm[T]) => void;
   onQuantityChange: (phaseIndex: number, palletTypeId: string, quantity: number, parts?: number[]) => void;
-  // Updates the selected repairer's station assignment (persisted on the roster).
-  onStationChange: (patch: Partial<Employee>) => void;
+  // Updates a repairer's station assignment (persisted on the roster).
+  onStationChange: (employeeId: string, patch: Partial<Employee>) => void;
   onSave: () => void;
   // When a Manager is signed in, the Yard Manager picker is hidden entirely.
   hideYardManager?: boolean;
@@ -2386,8 +2386,8 @@ function ProductionEntry({
           <select
             className="field"
             value={stationEmployee?.station ?? ""}
-            disabled={!form.employeeId}
-            onChange={(event) => onStationChange({ station: (event.target.value || undefined) as Employee["station"] })}
+            disabled={!stationEmployee}
+            onChange={(event) => stationEmployee && onStationChange(stationEmployee.id, { station: (event.target.value || undefined) as Employee["station"] })}
           >
             <option value="">{t("— None —")}</option>
             <option value="sorter">{t("Sorter")}</option>
@@ -2398,8 +2398,8 @@ function ProductionEntry({
           <select
             className="field"
             value={stationEmployee?.stationSpot ?? ""}
-            disabled={!form.employeeId || !stationEmployee?.station}
-            onChange={(event) => onStationChange({ stationSpot: event.target.value ? Number(event.target.value) : undefined })}
+            disabled={!stationEmployee?.station}
+            onChange={(event) => stationEmployee && onStationChange(stationEmployee.id, { stationSpot: event.target.value ? Number(event.target.value) : undefined })}
           >
             <option value="">{t("— None —")}</option>
             {[1, 2, 3, 4, 5].map((spot) => (
