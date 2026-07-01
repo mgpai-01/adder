@@ -74,11 +74,11 @@ export function calculateEntry(
     const palletType = findPalletType(palletTypes, line.palletTypeId);
     return total + line.quantity * (palletType?.rate ?? 0);
   }, 0);
-  // Pallet count excludes QC Deductions — those reduce pay (negative rate) but
-  // are not pallets produced, so they should not inflate the productivity count.
+  // QC Deductions (quality reductions) subtract from the pallet count as well as
+  // reducing pay (negative rate) — a rejected pallet lowers the productivity total.
   const quantity = lines.reduce((total, line) => {
     const palletType = findPalletType(palletTypes, line.palletTypeId);
-    if (palletType?.category === "QC Deductions") return total;
+    if (palletType?.category === "QC Deductions") return total - line.quantity;
     return total + line.quantity;
   }, 0);
   // Only owe the minimum-wage make-up when there's actual activity for the day

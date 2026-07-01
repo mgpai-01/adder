@@ -40,10 +40,10 @@ function getLocationName(locationId: string) {
 }
 
 function quantityForEntry(entry: DailyEntry) {
-  // QC deductions reduce pay but are not pallets produced, so they're left out
-  // of the productivity count shown on the board.
+  // QC deductions (quality reductions) subtract from the pallet count shown on
+  // the board — a rejected pallet lowers the productivity total.
   return (entry.lines ?? []).reduce((total, line) => {
-    if (findPalletType(palletTypes, line.palletTypeId)?.category === "QC Deductions") return total;
+    if (findPalletType(palletTypes, line.palletTypeId)?.category === "QC Deductions") return total - Number(line.quantity || 0);
     return total + Number(line.quantity || 0);
   }, 0);
 }

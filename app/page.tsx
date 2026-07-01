@@ -189,11 +189,12 @@ function aggregatePhaseLines(phases: EntryPhase[]): ProductionLine[] {
   return sumLines(phases.map((phase) => phase.lines)).filter((line) => line.quantity !== 0);
 }
 
-// Pallets actually produced in a phase, excluding QC-deduction lines.
+// Net pallets for a phase: produced pallets minus QC-deduction lines (a quality
+// reduction subtracts from the count rather than adding to it).
 function phasePalletCount(phase: EntryPhase, palletTypes: PalletType[]): number {
   return (phase.lines ?? []).reduce((total, line) => {
     const palletType = findPalletType(palletTypes, line.palletTypeId);
-    if (palletType?.category === "QC Deductions") return total;
+    if (palletType?.category === "QC Deductions") return total - Number(line.quantity || 0);
     return total + Number(line.quantity || 0);
   }, 0);
 }
