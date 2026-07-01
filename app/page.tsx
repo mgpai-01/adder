@@ -2368,32 +2368,28 @@ function ProductionEntry({
 
   return (
     <div className="grid gap-4">
-      {/* Sticky banner so managers always see who (and which station) they're
-          entering for while scrolling the long pallet grid. Pinned just below the
-          app header (whose measured height comes in as stickyTop). */}
+      {/* One sticky header: shows who (and which station) you're entering for,
+          the save status, and the totals — pinned just below the app header so
+          it stays visible while scrolling the long pallet grid. */}
       <div
         style={{ top: stickyTop }}
         className={classNames(
-          "sticky z-10 -mx-4 -mt-4 flex items-center gap-3 border-b px-4 py-2.5 shadow-sm",
+          "sticky z-10 -mx-4 -mt-4 flex flex-wrap items-center justify-between gap-2 border-b px-4 py-2.5 shadow-sm",
           darkMode ? "border-white/10 bg-steel-800" : "border-steel-100 bg-white"
         )}
       >
-        <Avatar employee={stationEmployee} size="sm" />
-        <div className="min-w-0">
-          <p className="truncate text-sm font-black leading-tight">{stationEmployee?.name ?? t("Repairer")}</p>
-          <p className={classNames("truncate text-xs font-bold", stationEmployee?.station ? "text-workshop-700" : "text-steel-400")}>{stationLabel}</p>
-        </div>
-      </div>
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <Avatar employee={selectedEmployee} size="lg" />
-          <div>
-            <h2 className="text-2xl font-black">{t("Daily Production Grid")}</h2>
-            <p className={classNames("text-sm", darkMode ? "text-steel-100" : "text-steel-500")}>{t(saveStatus)}</p>
+        <div className="flex min-w-0 items-center gap-2.5">
+          <Avatar employee={stationEmployee} size="sm" />
+          <div className="min-w-0">
+            <p className="truncate text-base font-black leading-tight">{stationEmployee?.name ?? t("Repairer")}</p>
+            <p className="truncate text-xs font-bold leading-tight">
+              <span className={stationEmployee?.station ? "text-workshop-700" : "text-steel-400"}>{stationLabel}</span>
+              <span className={darkMode ? "text-steel-300" : "text-steel-400"}> · {t(saveStatus)}</span>
+            </p>
           </div>
         </div>
         {/* Managers don't see pay figures — just the pallet count. */}
-        <div className={classNames("grid grid-cols-2 gap-2", hidePricing ? "sm:grid-cols-1" : "sm:grid-cols-4")}>
+        <div className={classNames("grid grid-cols-2 gap-1.5", hidePricing ? "sm:grid-cols-1" : "sm:grid-cols-4")}>
           <Metric label={t("Pallets")} value={wholeNumber(calculation.quantity)} />
           {!hidePricing && <Metric label="Piece Pay" value={currency(calculation.pieceEarnings)} />}
           {!hidePricing && <Metric label="Make-up" value={currency(calculation.additionalOwed)} />}
