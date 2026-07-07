@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Camera, ImagePlus, UploadCloud } from "lucide-react";
 import { useT } from "@/lib/i18n";
 
@@ -24,26 +24,57 @@ export default function DropZone({
   const [over, setOver] = useState(false);
   const libraryRef = useRef<HTMLInputElement>(null);
   const cameraRef = useRef<HTMLInputElement>(null);
+  // Depth counter so the highlight stays on while the cursor moves over the
+  // inner buttons/thumbnails (each child fires its own dragenter/dragleave).
+  const dragDepth = useRef(0);
+
+  // Stop the browser from opening/navigating to a file dropped anywhere on the
+  // page. Without this, a drop that lands even slightly outside the box makes
+  // the browser open the image instead of uploading it — which reads as
+  // "drag & drop doesn't work". Drops on the box are still handled below.
+  useEffect(() => {
+    const prevent = (event: DragEvent) => event.preventDefault();
+    window.addEventListener("dragover", prevent);
+    window.addEventListener("drop", prevent);
+    return () => {
+      window.removeEventListener("dragover", prevent);
+      window.removeEventListener("drop", prevent);
+    };
+  }, []);
 
   function emit(list: FileList | null) {
     if (!list || list.length === 0) return;
-    const images = Array.from(list).filter((file) => file.type.startsWith("image/") || accept === "*");
+    // Accept anything image-like. Some files (e.g. HEIC) report an empty type,
+    // so fall back to the file extension rather than dropping them silently.
+    const images = Array.from(list).filter(
+      (file) => accept === "*" || file.type.startsWith("image/") || /\.(png|jpe?g|gif|webp|heic|heif|bmp|tiff?)$/i.test(file.name)
+    );
     if (images.length > 0) onFiles(images);
   }
 
   return (
     <div
       onClick={() => libraryRef.current?.click()}
+      onDragEnter={(event) => {
+        event.preventDefault();
+        dragDepth.current += 1;
+        setOver(true);
+      }}
       onDragOver={(event) => {
         event.preventDefault();
-        setOver(true);
+        if (!over) setOver(true);
       }}
       onDragLeave={(event) => {
         event.preventDefault();
-        setOver(false);
+        dragDepth.current -= 1;
+        if (dragDepth.current <= 0) {
+          dragDepth.current = 0;
+          setOver(false);
+        }
       }}
       onDrop={(event) => {
         event.preventDefault();
+        dragDepth.current = 0;
         setOver(false);
         emit(event.dataTransfer.files);
       }}
