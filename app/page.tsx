@@ -528,16 +528,23 @@ function NumericKeypad({
               {digit}
             </button>
           ))}
-          <button type="button" className={keyClass} aria-label="Plus" {...hold(() => onKey("+"))}>
-            +
-          </button>
-          <button type="button" className={keyClass} {...hold(() => onKey("0"))}>
+          <button type="button" className={keyClass + " col-span-2"} {...hold(() => onKey("0"))}>
             0
           </button>
           <button type="button" className={keyClass + " text-3xl"} aria-label="Backspace" {...hold(onBackspace)}>
             ⌫
           </button>
         </div>
+        {/* + lives in its own colored bar, well away from the number keys, so
+            tapping it can't be mistaken for the "1" above it. */}
+        <button
+          type="button"
+          aria-label="Plus"
+          className="mt-1.5 flex h-12 w-full select-none items-center justify-center gap-2 rounded-lg border-2 border-workshop-500 bg-workshop-100 text-2xl font-black text-workshop-700 active:bg-workshop-200"
+          {...hold(() => onKey("+"))}
+        >
+          + <span className="text-sm font-black uppercase tracking-wide">{t("add")}</span>
+        </button>
         <button
           type="button"
           className="mt-1.5 h-12 w-full rounded-lg bg-workshop-500 text-lg font-black text-white active:bg-workshop-700"

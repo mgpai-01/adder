@@ -71,6 +71,7 @@ export const esDict: Record<string, string> = {
 
   // Calendar field
   Done: "Listo",
+  add: "sumar",
   space: "espacio",
   "Any date": "Cualquier fecha",
   "Week of": "Semana del",
