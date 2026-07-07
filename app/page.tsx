@@ -1179,20 +1179,40 @@ export default function Home() {
     setForm((current) => ({ ...current, [key]: value }));
   }
 
-  // Pick the starting language: a saved choice wins; otherwise managers start in
-  // Spanish and everyone else in English.
+  // Pick the starting language. Order of preference: the choice saved to the
+  // account (follows the user across devices), then a device-local choice, then
+  // the role default — managers start in Spanish, admins/everyone else English.
   useEffect(() => {
+    if (profile?.preferredLanguage === "en" || profile?.preferredLanguage === "es") {
+      setLanguage(profile.preferredLanguage);
+      return;
+    }
     const stored = window.localStorage.getItem("mgp-language");
     if (stored === "en" || stored === "es") {
       setLanguage(stored);
     } else if (configured && profile?.role === "supervisor") {
       setLanguage("es");
+    } else {
+      setLanguage("en");
     }
-  }, [configured, profile?.role]);
+  }, [configured, profile?.role, profile?.preferredLanguage]);
 
   function changeLanguage(next: Language) {
     setLanguage(next);
     safeSetItem("mgp-language", next);
+    // Persist to the account so the choice follows the user to any device.
+    try {
+      const token = getAccessToken();
+      if (token) {
+        void fetch("/api/auth/language", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ language: next })
+        }).catch(() => undefined);
+      }
+    } catch {
+      // Network/token issue — the device-local choice above still applies.
+    }
   }
 
   const t = (text: string, vars?: Record<string, string | number>) => translate(language, text, vars);
@@ -1640,9 +1660,9 @@ export default function Home() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {configured && profile?.role === "supervisor" && (
+            {configured && profile && (
               <div className={classNames("flex overflow-hidden rounded border text-xs font-black", darkMode ? "border-white/20" : "border-steel-200")}>
-                {(["es", "en"] as Language[]).map((code) => (
+                {(["en", "es"] as Language[]).map((code) => (
                   <button
                     key={code}
                     type="button"

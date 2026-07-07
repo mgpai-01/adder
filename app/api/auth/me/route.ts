@@ -23,14 +23,22 @@ export async function GET(request: Request) {
   }
   const userId = check.userId;
 
-  // manager_yard may not exist on older databases; fall back without it.
-  // maybeSingle so a genuinely-missing row reports as a missing row rather than
-  // a query error, which keeps the diagnostic reason accurate.
+  // manager_yard / preferred_language may not exist on older databases; fall
+  // back progressively without them. maybeSingle so a genuinely-missing row
+  // reports as a missing row rather than a query error, which keeps the
+  // diagnostic reason accurate.
   let { data: profile, error: profileError } = await supabase
     .from("profiles")
-    .select("id, username, full_name, role, active, manager_yard")
+    .select("id, username, full_name, role, active, manager_yard, preferred_language")
     .eq("id", userId)
     .maybeSingle();
+  if (profileError && /preferred_language/i.test(profileError.message)) {
+    ({ data: profile, error: profileError } = await supabase
+      .from("profiles")
+      .select("id, username, full_name, role, active, manager_yard")
+      .eq("id", userId)
+      .maybeSingle());
+  }
   if (profileError && /manager_yard/i.test(profileError.message)) {
     ({ data: profile, error: profileError } = await supabase
       .from("profiles")
@@ -54,7 +62,8 @@ export async function GET(request: Request) {
       fullName: profile.full_name,
       role: profile.role,
       active: profile.active,
-      managerYard: (profile as { manager_yard?: string | null }).manager_yard ?? ""
+      managerYard: (profile as { manager_yard?: string | null }).manager_yard ?? "",
+      preferredLanguage: (profile as { preferred_language?: string | null }).preferred_language ?? ""
     }
   });
 }

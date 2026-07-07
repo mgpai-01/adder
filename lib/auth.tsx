@@ -15,6 +15,9 @@ export type Profile = {
   // Yards a Manager is allowed to view (empty = all yards). Only meaningful for
   // the "supervisor" role. Stored in profiles.manager_yard as a comma list.
   allowedYards: string[];
+  // Saved UI language preference ("en" | "es"); empty means none saved yet, so
+  // the role default applies. Stored in profiles.preferred_language.
+  preferredLanguage: "" | "en" | "es";
 };
 
 type AuthState = {
@@ -116,6 +119,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           role: string;
           active: boolean;
           managerYard?: string | null;
+          preferredLanguage?: string | null;
         } | null;
       };
       const response = await withTimeoutRetry(
@@ -158,7 +162,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         allowedYards: (data.managerYard ?? "")
           .split(",")
           .map((value) => value.trim())
-          .filter(Boolean)
+          .filter(Boolean),
+        preferredLanguage: data.preferredLanguage === "en" || data.preferredLanguage === "es" ? data.preferredLanguage : ""
       };
       setProfile(loaded);
       setError("");
