@@ -33,7 +33,7 @@ import {
   X
 } from "lucide-react";
 import type { ReactNode } from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import {
   Bar,
   BarChart,
@@ -470,6 +470,103 @@ function parseQuantityParts(text: string): number[] {
     .filter((value) => Number.isFinite(value) && value > 0);
 }
 
+// ---- Custom on-screen numeric keypad for phones/tablets ----
+// The native numeric keypad has no space bar, and space is how quantities are
+// added together (e.g. "13 7 14" = 34). So on touch devices we suppress the
+// native keyboard and show this keypad, which has digits AND a space key.
+type KeypadTarget = {
+  insert: (text: string) => void;
+  backspace: () => void;
+  done: () => void;
+};
+const MobileKeypadContext = createContext<{ register: (target: KeypadTarget | null) => void }>({
+  register: () => undefined
+});
+
+// True on coarse-pointer devices (phones/tablets). Computed after mount so it
+// never differs between server and first client render.
+function useIsTouch() {
+  const [touch, setTouch] = useState(false);
+  useEffect(() => {
+    try {
+      setTouch(window.matchMedia("(pointer: coarse)").matches);
+    } catch {
+      setTouch("ontouchstart" in window);
+    }
+  }, []);
+  return touch;
+}
+
+// Keys use onMouseDown+preventDefault so tapping one never blurs (and thus never
+// dismisses/commits) the field being edited; onClick does the actual work. This
+// is the same trick native input toolbars use to stay open while you tap them.
+function NumericKeypad({
+  onKey,
+  onBackspace,
+  onDone
+}: {
+  onKey: (key: string) => void;
+  onBackspace: () => void;
+  onDone: () => void;
+}) {
+  const { t } = useT();
+  const hold = (fn: () => void) => ({
+    onMouseDown: (event: { preventDefault: () => void }) => event.preventDefault(),
+    onClick: fn
+  });
+  const keyClass =
+    "flex h-14 select-none items-center justify-center rounded-lg bg-white text-2xl font-black text-steel-900 shadow-sm active:bg-steel-200";
+  return (
+    <div
+      className="fixed inset-x-0 bottom-0 z-[70] border-t border-steel-300 bg-steel-100 px-1.5 pt-1.5"
+      style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 6px)" }}
+    >
+      <div className="mx-auto max-w-md">
+        <div className="grid grid-cols-3 gap-1.5">
+          {["7", "8", "9", "4", "5", "6", "1", "2", "3"].map((digit) => (
+            <button key={digit} type="button" className={keyClass} {...hold(() => onKey(digit))}>
+              {digit}
+            </button>
+          ))}
+          <button type="button" className={keyClass + " text-base font-black uppercase tracking-wide"} {...hold(() => onKey(" "))}>
+            {t("space")}
+          </button>
+          <button type="button" className={keyClass} {...hold(() => onKey("0"))}>
+            0
+          </button>
+          <button type="button" className={keyClass + " text-3xl"} aria-label="Backspace" {...hold(onBackspace)}>
+            ⌫
+          </button>
+        </div>
+        <button
+          type="button"
+          className="mt-1.5 h-12 w-full rounded-lg bg-workshop-500 text-lg font-black text-white active:bg-workshop-700"
+          {...hold(onDone)}
+        >
+          {t("Done")}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// Renders the keypad whenever a QuantityInput registers itself (on touch focus).
+function MobileKeypadProvider({ children }: { children: ReactNode }) {
+  const [target, setTarget] = useState<KeypadTarget | null>(null);
+  return (
+    <MobileKeypadContext.Provider value={{ register: setTarget }}>
+      {children}
+      {target && (
+        <NumericKeypad
+          onKey={(key) => target.insert(key)}
+          onBackspace={() => target.backspace()}
+          onDone={() => target.done()}
+        />
+      )}
+    </MobileKeypadContext.Provider>
+  );
+}
+
 // A quantity box that accepts a single number or several numbers separated by
 // spaces/plus signs. While focused it shows what you type; on blur it commits
 // the sum (and the list of numbers, so a breakdown can be shown).
@@ -495,6 +592,9 @@ function QuantityInput({
 }) {
   const [editing, setEditing] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const keypad = useContext(MobileKeypadContext);
+  const isTouch = useIsTouch();
   // Show the added numbers with + signs, e.g. "6 + 4 + 2 + 7".
   const expression = parts && parts.length > 1 ? parts.join(" + ") : value === 0 ? "" : String(value);
   const blurred = mode === "parts" ? expression : value === 0 ? "" : String(value);
@@ -515,14 +615,34 @@ function QuantityInput({
     );
     setEditing(null);
   }
+  function fieldEl() {
+    return multiline ? textareaRef.current : inputRef.current;
+  }
+  function handleFocus() {
+    setEditing(expression);
+    if (!isTouch) return;
+    // On touch, drive the field with our on-screen keypad (which has a space
+    // key) instead of the native keyboard.
+    keypad.register({
+      insert: (text) => setEditing((prev) => (prev ?? "") + text),
+      backspace: () => setEditing((prev) => (prev ?? "").slice(0, -1)),
+      done: () => fieldEl()?.blur()
+    });
+    // Keep the field visible above the keypad.
+    window.setTimeout(() => fieldEl()?.scrollIntoView({ block: "center", behavior: "smooth" }), 60);
+  }
+  function handleBlur() {
+    keypad.register(null);
+    commit();
+  }
   const shared = {
     className,
-    // Use the full keyboard (not the numeric keypad) so the space bar — which
-    // separates the numbers to add — is available on phones.
-    inputMode: "text" as const,
+    // On touch, suppress the native keyboard (inputMode "none") and use the
+    // custom keypad; on desktop, allow normal typing (the space bar works there).
+    inputMode: (isTouch ? "none" : "text") as "none" | "text",
     placeholder: "0",
     value: display,
-    onFocus: () => setEditing(expression),
+    onFocus: handleFocus,
     onChange: (event: { target: { value: string } }) => setEditing(event.target.value)
   };
   if (multiline) {
@@ -531,7 +651,7 @@ function QuantityInput({
         {...shared}
         ref={textareaRef}
         rows={1}
-        onBlur={commit}
+        onBlur={handleBlur}
         onKeyDown={(event) => {
           if (event.key === "Enter") {
             event.preventDefault();
@@ -544,8 +664,9 @@ function QuantityInput({
   return (
     <input
       {...shared}
+      ref={inputRef}
       type="text"
-      onBlur={commit}
+      onBlur={handleBlur}
       onKeyDown={(event) => {
         if (event.key === "Enter") (event.target as HTMLInputElement).blur();
       }}
@@ -1639,6 +1760,7 @@ export default function Home() {
   return (
     <AuthGate>
     <LanguageProvider value={{ language, setLanguage: changeLanguage, t }}>
+    <MobileKeypadProvider>
     <main className={classNames("min-h-screen pb-24 transition-colors", darkMode ? "bg-steel-900/[0.95] text-white" : "bg-steel-50/[0.88] text-steel-900")}>
       <header className={classNames("sticky top-0 z-20 border-b backdrop-blur", darkMode ? "border-white/10 bg-steel-900/[0.92]" : "border-steel-100 bg-white/[0.92]")}>
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-3">
@@ -1897,6 +2019,7 @@ export default function Home() {
         </div>
       )}
     </main>
+    </MobileKeypadProvider>
     </LanguageProvider>
     </AuthGate>
   );

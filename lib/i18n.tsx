@@ -70,6 +70,8 @@ export const esDict: Record<string, string> = {
   Remove: "Quitar",
 
   // Calendar field
+  Done: "Listo",
+  space: "espacio",
   "Any date": "Cualquier fecha",
   "Week of": "Semana del",
   Weekly: "Semanal",
