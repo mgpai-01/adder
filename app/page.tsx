@@ -528,8 +528,8 @@ function NumericKeypad({
               {digit}
             </button>
           ))}
-          <button type="button" className={keyClass + " text-base font-black uppercase tracking-wide"} {...hold(() => onKey(" "))}>
-            {t("space")}
+          <button type="button" className={keyClass} aria-label="Plus" {...hold(() => onKey("+"))}>
+            +
           </button>
           <button type="button" className={keyClass} {...hold(() => onKey("0"))}>
             0
