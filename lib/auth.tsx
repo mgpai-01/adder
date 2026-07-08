@@ -313,26 +313,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [supabase]
   );
 
-  // Admins are signed out after 5 minutes of inactivity so an unattended admin
-  // screen can't be browsed by someone else. Any interaction resets the timer.
-  useEffect(() => {
-    if (profile?.role !== "admin") return;
-    let timer: ReturnType<typeof setTimeout>;
-    const reset = () => {
-      clearTimeout(timer);
-      timer = setTimeout(() => {
-        void signOut();
-      }, 5 * 60 * 1000);
-    };
-    const events = ["pointerdown", "click", "keydown", "touchstart"];
-    events.forEach((event) => window.addEventListener(event, reset, { passive: true }));
-    reset();
-    return () => {
-      clearTimeout(timer);
-      events.forEach((event) => window.removeEventListener(event, reset));
-    };
-  }, [profile?.role, signOut]);
-
   return (
     <AuthContext.Provider
       value={{ configured: isSupabaseConfigured, loading, profile, error, signIn, signOut, requestPasswordReset }}
