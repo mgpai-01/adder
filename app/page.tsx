@@ -2668,7 +2668,7 @@ function ProductionEntry({
                 const earned = quantity * pallet.rate;
 
                 return (
-                  <tr key={pallet.id} className="border-t border-steel-100">
+                  <tr key={pallet.id} className="border-t border-steel-100 even:bg-steel-50">
                     {!hidePricing && <td className={classNames(cellPad, "font-black")}>{pallet.category}</td>}
                     <td className={classNames(cellPad, hidePricing && "break-words")}>
                       {hidePricing ? (
@@ -3595,7 +3595,7 @@ function ProductionGrid({
                     const weeklyAmount = dayCells.reduce((total, cell) => total + cell.amount, 0);
 
                     return (
-                      <tr key={pallet.id} className="border-t border-steel-100">
+                      <tr key={pallet.id} className="border-t border-steel-100 even:bg-steel-50">
                         <td className="p-2">
                           <strong className="block">{pallet.code}</strong>
                           <span className="text-steel-500">{pallet.description}</span>
@@ -3786,7 +3786,7 @@ function EntryHistory({
                 const calc = calculateEntry(entry, palletTypes, settings);
                 const linkedSheets = getLinkedCountSheets(countSheets, entry);
                 return (
-                  <tr key={entry.id} className="border-t border-steel-100">
+                  <tr key={entry.id} className="border-t border-steel-100 even:bg-steel-50">
                     <td className="p-3 font-bold">
                       <span className="block">{entry.date}</span>
                       {entry.updatedAt && <span className="block text-xs font-bold text-steel-500">Modified {new Date(entry.updatedAt).toLocaleString()}</span>}
@@ -4186,7 +4186,7 @@ function PalletAdmin({
             </thead>
             <tbody>
               {filtered.map((pallet) => (
-                <tr key={pallet.id} className="border-t border-steel-100">
+                <tr key={pallet.id} className="border-t border-steel-100 even:bg-steel-50">
                   <td className="p-3 font-black">{pallet.category}</td>
                   <td className="p-3">
                     <strong className="block">{pallet.code}</strong>
@@ -4764,7 +4764,7 @@ function EntryEditorModal({
                   const quantity = lineForPallet?.quantity ?? 0;
                   const parts = lineForPallet?.parts;
                   return (
-                    <tr key={pallet.id} className="border-t border-steel-100">
+                    <tr key={pallet.id} className="border-t border-steel-100 even:bg-steel-50">
                       <td className="p-3 font-black">{pallet.category}</td>
                       <td className="p-3"><strong>{pallet.code}</strong><span className="block text-steel-500">{pallet.description}</span></td>
                       <td className="p-3">{currency(pallet.rate)}</td>
@@ -5096,7 +5096,7 @@ function EmployeeTable({ rows, onSelectEmployee }: { rows: ReturnType<typeof bui
           </thead>
           <tbody>
             {rows.map((row) => (
-              <tr key={row.employee.id} className="border-t border-steel-100">
+              <tr key={row.employee.id} className="border-t border-steel-100 even:bg-steel-50">
                 <td className="p-3">
                   <button type="button" className="flex items-center gap-2 font-black text-workshop-700" onClick={() => onSelectEmployee(row.employee.id)}>
                     <Avatar employee={row.employee} />
@@ -5137,7 +5137,7 @@ function BreakdownTable({ title, rows }: { title: string; rows: Array<{ id?: str
           </thead>
           <tbody>
             {rows.map((row, index) => (
-              <tr key={row.id ?? row.palletTypeId ?? `${row.label}-${row.category}-${index}`} className="border-t border-steel-100">
+              <tr key={row.id ?? row.palletTypeId ?? `${row.label}-${row.category}-${index}`} className="border-t border-steel-100 even:bg-steel-50">
                 <td className="p-3 font-black">{row.label}</td>
                 <td className="p-3">{row.category ?? ""}</td>
                 <td className="p-3">{wholeNumber(row.quantity)}</td>
