@@ -1794,7 +1794,7 @@ export default function Home() {
             <div className="min-w-0">
               <p className="truncate text-xs font-bold uppercase tracking-wide text-workshop-700">MGP</p>
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                <h1 className="truncate text-lg font-black sm:text-2xl">Pallet Repair Tracking</h1>
+                <h1 className="truncate text-lg font-black sm:text-2xl">{t("Pallet Repair Tracking")}</h1>
                 <a
                   href="/live-board"
                   target="_blank"
@@ -1832,7 +1832,7 @@ export default function Home() {
             )}
             <button
               type="button"
-              aria-label="Toggle dark mode"
+              aria-label={t("Toggle dark mode")}
               className={classNames("touch-target flex w-12 items-center justify-center rounded border", darkMode ? "border-white/20 bg-white/10" : "border-steel-100 bg-white")}
               onClick={() => setDarkMode((value) => !value)}
             >
@@ -1841,8 +1841,8 @@ export default function Home() {
             {configured && profile && (
               <button
                 type="button"
-                aria-label="Sign out"
-                title="Sign out"
+                aria-label={t("Sign out")}
+                title={t("Sign out")}
                 className={classNames("touch-target flex w-12 items-center justify-center rounded border", darkMode ? "border-white/20 bg-white/10" : "border-steel-100 bg-white")}
                 onClick={() => signOut()}
               >
@@ -1871,9 +1871,9 @@ export default function Home() {
           {allowedViews.includes("production-grid") && <NavButton icon={<FileSpreadsheet size={19} />} label={t("Production Grid")} active={view === "production-grid"} onClick={() => setView("production-grid")} />}
           {allowedViews.includes("dashboard") && <NavButton icon={<BarChart3 size={19} />} label={t("Dashboard")} active={view === "dashboard"} onClick={() => setView("dashboard")} />}
           {allowedViews.includes("payroll") && <NavButton icon={<FileSpreadsheet size={19} />} label={t("Payroll")} active={view === "payroll"} onClick={() => setView("payroll")} />}
-          {allowedViews.includes("cloud") && <NavButton icon={<Database size={19} />} label="Cloud" active={view === "cloud"} onClick={() => setView("cloud")} />}
-          {allowedViews.includes("users") && <NavButton icon={<UserRound size={19} />} label="Users" active={view === "users"} onClick={() => setView("users")} />}
-          {allowedViews.includes("settings") && <NavButton icon={<ShieldCheck size={19} />} label="Admin" active={view === "settings"} onClick={() => setView("settings")} />}
+          {allowedViews.includes("cloud") && <NavButton icon={<Database size={19} />} label={t("Cloud")} active={view === "cloud"} onClick={() => setView("cloud")} />}
+          {allowedViews.includes("users") && <NavButton icon={<UserRound size={19} />} label={t("Users")} active={view === "users"} onClick={() => setView("users")} />}
+          {allowedViews.includes("settings") && <NavButton icon={<ShieldCheck size={19} />} label={t("Admin")} active={view === "settings"} onClick={() => setView("settings")} />}
         </nav>
 
         <section className={classNames("rounded border p-4 shadow-panel", darkMode ? "border-white/10 bg-steel-800/[0.94]" : "border-steel-100 bg-white/95")}>
@@ -2255,7 +2255,7 @@ function PhaseTracker({
                     <button
                       type="button"
                       onClick={() => removePhasePhoto(selected, photo)}
-                      aria-label="Remove photo"
+                      aria-label={t("Remove photo")}
                       className="absolute -right-1.5 -top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-red-700 text-white shadow ring-2 ring-white"
                     >
                       <X size={13} />
@@ -2538,9 +2538,9 @@ function ProductionEntry({
         {/* Managers don't see pay figures — just the pallet count. */}
         <div className={classNames("grid grid-cols-2 gap-2", hidePricing ? "sm:grid-cols-1" : "sm:grid-cols-4")}>
           <Metric label={t("Pallets")} value={wholeNumber(calculation.quantity)} />
-          {!hidePricing && <Metric label="Piece Pay" value={currency(calculation.pieceEarnings)} />}
-          {!hidePricing && <Metric label="Make-up" value={currency(calculation.additionalOwed)} />}
-          {!hidePricing && <Metric label="Total" value={currency(calculation.totalPay)} />}
+          {!hidePricing && <Metric label={t("Piece Pay")} value={currency(calculation.pieceEarnings)} />}
+          {!hidePricing && <Metric label={t("Make-up")} value={currency(calculation.additionalOwed)} />}
+          {!hidePricing && <Metric label={t("Total")} value={currency(calculation.totalPay)} />}
         </div>
       </div>
 
@@ -2615,7 +2615,7 @@ function ProductionEntry({
       </div>
 
       <PhaseTracker
-        repairerName={selectedEmployee?.name ?? "Repairer"}
+        repairerName={selectedEmployee?.name ?? t("Repairer")}
         phases={activePhases}
         onChange={(next) => onFormChange("phases", next)}
         crew={crew}
@@ -2629,7 +2629,7 @@ function ProductionEntry({
 
       {SHOW_TIME_FIELDS && (
       <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5">
-        <Label title="Shift" icon={<Clock size={17} />}>
+        <Label title={t("Shift")} icon={<Clock size={17} />}>
           <select className="field" value={form.shift} onChange={(event) => onFormChange("shift", event.target.value as Shift)}>
             {shifts.map((shift) => (
               <option key={shift} value={shift}>
@@ -2638,7 +2638,7 @@ function ProductionEntry({
             ))}
           </select>
         </Label>
-        <Label title="Clock In" icon={<Clock size={17} />}>
+        <Label title={t("Clock In")} icon={<Clock size={17} />}>
           <select className="field" value={form.clockIn} onChange={(event) => onFormChange("clockIn", event.target.value)}>
             {timeOptions.map((time) => (
               <option key={time} value={time}>
@@ -2647,7 +2647,7 @@ function ProductionEntry({
             ))}
           </select>
         </Label>
-        <Label title="Clock Out" icon={<Clock size={17} />}>
+        <Label title={t("Clock Out")} icon={<Clock size={17} />}>
           <select className="field" value={form.clockOut} onChange={(event) => onFormChange("clockOut", event.target.value)}>
             {timeOptions.map((time) => (
               <option key={time} value={time}>
@@ -2656,14 +2656,14 @@ function ProductionEntry({
             ))}
           </select>
         </Label>
-        <Label title="Hours" icon={<Clock size={17} />}>
+        <Label title={t("Hours")} icon={<Clock size={17} />}>
           <input className="field" inputMode="decimal" type="number" min="0" step="0.25" value={form.manualHours} onChange={(event) => onFormChange("manualHours", Number(event.target.value))} />
         </Label>
-        <Label title="Break / Lunch" icon={<Clock size={17} />}>
+        <Label title={t("Break / Lunch")} icon={<Clock size={17} />}>
           <select className="field" value={form.breakProfile} onChange={(event) => onFormChange("breakProfile", event.target.value as BreakProfile)}>
-            <option value="standard">15 paid break + 30 unpaid lunch</option>
-            <option value="paidLunch">Paid 30-minute lunch</option>
-            <option value="noLunch">No lunch deduction</option>
+            <option value="standard">{t("15 paid break + 30 unpaid lunch")}</option>
+            <option value="paidLunch">{t("Paid 30-minute lunch")}</option>
+            <option value="noLunch">{t("No lunch deduction")}</option>
           </select>
         </Label>
       </div>
@@ -2765,15 +2765,15 @@ function ProductionEntry({
       {!hidePricing && (
         <div className={classNames("grid gap-2 rounded border p-3 text-sm", darkMode ? "border-white/10 bg-white/[0.08]" : "border-steel-100 bg-steel-50")}>
           <div className="flex justify-between">
-            <span>Hourly equivalent</span>
+            <span>{t("Hourly equivalent")}</span>
             <strong>{currency(calculation.hourlyEquivalent)}/hr</strong>
           </div>
           <div className="flex justify-between">
-            <span>Minimum required</span>
+            <span>{t("Minimum required")}</span>
             <strong>{currency(calculation.minimumWageRequired)}</strong>
           </div>
           <div className="flex justify-between">
-            <span>Daily overtime</span>
+            <span>{t("Daily overtime")}</span>
             <strong>{calculation.overtimeHours.toFixed(2)} hrs</strong>
           </div>
         </div>
@@ -2808,6 +2808,7 @@ function CountSheetsModule({
   onUpdate: (id: string, patch: Partial<CountSheet>) => void | Promise<void>;
   onDelete: (id: string) => void | Promise<void>;
 }) {
+  const { t } = useT();
   const [roleMode, setRoleMode] = useState<"counter" | "admin">("counter");
   const [date, setDate] = useState(today);
   const [locationId, setLocationId] = useState(locations[0]?.id ?? "fontana");
@@ -2817,7 +2818,7 @@ function CountSheetsModule({
   const [files, setFiles] = useState<File[]>([]);
   const filePreviews = useMemo(() => files.map((file) => ({ file, url: URL.createObjectURL(file) })), [files]);
   useEffect(() => () => filePreviews.forEach((preview) => URL.revokeObjectURL(preview.url)), [filePreviews]);
-  const [statusMessage, setStatusMessage] = useState("Ready for count sheet photos.");
+  const [statusMessage, setStatusMessage] = useState(t("Ready for count sheet photos."));
   const [isSaving, setIsSaving] = useState(false);
   const [selectedSheetId, setSelectedSheetId] = useState<string | null>(null);
   const [selectedPhotoIndex, setSelectedPhotoIndex] = useState(0);
@@ -2869,13 +2870,13 @@ function CountSheetsModule({
 
   async function saveCountSheet() {
     if (files.length === 0) {
-      setStatusMessage("Add at least one count sheet photo before saving.");
+      setStatusMessage(t("Add at least one count sheet photo before saving."));
       return;
     }
 
     setIsSaving(true);
     const message = await onCreate({ date, locationId, shift, uploadedBy, notes, files });
-    setStatusMessage(message);
+    setStatusMessage(t(message));
     setFiles([]);
     setNotes("");
     setIsSaving(false);
@@ -2892,7 +2893,7 @@ function CountSheetsModule({
         rejectedAt: nextStatus === "Rejected" ? now : undefined
       })
     );
-    setStatusMessage(`Count sheet marked ${nextStatus.toLowerCase()}.`);
+    setStatusMessage(t("Count sheet marked {status}.", { status: t(nextStatus).toLowerCase() }));
   }
 
   function clearFilters() {
@@ -2909,15 +2910,15 @@ function CountSheetsModule({
     <div className="grid gap-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-2xl font-black">Count Sheets</h2>
-          <p className="text-sm text-steel-500">Upload yard photos and link count documentation by date, location, and shift.</p>
+          <h2 className="text-2xl font-black">{t("Count Sheets")}</h2>
+          <p className="text-sm text-steel-500">{t("Upload yard photos and link count documentation by date, location, and shift.")}</p>
         </div>
         <div className="grid grid-cols-2 gap-2 rounded border border-steel-100 bg-steel-50 p-1">
           <button type="button" className={classNames("touch-target rounded px-4 font-black", roleMode === "counter" ? "bg-workshop-500 text-white" : "text-steel-700")} onClick={() => setRoleMode("counter")}>
-            Counter
+            {t("Counter")}
           </button>
           <button type="button" className={classNames("touch-target rounded px-4 font-black", roleMode === "admin" ? "bg-steel-900 text-white" : "text-steel-700")} onClick={() => setRoleMode("admin")}>
-            Admin
+            {t("Admin")}
           </button>
         </div>
       </div>
@@ -2927,18 +2928,18 @@ function CountSheetsModule({
       <div className="grid gap-4 lg:grid-cols-[420px_1fr]">
         <div className="grid gap-4 rounded border border-steel-100 bg-white p-4 text-steel-900">
           <div>
-            <h3 className="text-xl font-black">Upload Photos</h3>
-            <p className="text-sm text-steel-500">Counter mode keeps rates, payroll, and dollar amounts hidden.</p>
+            <h3 className="text-xl font-black">{t("Upload Photos")}</h3>
+            <p className="text-sm text-steel-500">{t("Counter mode keeps rates, payroll, and dollar amounts hidden.")}</p>
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
-            <Label title="Date" icon={<CalendarDays size={17} />}>
+            <Label title={t("Date")} icon={<CalendarDays size={17} />}>
               <CalendarField
                 single
                 value={{ mode: "day", start: date, end: date }}
                 onChange={(selection) => setDate(selection.start)}
               />
             </Label>
-            <Label title="Shift" icon={<Clock size={17} />}>
+            <Label title={t("Shift")} icon={<Clock size={17} />}>
               <select className="field" value={shift} onChange={(event) => setShift(event.target.value as Shift)}>
                 {shifts.map((item) => (
                   <option key={item} value={item}>{item}</option>
@@ -2946,34 +2947,34 @@ function CountSheetsModule({
               </select>
             </Label>
           </div>
-          <Label title="Location" icon={<MapPin size={17} />}>
+          <Label title={t("Location")} icon={<MapPin size={17} />}>
             <select className="field" value={locationId} onChange={(event) => setLocationId(event.target.value)}>
               {locations.filter((location) => location.active).map((location) => (
                 <option key={location.id} value={location.id}>{location.name}</option>
               ))}
             </select>
           </Label>
-          <Label title="Uploaded By" icon={<UserRound size={17} />}>
-            <input className="field" value={uploadedBy} onChange={(event) => setUploadedBy(event.target.value)} placeholder="Counter name or station" />
+          <Label title={t("Uploaded By")} icon={<UserRound size={17} />}>
+            <input className="field" value={uploadedBy} onChange={(event) => setUploadedBy(event.target.value)} placeholder={t("Counter name or station")} />
           </Label>
           <div className="grid gap-2 sm:grid-cols-2">
             <label className="touch-target flex cursor-pointer items-center justify-center gap-2 rounded bg-workshop-500 px-4 py-3 text-lg font-black text-white">
               <Camera size={22} />
-              Camera
+              {t("Camera")}
               <input className="hidden" type="file" accept="image/*" capture="environment" multiple onChange={(event) => handleFiles(event.target.files)} />
             </label>
             <label className="touch-target flex cursor-pointer items-center justify-center gap-2 rounded bg-steel-900 px-4 py-3 text-lg font-black text-white">
               <ImagePlus size={22} />
-              Photos
+              {t("Photos")}
               <input className="hidden" type="file" accept="image/*" multiple onChange={(event) => handleFiles(event.target.files)} />
             </label>
           </div>
-          <DropZone onFiles={handleFiles} label="Drag & drop count sheet photos here" />
+          <DropZone onFiles={handleFiles} label={t("Drag & drop count sheet photos here")} />
           {files.length > 0 && (
             <div className="rounded border border-steel-100 bg-steel-50 p-3">
               <div className="mb-2 flex items-center justify-between gap-2">
-                <strong>{files.length} photo{files.length === 1 ? "" : "s"} ready</strong>
-                <button type="button" className="rounded bg-steel-200 px-3 py-1 text-sm font-black" onClick={() => setFiles([])}>Clear</button>
+                <strong>{t("{n} photos ready", { n: files.length })}</strong>
+                <button type="button" className="rounded bg-steel-200 px-3 py-1 text-sm font-black" onClick={() => setFiles([])}>{t("Clear")}</button>
               </div>
               <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
                 {filePreviews.map(({ file, url }, index) => (
@@ -2982,7 +2983,7 @@ function CountSheetsModule({
                     <img src={url} alt={file.name} className="h-24 w-full object-cover" />
                     <button
                       type="button"
-                      aria-label={`Remove ${file.name}`}
+                      aria-label={t("Remove {name}", { name: file.name })}
                       className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-steel-900/80 text-white"
                       onClick={() => setFiles((current) => current.filter((_, position) => position !== index))}
                     >
@@ -2993,69 +2994,69 @@ function CountSheetsModule({
               </div>
             </div>
           )}
-          <Label title="Notes" icon={<FileSpreadsheet size={17} />}>
-            <textarea className="field min-h-24 resize-none" value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Line, table screen, trailer, or count notes" />
+          <Label title={t("Notes")} icon={<FileSpreadsheet size={17} />}>
+            <textarea className="field min-h-24 resize-none" value={notes} onChange={(event) => setNotes(event.target.value)} placeholder={t("Line, table screen, trailer, or count notes")} />
           </Label>
           <button type="button" disabled={isSaving} className="touch-target flex items-center justify-center gap-2 rounded bg-safety-400 px-4 py-3 text-lg font-black text-steel-900 disabled:bg-steel-300" onClick={saveCountSheet}>
             <Save size={22} />
-            {isSaving ? "Saving..." : "Save Count Sheet"}
+            {isSaving ? t("Saving...") : t("Save Count Sheet")}
           </button>
         </div>
 
         <div className="grid gap-4">
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-            <Metric label="Total Count Sheets" value={wholeNumber(galleryStats.total)} />
-            <Metric label="Photos Uploaded" value={wholeNumber(galleryStats.photos)} />
-            <Metric label="Pending Review" value={wholeNumber(galleryStats.pending)} />
-            <Metric label="Approved" value={wholeNumber(galleryStats.approved)} />
-            <Metric label="Rejected" value={wholeNumber(galleryStats.rejected)} />
+            <Metric label={t("Total Count Sheets")} value={wholeNumber(galleryStats.total)} />
+            <Metric label={t("Photos Uploaded")} value={wholeNumber(galleryStats.photos)} />
+            <Metric label={t("Pending Review")} value={wholeNumber(galleryStats.pending)} />
+            <Metric label={t("Approved")} value={wholeNumber(galleryStats.approved)} />
+            <Metric label={t("Rejected")} value={wholeNumber(galleryStats.rejected)} />
           </div>
 
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-            <Label title="Search" icon={<Search size={17} />}>
-              <input className="field" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search photos" />
+            <Label title={t("Search")} icon={<Search size={17} />}>
+              <input className="field" value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t("Search photos")} />
             </Label>
-            <Label title="Date" icon={<CalendarDays size={17} />}>
+            <Label title={t("Date")} icon={<CalendarDays size={17} />}>
               <CalendarField allowClear value={dateFilter} onChange={setDateFilter} />
             </Label>
-            <Label title="Location" icon={<MapPin size={17} />}>
+            <Label title={t("Location")} icon={<MapPin size={17} />}>
               <select className="field" value={locationFilter} onChange={(event) => setLocationFilter(event.target.value)}>
-                <option value="all">All Locations</option>
+                <option value="all">{t("All Locations")}</option>
                 {locations.map((location) => (
                   <option key={location.id} value={location.id}>{location.name}</option>
                 ))}
               </select>
             </Label>
-            <Label title="Shift" icon={<Clock size={17} />}>
+            <Label title={t("Shift")} icon={<Clock size={17} />}>
               <select className="field" value={shiftFilter} onChange={(event) => setShiftFilter(event.target.value)}>
-                <option value="all">All Shifts</option>
+                <option value="all">{t("All Shifts")}</option>
                 {shifts.map((item) => (
                   <option key={item} value={item}>{item}</option>
                 ))}
               </select>
             </Label>
-            <Label title="Status" icon={<Filter size={17} />}>
+            <Label title={t("Status")} icon={<Filter size={17} />}>
               <select className="field" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as "All" | CountSheetStatus)}>
-                <option value="All">All Statuses</option>
-                <option value="Pending">Pending</option>
-                <option value="Approved">Approved</option>
-                <option value="Rejected">Rejected</option>
+                <option value="All">{t("All Statuses")}</option>
+                <option value="Pending">{t("Pending")}</option>
+                <option value="Approved">{t("Approved")}</option>
+                <option value="Rejected">{t("Rejected")}</option>
               </select>
             </Label>
-            <Label title="Uploaded By" icon={<UserRound size={17} />}>
-              <input className="field" value={uploadedByFilter} onChange={(event) => setUploadedByFilter(event.target.value)} placeholder="Counter name" />
+            <Label title={t("Uploaded By")} icon={<UserRound size={17} />}>
+              <input className="field" value={uploadedByFilter} onChange={(event) => setUploadedByFilter(event.target.value)} placeholder={t("Counter name")} />
             </Label>
-            <Label title="Sort" icon={<Filter size={17} />}>
+            <Label title={t("Sort")} icon={<Filter size={17} />}>
               <select className="field" value={sortMode} onChange={(event) => setSortMode(event.target.value as "newest" | "oldest" | "date-asc" | "date-desc")}>
-                <option value="newest">Newest First</option>
-                <option value="oldest">Oldest First</option>
-                <option value="date-asc">Date Ascending</option>
-                <option value="date-desc">Date Descending</option>
+                <option value="newest">{t("Newest First")}</option>
+                <option value="oldest">{t("Oldest First")}</option>
+                <option value="date-asc">{t("Date Ascending")}</option>
+                <option value="date-desc">{t("Date Descending")}</option>
               </select>
             </Label>
             <button type="button" className="touch-target flex items-center justify-center gap-2 rounded bg-steel-900 px-4 py-2 font-black text-white xl:self-end" onClick={clearFilters}>
               <X size={18} />
-              Clear Filters
+              {t("Clear Filters")}
             </button>
           </div>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
@@ -3072,7 +3073,7 @@ function CountSheetsModule({
                       {sheet.photos[0] ? (
                         <img className="h-full w-full object-cover" src={sheet.photos[0].url} alt={`${sheet.date} ${location} count sheet`} />
                       ) : (
-                        <div className="flex h-full items-center justify-center font-black text-steel-500">No Photo</div>
+                        <div className="flex h-full items-center justify-center font-black text-steel-500">{t("No Photo")}</div>
                       )}
                     </div>
                     <div className="grid gap-1 p-3">
@@ -3081,21 +3082,21 @@ function CountSheetsModule({
                         <StatusBadge status={sheet.status} />
                       </div>
                       <p className="text-sm text-steel-500">{location} · {sheet.shift}</p>
-                      <p className="text-sm font-bold">{sheet.photos.length} photo{sheet.photos.length === 1 ? "" : "s"} · {matchingEntries.length} linked entries</p>
+                      <p className="text-sm font-bold">{t("{p} photos · {e} linked entries", { p: sheet.photos.length, e: matchingEntries.length })}</p>
                     </div>
                   </button>
                   {roleMode === "admin" && (
                     <div className="grid grid-cols-3 gap-2 border-t border-steel-100 p-2">
-                      <button type="button" className="rounded bg-workshop-500 px-2 py-2 text-xs font-black text-white" onClick={() => updateStatus(sheet, "Approved")}>Approve</button>
-                      <button type="button" className="rounded bg-red-700 px-2 py-2 text-xs font-black text-white" onClick={() => updateStatus(sheet, "Rejected")}>Reject</button>
-                      <button type="button" className="rounded bg-red-700 px-2 py-2 text-xs font-black text-white" onClick={() => onDelete(sheet.id)}>Delete</button>
+                      <button type="button" className="rounded bg-workshop-500 px-2 py-2 text-xs font-black text-white" onClick={() => updateStatus(sheet, "Approved")}>{t("Approve")}</button>
+                      <button type="button" className="rounded bg-red-700 px-2 py-2 text-xs font-black text-white" onClick={() => updateStatus(sheet, "Rejected")}>{t("Reject")}</button>
+                      <button type="button" className="rounded bg-red-700 px-2 py-2 text-xs font-black text-white" onClick={() => onDelete(sheet.id)}>{t("Delete")}</button>
                     </div>
                   )}
                 </div>
               );
             })}
             {filteredSheets.length === 0 && (
-              <div className="rounded border border-steel-100 bg-white p-5 text-center font-bold text-steel-500 sm:col-span-2 xl:col-span-3">No count sheets found.</div>
+              <div className="rounded border border-steel-100 bg-white p-5 text-center font-bold text-steel-500 sm:col-span-2 xl:col-span-3">{t("No count sheets found.")}</div>
             )}
           </div>
         </div>
@@ -3136,6 +3137,7 @@ function CountSheetViewer({
   onClose: () => void;
   onUpdate: (id: string, patch: Partial<CountSheet>) => void | Promise<void>;
 }) {
+  const { t } = useT();
   const allPhotos = sheets.flatMap((sheet) => sheet.photos.map((photo) => ({ photo, sheet })));
   const selected = allPhotos[photoIndex] ?? allPhotos[0];
   const fallbackSheet = selected?.sheet ?? sheets[0];
@@ -3152,35 +3154,35 @@ function CountSheetViewer({
   }, [sheet?.id, photoIndex]);
 
   return (
-    <Modal title="Count Sheet Viewer" onClose={onClose}>
+    <Modal title={t("Count Sheet Viewer")} onClose={onClose}>
       <div className="grid gap-4">
         <div className="grid gap-2 sm:grid-cols-4 xl:grid-cols-6">
-          <Metric label="Date" value={sheet.date} />
-          <Metric label="Location" value={location} />
-          <Metric label="Shift" value={sheet.shift} />
-          <Metric label="Uploaded By" value={sheet.uploadedBy} />
-          <Metric label="Status" value={sheet.status} />
-          <Metric label="Photos" value={`${photoIndex + 1} / ${Math.max(1, allPhotos.length)}`} />
+          <Metric label={t("Date")} value={sheet.date} />
+          <Metric label={t("Location")} value={location} />
+          <Metric label={t("Shift")} value={sheet.shift} />
+          <Metric label={t("Uploaded By")} value={sheet.uploadedBy} />
+          <Metric label={t("Status")} value={t(sheet.status)} />
+          <Metric label={t("Photos")} value={`${photoIndex + 1} / ${Math.max(1, allPhotos.length)}`} />
         </div>
         <div className="rounded border border-steel-100 bg-steel-50 p-3 text-sm text-steel-900">
-          <strong className="block">Notes</strong>
-          <span>{sheet.notes || "No notes"}</span>
+          <strong className="block">{t("Notes")}</strong>
+          <span>{sheet.notes || t("No notes")}</span>
         </div>
         <div className="flex flex-wrap gap-2">
-          <button type="button" className="touch-target rounded bg-steel-900 px-4 py-2 font-black text-white" onClick={() => setPhotoIndex(Math.max(0, photoIndex - 1))}>Previous</button>
-          <button type="button" className="touch-target rounded bg-steel-900 px-4 py-2 font-black text-white" onClick={() => setPhotoIndex(Math.min(allPhotos.length - 1, photoIndex + 1))}>Next</button>
-          <button type="button" className="touch-target rounded bg-steel-100 px-4 py-2 font-black text-steel-900" onClick={() => setZoom((value) => Math.max(0.5, Number((value - 0.25).toFixed(2))))}>Zoom Out</button>
-          <button type="button" className="touch-target rounded bg-steel-100 px-4 py-2 font-black text-steel-900" onClick={() => setZoom((value) => Math.min(3, Number((value + 0.25).toFixed(2))))}>Zoom In</button>
+          <button type="button" className="touch-target rounded bg-steel-900 px-4 py-2 font-black text-white" onClick={() => setPhotoIndex(Math.max(0, photoIndex - 1))}>{t("Previous")}</button>
+          <button type="button" className="touch-target rounded bg-steel-900 px-4 py-2 font-black text-white" onClick={() => setPhotoIndex(Math.min(allPhotos.length - 1, photoIndex + 1))}>{t("Next")}</button>
+          <button type="button" className="touch-target rounded bg-steel-100 px-4 py-2 font-black text-steel-900" onClick={() => setZoom((value) => Math.max(0.5, Number((value - 0.25).toFixed(2))))}>{t("Zoom Out")}</button>
+          <button type="button" className="touch-target rounded bg-steel-100 px-4 py-2 font-black text-steel-900" onClick={() => setZoom((value) => Math.min(3, Number((value + 0.25).toFixed(2))))}>{t("Zoom In")}</button>
           {photo && (
             <button type="button" className="touch-target flex items-center gap-2 rounded bg-steel-100 px-4 py-2 font-black text-steel-900" onClick={() => openImageInNewTab(photo.url)}>
               <ExternalLink size={18} />
-              Open in new tab
+              {t("Open in new tab")}
             </button>
           )}
           {photo && (
             <a className="touch-target flex items-center gap-2 rounded bg-workshop-500 px-4 py-2 font-black text-white" href={photo.url} download={photo.fileName}>
               <Download size={18} />
-              Download
+              {t("Download")}
             </a>
           )}
         </div>
@@ -3188,7 +3190,7 @@ function CountSheetViewer({
           {photo ? (
             <img className="mx-auto max-h-[72vh] max-w-none rounded bg-white" src={photo.url} alt={photo.fileName} style={{ transform: `scale(${zoom})`, transformOrigin: "top center" }} />
           ) : (
-            <div className="p-8 text-center font-black text-white">No photos</div>
+            <div className="p-8 text-center font-black text-white">{t("No photos")}</div>
           )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -3199,18 +3201,18 @@ function CountSheetViewer({
           ))}
         </div>
         <div className="rounded border border-steel-100 bg-steel-50 p-3 text-sm text-steel-900">
-          <strong className="block">Linked Production Entries</strong>
-          <span>{linkedEntries.length} saved production entr{linkedEntries.length === 1 ? "y" : "ies"} match this date, location, and shift.</span>
+          <strong className="block">{t("Linked Production Entries")}</strong>
+          <span>{t("{n} saved production entries match this date, location, and shift.", { n: linkedEntries.length })}</span>
         </div>
         {roleMode === "admin" && (
           <div className="grid gap-3">
-            <Label title="Admin Comments" icon={<FileSpreadsheet size={17} />}>
+            <Label title={t("Admin Comments")} icon={<FileSpreadsheet size={17} />}>
               <textarea className="field min-h-24 resize-none" value={comments} onChange={(event) => setComments(event.target.value)} />
             </Label>
             <div className="flex flex-wrap gap-2">
-              <button type="button" className="touch-target rounded bg-workshop-500 px-4 py-2 font-black text-white" onClick={() => onUpdate(sheet.id, { comments, status: "Approved", approvedBy: "Admin", approvedAt: new Date().toISOString() })}>Approve</button>
-              <button type="button" className="touch-target rounded bg-red-700 px-4 py-2 font-black text-white" onClick={() => onUpdate(sheet.id, { comments, status: "Rejected", rejectedBy: "Admin", rejectedAt: new Date().toISOString() })}>Reject</button>
-              <button type="button" className="touch-target rounded bg-steel-900 px-4 py-2 font-black text-white" onClick={() => onUpdate(sheet.id, { comments })}>Save Comments</button>
+              <button type="button" className="touch-target rounded bg-workshop-500 px-4 py-2 font-black text-white" onClick={() => onUpdate(sheet.id, { comments, status: "Approved", approvedBy: "Admin", approvedAt: new Date().toISOString() })}>{t("Approve")}</button>
+              <button type="button" className="touch-target rounded bg-red-700 px-4 py-2 font-black text-white" onClick={() => onUpdate(sheet.id, { comments, status: "Rejected", rejectedBy: "Admin", rejectedAt: new Date().toISOString() })}>{t("Reject")}</button>
+              <button type="button" className="touch-target rounded bg-steel-900 px-4 py-2 font-black text-white" onClick={() => onUpdate(sheet.id, { comments })}>{t("Save Comments")}</button>
             </div>
           </div>
         )}
@@ -3546,6 +3548,7 @@ function ProductionGrid({
   onViewEntry: (entry: DailyEntry) => void;
   onDeleteEntry: (id: string) => void;
 }) {
+  const { t } = useT();
   const weekDays = getWeekDays(selectedWeek);
   const weekEntries = entries.filter((entry) => weekDays.includes(entry.date));
   const activePallets = palletTypes.filter((pallet) => pallet.active || weekEntries.some((entry) => entry.lines.some((line) => line.palletTypeId === pallet.id)));
@@ -3568,18 +3571,18 @@ function ProductionGrid({
     <div className="grid gap-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-2xl font-black">Production Grid</h2>
-          <p className="text-sm text-steel-500">Weekly spreadsheet view by repairer, pallet type, day, and dollars.</p>
+          <h2 className="text-2xl font-black">{t("Production Grid")}</h2>
+          <p className="text-sm text-steel-500">{t("Weekly spreadsheet view by repairer, pallet type, day, and dollars.")}</p>
         </div>
         <WeekControls selectedWeek={selectedWeek} onWeekChange={onWeekChange} />
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        <Metric label="Week Quantity" value={wholeNumber(weekReport.summary.quantity)} />
-        <Metric label="Piece Pay" value={currency(weekReport.summary.piecePay)} />
-        <Metric label="Make-up Pay" value={currency(weekReport.summary.makeup)} />
-        <Metric label="Overtime" value={`${weekReport.summary.dailyOvertime.toFixed(2)} hrs`} />
-        <Metric label="Weekly Total" value={currency(weekReport.summary.totalPay)} />
+        <Metric label={t("Week Quantity")} value={wholeNumber(weekReport.summary.quantity)} />
+        <Metric label={t("Piece Pay")} value={currency(weekReport.summary.piecePay)} />
+        <Metric label={t("Make-up Pay")} value={currency(weekReport.summary.makeup)} />
+        <Metric label={t("Overtime")} value={`${weekReport.summary.dailyOvertime.toFixed(2)} hrs`} />
+        <Metric label={t("Weekly Total")} value={currency(weekReport.summary.totalPay)} />
       </div>
 
       {employees.filter((employee) => employee.active || weekEntries.some((entry) => entry.employeeId === employee.id)).map((employee) => {
@@ -3600,21 +3603,21 @@ function ProductionGrid({
                 </div>
               </button>
               <div className="grid grid-cols-3 gap-2 text-center text-sm">
-                <strong className="rounded bg-safety-400 px-3 py-2">{wholeNumber(employeeReport.summary.quantity)} qty</strong>
+                <strong className="rounded bg-safety-400 px-3 py-2">{wholeNumber(employeeReport.summary.quantity)} {t("qty")}</strong>
                 <strong className="rounded bg-safety-400 px-3 py-2">{currency(employeeReport.summary.piecePay)}</strong>
-                <strong className="rounded bg-safety-400 px-3 py-2">{currency(employeeReport.summary.totalPay)} total</strong>
+                <strong className="rounded bg-safety-400 px-3 py-2">{currency(employeeReport.summary.totalPay)} {t("total")}</strong>
               </div>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[1120px] text-left text-xs">
                 <thead>
                   <tr className="bg-steel-900 text-white">
-                    <th className="p-2">Pallet Type</th>
+                    <th className="p-2">{t("Pallet Type")}</th>
                     {weekDays.map((day) => (
                       <th key={day} className="p-2 text-center">{formatDayHeader(day)}</th>
                     ))}
-                    <th className="bg-safety-400 p-2 text-center text-steel-900">Weekly Qty</th>
-                    <th className="bg-safety-400 p-2 text-center text-steel-900">Weekly $</th>
+                    <th className="bg-safety-400 p-2 text-center text-steel-900">{t("Weekly Qty")}</th>
+                    <th className="bg-safety-400 p-2 text-center text-steel-900">{t("Weekly $")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -3631,8 +3634,8 @@ function ProductionGrid({
                     return (
                       <tr key={pallet.id} className="border-t border-steel-100 even:bg-steel-50">
                         <td className="p-2">
-                          <strong className="block">{pallet.code}</strong>
-                          <span className="text-steel-500">{pallet.description}</span>
+                          <strong className="block">{t(pallet.code)}</strong>
+                          <span className="text-steel-500">{t(pallet.description)}</span>
                         </td>
                         {dayCells.map((cell) => (
                           <td key={cell.day} className="p-2 text-center">
@@ -3646,7 +3649,7 @@ function ProductionGrid({
                     );
                   })}
                   <tr className="border-t-2 border-steel-900 bg-workshop-100 font-black">
-                    <td className="p-2">Daily Totals</td>
+                    <td className="p-2">{t("Daily Totals")}</td>
                     {weekDays.map((day) => {
                       const dayEntries = employeeEntries.filter((entry) => entry.date === day);
                       const dayReport = buildReport(dayEntries, palletTypes, employees, locations, settings);
@@ -3684,18 +3687,18 @@ function ProductionGrid({
 
       {weekEntries.length === 0 && (
         <div className="rounded border border-steel-100 bg-white p-5 text-center font-bold text-steel-500">
-          No production entries found for this week.
+          {t("No production entries found for this week.")}
         </div>
       )}
 
       <div className="rounded border border-steel-100 bg-white p-4 text-steel-900">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h3 className="text-lg font-black">Count Sheet Photos</h3>
-            <p className="text-sm font-bold text-steel-500">{rangeSheets.length} count sheet{rangeSheets.length === 1 ? "" : "s"} · {rangePhotos.length} photo{rangePhotos.length === 1 ? "" : "s"} in range</p>
+            <h3 className="text-lg font-black">{t("Count Sheet Photos")}</h3>
+            <p className="text-sm font-bold text-steel-500">{t("{c} count sheets · {p} photos in range", { c: rangeSheets.length, p: rangePhotos.length })}</p>
           </div>
           <div className="flex flex-wrap items-end gap-2">
-            <Label title="Date" icon={<CalendarDays size={16} />}>
+            <Label title={t("Date")} icon={<CalendarDays size={16} />}>
               <CalendarField
                 allowClear
                 align="right"
@@ -3714,7 +3717,7 @@ function ProductionGrid({
           </div>
         </div>
         {rangePhotos.length === 0 ? (
-          <p className="mt-3 text-sm font-bold text-steel-500">No count sheet photos in this date range.</p>
+          <p className="mt-3 text-sm font-bold text-steel-500">{t("No count sheet photos in this date range.")}</p>
         ) : (
           <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-6">
             {rangePhotos.map(({ photo, sheet }) => (
@@ -4654,6 +4657,7 @@ function LocationShiftAdmin({ locations, shifts, onLocationsChange, onShiftsChan
 }
 
 function StatusBadge({ status }: { status: CountSheetStatus }) {
+  const { t } = useT();
   return (
     <span
       className={classNames(
@@ -4663,7 +4667,7 @@ function StatusBadge({ status }: { status: CountSheetStatus }) {
         status === "Pending" && "bg-steel-200 text-steel-900"
       )}
     >
-      {status}
+      {t(status)}
     </span>
   );
 }
@@ -5237,7 +5241,7 @@ function Modal({ title, children, onClose }: { title: string; children: ReactNod
               <ExternalLink size={16} />
               <span className="hidden sm:inline">{t("Open in new tab")}</span>
             </button>
-            <button type="button" aria-label="Close edit modal" className="touch-target flex w-12 items-center justify-center rounded bg-steel-100 text-steel-900" onClick={onClose}>
+            <button type="button" aria-label={t("Close edit modal")} className="touch-target flex w-12 items-center justify-center rounded bg-steel-100 text-steel-900" onClick={onClose}>
               <X size={20} />
             </button>
           </div>
