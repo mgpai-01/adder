@@ -72,6 +72,10 @@ export type DailyEntry = {
   shift: Shift;
   lines: ProductionLine[];
   phases?: EntryPhase[];
+  // Ad-hoc pallets a manager adds on the entry screen for one-off custom
+  // pallets that aren't in the pallet-type catalog. Quantities are stored in
+  // the phase `lines` keyed by these ids; the name lives here so it persists.
+  customPallets?: { id: string; name: string }[];
   clockIn?: string;
   clockOut?: string;
   manualHours: number;

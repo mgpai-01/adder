@@ -36,8 +36,10 @@ export const esDict: Record<string, string> = {
   Sorter: "Clasificador",
   "Repair Line": "Línea de Reparación",
   Spot: "Puesto",
+  Position: "Posición",
   "— None —": "— Ninguno —",
   "Spot {n}": "Puesto {n}",
+  "Position {n}": "Posición {n}",
   "No station set": "Sin estación asignada",
   "Entering for": "Ingresando para",
   Notes: "Notas",
@@ -54,6 +56,10 @@ export const esDict: Record<string, string> = {
   "— enter this phase's pallets, then switch phases above":
     "— ingrese las tarimas de esta fase, luego cambie de fase arriba",
   "{n} pallets": "{n} tarimas",
+  Custom: "Personalizado",
+  "Custom pallet": "Tarima personalizada",
+  "Custom pallet name": "Nombre de tarima personalizada",
+  "Add Custom Pallet": "Agregar Tarima Personalizada",
 
   // Seeded pallet types shown on the entry grid (system rows, not user data)
   "Quality Control Rejects": "Rechazos de Control de Calidad",

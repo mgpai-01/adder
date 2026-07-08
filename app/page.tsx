@@ -1301,7 +1301,7 @@ export default function Home() {
     if (!entriesLoaded) return;
     const data = entryFormData(form.employeeId, form.date, form.locationId);
     setEditingEntryId(data.existingId);
-    setForm((current) => ({ ...current, lines: data.lines, phases: data.phases }));
+    setForm((current) => ({ ...current, lines: data.lines, phases: data.phases, customPallets: data.customPallets }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entriesLoaded]);
 
@@ -1315,7 +1315,7 @@ export default function Home() {
     if (!employeeId) return;
     const data = entryFormData(employeeId, date, locationId);
     setEditingEntryId(data.existingId);
-    setForm((current) => ({ ...current, lines: data.lines, phases: data.phases }));
+    setForm((current) => ({ ...current, lines: data.lines, phases: data.phases, customPallets: data.customPallets }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entries, entriesLoaded]);
 
@@ -1390,10 +1390,16 @@ export default function Home() {
     const primary =
       matching.find((entry) => entry.locationId === locationId) ??
       [...matching].sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""))[0];
+    // Carry the custom pallets from the matching entries, de-duped by id, so a
+    // reopened entry still shows its one-off pallet rows.
+    const customPallets = Array.from(
+      new Map(matching.flatMap((entry) => entry.customPallets ?? []).map((pallet) => [pallet.id, pallet])).values()
+    );
     return {
       existingId: primary?.id ?? null,
       lines: aggregatePhaseLines(phases),
-      phases
+      phases,
+      customPallets
     };
   }
 
@@ -1407,7 +1413,8 @@ export default function Home() {
       employeeId,
       shift: employee?.shift ?? current.shift,
       lines: data.lines,
-      phases: data.phases
+      phases: data.phases,
+      customPallets: data.customPallets
     }));
   }
 
@@ -1415,7 +1422,7 @@ export default function Home() {
     const data = entryFormData(form.employeeId, date, form.locationId);
     formDirtyRef.current = false;
     setEditingEntryId(data.existingId);
-    setForm((current) => ({ ...current, date, lines: data.lines, phases: data.phases }));
+    setForm((current) => ({ ...current, date, lines: data.lines, phases: data.phases, customPallets: data.customPallets }));
   }
 
   function handleYardChange(locationId: string) {
@@ -1438,7 +1445,8 @@ export default function Home() {
       yardManagerId,
       shift: selectedRepairer?.shift ?? current.shift,
       lines: data.lines,
-      phases: data.phases
+      phases: data.phases,
+      customPallets: data.customPallets
     }));
   }
 
@@ -1462,6 +1470,36 @@ export default function Home() {
     });
   }
 
+  // Add a one-off custom pallet the catalog doesn't have. It becomes an extra
+  // row on the entry grid (in every phase) that the manager can count against.
+  function addCustomPallet(name: string) {
+    const label = name.trim();
+    if (!label) return;
+    formDirtyRef.current = true;
+    setForm((current) => {
+      const id = `custom:${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+      return { ...current, customPallets: [...(current.customPallets ?? []), { id, name: label }] };
+    });
+  }
+
+  // Drop a custom pallet and any quantities entered against it across phases.
+  function removeCustomPallet(id: string) {
+    formDirtyRef.current = true;
+    setForm((current) => {
+      const phases = normalizePhases(current.phases).map((phase) => ({
+        ...phase,
+        lines: (phase.lines ?? []).filter((line) => line.palletTypeId !== id)
+      }));
+      const withAmounts = phases.map((phase) => ({ ...phase, amount: phasePalletCount(phase, palletTypes) }));
+      return {
+        ...current,
+        customPallets: (current.customPallets ?? []).filter((pallet) => pallet.id !== id),
+        phases: withAmounts,
+        lines: aggregatePhaseLines(withAmounts)
+      };
+    });
+  }
+
   async function saveEntry() {
     // Reuse the id of the entry being edited so this updates that day's record
     // (the cloud upserts by id) instead of piling up duplicate entries that the
@@ -1472,12 +1510,17 @@ export default function Home() {
       amount: phasePalletCount(phase, palletTypes),
       lines: (phase.lines ?? []).filter((line) => line.quantity !== 0)
     }));
+    // Only keep custom pallets that actually have a quantity entered, so unused
+    // ad-hoc rows don't pile up on the saved record.
+    const usedCustomIds = new Set(cleanPhases.flatMap((phase) => (phase.lines ?? []).map((line) => line.palletTypeId)));
+    const cleanCustomPallets = (form.customPallets ?? []).filter((pallet) => usedCustomIds.has(pallet.id));
     const cleanEntry: DailyEntry = {
       ...form,
       id: entryId,
       manualHours: Number(form.manualHours),
       phases: cleanPhases,
       lines: aggregatePhaseLines(cleanPhases),
+      customPallets: cleanCustomPallets,
       createdAt: new Date().toISOString(),
       submittedBy: profile?.fullName || profile?.username || undefined,
       submittedById: profile?.id
@@ -1779,7 +1822,7 @@ export default function Home() {
   // while on the Entry screen, so managers always see who they're entering for.
   const entryStationEmployee = employeeList.find((employee) => employee.id === form.employeeId) ?? selectedEmployee;
   const entryStationLabel = entryStationEmployee?.station
-    ? `${t(entryStationEmployee.station === "sorter" ? "Sorter" : "Repair Line")}${entryStationEmployee.stationSpot ? ` · ${t("Spot {n}", { n: entryStationEmployee.stationSpot })}` : ""}`
+    ? `${t(entryStationEmployee.station === "sorter" ? "Sorter" : "Repair Line")}${entryStationEmployee.stationSpot ? ` · ${t("Position {n}", { n: entryStationEmployee.stationSpot })}` : ""}`
     : t("No station set");
 
   return (
@@ -1894,6 +1937,8 @@ export default function Home() {
               onDateChange={handleDateChange}
               onFormChange={updateForm}
               onQuantityChange={updatePhaseLineQuantity}
+              onAddCustomPallet={addCustomPallet}
+              onRemoveCustomPallet={removeCustomPallet}
               onSave={saveEntry}
               hideYardManager={configured && profile?.role === "supervisor"}
               hidePricing={configured && profile?.role === "supervisor"}
@@ -2458,6 +2503,8 @@ function ProductionEntry({
   onDateChange,
   onFormChange,
   onQuantityChange,
+  onAddCustomPallet,
+  onRemoveCustomPallet,
   onSave,
   hideYardManager,
   hidePricing
@@ -2477,6 +2524,8 @@ function ProductionEntry({
   onDateChange: (date: string) => void;
   onFormChange: <T extends keyof EntryForm>(key: T, value: EntryForm[T]) => void;
   onQuantityChange: (phaseIndex: number, palletTypeId: string, quantity: number, parts?: number[]) => void;
+  onAddCustomPallet: (name: string) => void;
+  onRemoveCustomPallet: (id: string) => void;
   onSave: () => void;
   // When a Manager is signed in, the Yard Manager picker is hidden entirely.
   hideYardManager?: boolean;
@@ -2485,6 +2534,8 @@ function ProductionEntry({
   hidePricing?: boolean;
 }) {
   const { t } = useT();
+  const [customName, setCustomName] = useState("");
+  const customPallets = form.customPallets ?? [];
   const yardRepairers = employees.filter((employee) => employee.locationId === form.locationId && employee.role !== "supervisor");
   const yardManagers = employees.filter((employee) => employee.locationId === form.locationId && employee.role === "supervisor");
   const displayedPallets = palletsForYard(palletTypes, form.locationId);
@@ -2719,8 +2770,72 @@ function ProductionEntry({
                   </tr>
                 );
               })}
+              {/* One-off custom pallets a manager added for this entry. */}
+              {customPallets.map((customPallet) => {
+                const line = phaseLines.find((item) => item.palletTypeId === customPallet.id);
+                const quantity = line?.quantity ?? 0;
+                return (
+                  <tr key={customPallet.id} className="border-t border-steel-100 bg-workshop-50/60">
+                    {!hidePricing && <td className={classNames(cellPad, "font-black")}>{t("Custom")}</td>}
+                    <td className={classNames(cellPad, hidePricing && "break-words")}>
+                      <div className="flex items-center gap-2">
+                        <span className="block font-black">{customPallet.name}</span>
+                        <button
+                          type="button"
+                          aria-label={t("Remove {name}", { name: customPallet.name })}
+                          className="shrink-0 rounded bg-steel-100 p-1 text-steel-500 hover:bg-red-700 hover:text-white"
+                          onClick={() => onRemoveCustomPallet(customPallet.id)}
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                      <span className="block text-xs font-bold text-steel-400">{t("Custom pallet")}</span>
+                    </td>
+                    {!hidePricing && <td className="p-3 font-black text-steel-400">—</td>}
+                    <td className={cellPad}>
+                      <div className="flex justify-end">
+                        <QuantityInput
+                          className="w-20 rounded border border-steel-200 bg-white px-1 py-2.5 text-center font-black text-steel-900 outline-none focus:border-workshop-500"
+                          value={quantity}
+                          parts={line?.parts}
+                          onCommit={(sum, parts) => onQuantityChange(selectedPhase, customPallet.id, sum, parts)}
+                        />
+                      </div>
+                    </td>
+                    {!hidePricing && <td className="p-3 text-lg font-black text-steel-400">—</td>}
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
+        </div>
+        {/* Managers add one-off pallets that aren't in the catalog here. */}
+        <div className="flex flex-wrap items-center gap-2 border-t border-steel-100 p-3">
+          <input
+            className="field w-full sm:w-64"
+            value={customName}
+            onChange={(event) => setCustomName(event.target.value)}
+            placeholder={t("Custom pallet name")}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                onAddCustomPallet(customName);
+                setCustomName("");
+              }
+            }}
+          />
+          <button
+            type="button"
+            disabled={!customName.trim()}
+            className="touch-target flex items-center gap-2 rounded bg-steel-900 px-4 py-2 font-black text-white disabled:bg-steel-300"
+            onClick={() => {
+              onAddCustomPallet(customName);
+              setCustomName("");
+            }}
+          >
+            <Plus size={18} />
+            {t("Add Custom Pallet")}
+          </button>
         </div>
       </div>
 
@@ -4355,7 +4470,7 @@ function EmployeeAdmin({
   const yardName = (id: string) => locations.find((location) => location.id === id)?.name ?? id;
   const stationText = (employee: Employee) =>
     employee.station
-      ? `${employee.station === "sorter" ? "Sorter" : "Repair Line"}${employee.stationSpot ? ` · Spot ${employee.stationSpot}` : ""}`
+      ? `${employee.station === "sorter" ? "Sorter" : "Repair Line"}${employee.stationSpot ? ` · Position ${employee.stationSpot}` : ""}`
       : "No station assigned";
   const grouped = yardFilter === "grouped";
   const visibleEmployees = yardFilter === "all" || grouped ? employees : employees.filter((employee) => employee.locationId === yardFilter);
@@ -4424,7 +4539,7 @@ function EmployeeAdmin({
             <option value="repair">Repair Line</option>
           </select>
         </Label>
-        <Label title="Spot" icon={<UserRound size={17} />}>
+        <Label title="Position" icon={<UserRound size={17} />}>
           <select
             className="field"
             value={draft.stationSpot ?? ""}
@@ -4433,7 +4548,7 @@ function EmployeeAdmin({
           >
             <option value="">— None —</option>
             {[1, 2, 3, 4, 5].map((spot) => (
-              <option key={spot} value={spot}>Spot {spot}</option>
+              <option key={spot} value={spot}>Position {spot}</option>
             ))}
           </select>
         </Label>
@@ -4573,7 +4688,7 @@ function EmployeeAdmin({
                   <option value="repair">Repair Line</option>
                 </select>
               </Label>
-              <Label title="Spot" icon={<UserRound size={17} />}>
+              <Label title="Position" icon={<UserRound size={17} />}>
                 <select
                   className="field"
                   value={editDraft.stationSpot ?? ""}
@@ -4582,7 +4697,7 @@ function EmployeeAdmin({
                 >
                   <option value="">— None —</option>
                   {[1, 2, 3, 4, 5].map((spot) => (
-                    <option key={spot} value={spot}>Spot {spot}</option>
+                    <option key={spot} value={spot}>Position {spot}</option>
                   ))}
                 </select>
               </Label>
@@ -5082,9 +5197,12 @@ function buildReport(entries: DailyEntry[], palletTypes: PalletType[], employees
       if (!line.palletTypeId) {
         console.warn(`Production entry ${entry.id} has a missing palletTypeId.`);
       }
+      const customPallet = (entry.customPallets ?? []).find((item) => item.id === line.palletTypeId);
       const pallet = findPalletType(palletTypes, line.palletTypeId);
-      const palletDisplay = getPalletDisplay(pallet, line.palletTypeId);
-      const key = pallet?.id ?? `unknown-${line.palletTypeId || entry.id}`;
+      const palletDisplay = customPallet
+        ? { label: customPallet.name, category: "Custom", rate: 0 }
+        : getPalletDisplay(pallet, line.palletTypeId);
+      const key = pallet?.id ?? (customPallet ? `custom-${customPallet.name.trim().toLowerCase()}` : `unknown-${line.palletTypeId || entry.id}`);
       const row = byPalletMap.get(key) ?? {
         id: key,
         palletTypeId: line.palletTypeId || "missing",
@@ -5092,7 +5210,7 @@ function buildReport(entries: DailyEntry[], palletTypes: PalletType[], employees
         category: palletDisplay.category,
         quantity: 0,
         piecePay: 0,
-        orphaned: !pallet
+        orphaned: !pallet && !customPallet
       };
       row.quantity += line.quantity;
       row.piecePay += line.quantity * palletDisplay.rate;
