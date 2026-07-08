@@ -4353,6 +4353,10 @@ function EmployeeAdmin({
   }
 
   const yardName = (id: string) => locations.find((location) => location.id === id)?.name ?? id;
+  const stationText = (employee: Employee) =>
+    employee.station
+      ? `${employee.station === "sorter" ? "Sorter" : "Repair Line"}${employee.stationSpot ? ` · Spot ${employee.stationSpot}` : ""}`
+      : "No station assigned";
   const grouped = yardFilter === "grouped";
   const visibleEmployees = yardFilter === "all" || grouped ? employees : employees.filter((employee) => employee.locationId === yardFilter);
   const sortByYardThenManager = (a: Employee, b: Employee) => {
@@ -4405,6 +4409,34 @@ function EmployeeAdmin({
           <input className="h-5 w-5" type="checkbox" checked={draft.active} onChange={(event) => setDraft((current) => ({ ...current, active: event.target.checked }))} />
           Active
         </label>
+      </div>
+      {/* Station is assigned by admin here; repairers/managers no longer pick it
+          on the entry screen. */}
+      <div className="grid gap-3 sm:grid-cols-2 md:max-w-md">
+        <Label title="Station" icon={<MapPin size={17} />}>
+          <select
+            className="field"
+            value={draft.station ?? ""}
+            onChange={(event) => setDraft((current) => ({ ...current, station: (event.target.value || undefined) as Employee["station"], stationSpot: event.target.value ? current.stationSpot : undefined }))}
+          >
+            <option value="">— None —</option>
+            <option value="sorter">Sorter</option>
+            <option value="repair">Repair Line</option>
+          </select>
+        </Label>
+        <Label title="Spot" icon={<UserRound size={17} />}>
+          <select
+            className="field"
+            value={draft.stationSpot ?? ""}
+            disabled={!draft.station}
+            onChange={(event) => setDraft((current) => ({ ...current, stationSpot: event.target.value ? Number(event.target.value) : undefined }))}
+          >
+            <option value="">— None —</option>
+            {[1, 2, 3, 4, 5].map((spot) => (
+              <option key={spot} value={spot}>Spot {spot}</option>
+            ))}
+          </select>
+        </Label>
       </div>
       <div className="grid gap-3 md:grid-cols-[220px_1fr]">
         <div className="grid gap-2">
@@ -4476,6 +4508,10 @@ function EmployeeAdmin({
                       )}
                     </div>
                     <p className="text-sm text-steel-500">{yardName(employee.locationId)} · {employee.shift}</p>
+                    <p className={classNames("mt-1 flex items-center gap-1 text-sm font-bold", employee.station ? "text-workshop-700" : "text-steel-400")}>
+                      <MapPin size={13} />
+                      {stationText(employee)}
+                    </p>
                     <p className="mt-1 text-sm text-steel-500">{employee.notes || "No notes"}</p>
                   </div>
                 </div>
