@@ -10,6 +10,7 @@ import {
   Clock,
   Database,
   Download,
+  ExternalLink,
   Edit2,
   Eye,
   Factory,
@@ -728,6 +729,24 @@ async function downloadPhoto(dataUrl: string, rotationDeg: number, fileName: str
   } catch {
     // Fallback: download the original data URL directly.
     triggerDownload(dataUrl, fileName);
+  }
+}
+
+// Open an image in a new browser tab. Chrome blocks navigating a new tab
+// straight to a data: URL, so convert those to a blob: URL first; http(s)
+// URLs open directly.
+async function openImageInNewTab(src: string) {
+  try {
+    if (/^https?:/i.test(src)) {
+      window.open(src, "_blank", "noopener");
+      return;
+    }
+    const blob = await (await fetch(src)).blob();
+    const url = URL.createObjectURL(blob);
+    window.open(url, "_blank", "noopener");
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  } catch {
+    window.open(src, "_blank", "noopener");
   }
 }
 
@@ -2384,6 +2403,15 @@ function PhaseTracker({
             </button>
             <button
               type="button"
+              onClick={() => openImageInNewTab(zoomPhoto)}
+              aria-label={t("Open in new tab")}
+              title={t("Open in new tab")}
+              className="flex h-11 w-11 items-center justify-center rounded-full bg-white/15 text-white backdrop-blur transition-colors hover:bg-white/30"
+            >
+              <ExternalLink size={20} />
+            </button>
+            <button
+              type="button"
               onClick={() => downloadPhoto(zoomPhoto, zoomRotation, `count-sheet-${Date.now()}.jpg`)}
               aria-label={t("Download")}
               title={t("Download")}
@@ -3143,6 +3171,12 @@ function CountSheetViewer({
           <button type="button" className="touch-target rounded bg-steel-900 px-4 py-2 font-black text-white" onClick={() => setPhotoIndex(Math.min(allPhotos.length - 1, photoIndex + 1))}>Next</button>
           <button type="button" className="touch-target rounded bg-steel-100 px-4 py-2 font-black text-steel-900" onClick={() => setZoom((value) => Math.max(0.5, Number((value - 0.25).toFixed(2))))}>Zoom Out</button>
           <button type="button" className="touch-target rounded bg-steel-100 px-4 py-2 font-black text-steel-900" onClick={() => setZoom((value) => Math.min(3, Number((value + 0.25).toFixed(2))))}>Zoom In</button>
+          {photo && (
+            <button type="button" className="touch-target flex items-center gap-2 rounded bg-steel-100 px-4 py-2 font-black text-steel-900" onClick={() => openImageInNewTab(photo.url)}>
+              <ExternalLink size={18} />
+              Open in new tab
+            </button>
+          )}
           {photo && (
             <a className="touch-target flex items-center gap-2 rounded bg-workshop-500 px-4 py-2 font-black text-white" href={photo.url} download={photo.fileName}>
               <Download size={18} />

@@ -84,6 +84,7 @@ export const esDict: Record<string, string> = {
   "Rotate left": "Girar a la izquierda",
   "Rotate right": "Girar a la derecha",
   Download: "Descargar",
+  "Open in new tab": "Abrir en pestaña nueva",
   "Close (Esc)": "Cerrar (Esc)",
 
   // Check-ins panel
