@@ -5457,6 +5457,57 @@ function UsersAdmin({ onLogChange }: { onLogChange: (targetName: string, summary
   const [editingId, setEditingId] = useState<string | null>(null);
   const [permDraft, setPermDraft] = useState<{ role: string; allowedYards: string[]; active: boolean }>({ role: "employee", allowedYards: [], active: true });
   const [savingPerms, setSavingPerms] = useState(false);
+  // A password shown once right after it is set (reveal-on-set), with a copy button.
+  const [setPassword, setSetPassword] = useState<{ name: string; value: string } | null>(null);
+  // Per-user "See password" gate: which user's panel is open, the admin password
+  // typed to unlock it, whether we're checking, and the revealed value.
+  const [seeFor, setSeeFor] = useState<string | null>(null);
+  const [adminPw, setAdminPw] = useState("");
+  const [seeBusy, setSeeBusy] = useState(false);
+  const [seenPassword, setSeenPassword] = useState<{ id: string; value: string | null } | null>(null);
+
+  function copyText(text: string) {
+    navigator.clipboard?.writeText(text).catch(() => undefined);
+  }
+
+  // Suggest a readable password like "Pallet-4821".
+  function generatePassword() {
+    const words = ["Pallet", "Repair", "Forklift", "Lumber", "Stacker", "Yard", "Crew", "Board"];
+    const word = words[Math.floor(Math.random() * words.length)];
+    const value = `${word}-${Math.floor(1000 + Math.random() * 9000)}`;
+    setForm((current) => ({ ...current, password: value }));
+  }
+
+  function openSee(user: UserRow) {
+    setSeeFor((prev) => (prev === user.id ? null : user.id));
+    setAdminPw("");
+    setSeenPassword(null);
+    setError("");
+    setMessage("");
+  }
+
+  async function revealPassword(user: UserRow) {
+    if (!adminPw) return;
+    setSeeBusy(true);
+    setError("");
+    try {
+      const response = await authedFetch(`/api/admin/users/${user.id}/password`, {
+        method: "POST",
+        body: JSON.stringify({ adminPassword: adminPw })
+      });
+      const data = await response.json();
+      if (!data.ok) {
+        setError(data.error ?? "Could not verify your password.");
+        return;
+      }
+      setSeenPassword({ id: user.id, value: (data.password as string | null) ?? null });
+      setAdminPw("");
+    } catch {
+      setError("Could not verify. Try again.");
+    } finally {
+      setSeeBusy(false);
+    }
+  }
 
   function openPermissions(user: UserRow) {
     setEditingId(user.id);
@@ -5516,13 +5567,16 @@ function UsersAdmin({ onLogChange }: { onLogChange: (targetName: string, summary
     setError("");
     setMessage("");
     try {
+      const justSetName = form.fullName || form.login;
+      const justSetValue = form.password;
       const response = await authedFetch("/api/admin/users", { method: "POST", body: JSON.stringify(form) });
       const data = await response.json();
       if (!data.ok) {
         setError(data.error ?? "Could not add user.");
         return;
       }
-      setMessage(`Added ${form.fullName || form.login}.`);
+      setMessage(`Added ${justSetName}.`);
+      setSetPassword({ name: justSetName, value: justSetValue });
       setForm({ fullName: "", login: "", password: "", role: "employee", allowedYards: [] });
       load();
     } catch (caught) {
@@ -5580,10 +5634,19 @@ function UsersAdmin({ onLogChange }: { onLogChange: (targetName: string, summary
     patchUser(user.id, { fullName: name }, `Renamed to ${name}.`);
   }
 
-  function resetPassword(user: UserRow) {
+  async function resetPassword(user: UserRow) {
     const password = window.prompt(`New password for ${user.fullName || user.username} (min 6 characters):`);
     if (!password) return;
-    patchUser(user.id, { password }, `Password reset for ${user.fullName || user.username}.`);
+    setError("");
+    const response = await authedFetch(`/api/admin/users/${user.id}`, { method: "PATCH", body: JSON.stringify({ password }) });
+    const data = await response.json();
+    if (!data.ok) {
+      setError(data.error ?? "Update failed.");
+      return;
+    }
+    setMessage(`Password reset for ${user.fullName || user.username}.`);
+    setSetPassword({ name: user.fullName || user.username, value: password });
+    load();
   }
 
   async function deleteUser(user: UserRow) {
@@ -5612,6 +5675,20 @@ function UsersAdmin({ onLogChange }: { onLogChange: (targetName: string, summary
         </div>
       )}
 
+      {setPassword && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded border border-workshop-500 bg-workshop-100 p-3">
+          <div className="min-w-0">
+            <p className="text-xs font-black uppercase tracking-wide text-workshop-700">Password for {setPassword.name}</p>
+            <p className="font-mono text-xl font-black text-steel-900">{setPassword.value}</p>
+            <p className="text-xs font-bold text-steel-500">Share this with them now. You can re-view it later with your admin password.</p>
+          </div>
+          <div className="flex gap-2">
+            <button type="button" className="rounded bg-workshop-500 px-3 py-2 text-sm font-black text-white" onClick={() => copyText(setPassword.value)}>Copy</button>
+            <button type="button" className="rounded bg-steel-100 px-3 py-2 text-sm font-black text-steel-700" onClick={() => setSetPassword(null)}>Dismiss</button>
+          </div>
+        </div>
+      )}
+
       <form onSubmit={addUser} className="grid gap-3 rounded border border-steel-100 bg-white p-4 sm:grid-cols-2 lg:grid-cols-3 lg:items-end">
         <Label title="Full Name" icon={<UserRound size={16} />}>
           <input className="field" value={form.fullName} onChange={(event) => setForm((current) => ({ ...current, fullName: event.target.value }))} placeholder="Madison Smith" />
@@ -5620,7 +5697,10 @@ function UsersAdmin({ onLogChange }: { onLogChange: (targetName: string, summary
           <input className="field" value={form.login} onChange={(event) => setForm((current) => ({ ...current, login: event.target.value }))} placeholder="madison or madison@email.com" autoCapitalize="none" />
         </Label>
         <Label title="Password" icon={<ShieldCheck size={16} />}>
-          <input className="field" value={form.password} onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))} placeholder="min 6 characters" />
+          <div className="flex gap-2">
+            <input className="field" value={form.password} onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))} placeholder="min 6 characters" />
+            <button type="button" onClick={generatePassword} className="shrink-0 rounded bg-steel-100 px-3 text-sm font-black text-steel-700">Generate</button>
+          </div>
         </Label>
         <Label title="Role" icon={<ShieldCheck size={16} />}>
           <select className="field" value={form.role} onChange={(event) => setForm((current) => ({ ...current, role: event.target.value }))}>
@@ -5664,10 +5744,59 @@ function UsersAdmin({ onLogChange }: { onLogChange: (targetName: string, summary
                   {editingId === user.id ? "Close" : "Permissions"}
                 </button>
                 <button type="button" className="rounded bg-steel-100 px-3 py-2 text-sm font-black text-steel-900" onClick={() => renameUser(user)}>Rename</button>
+                <button
+                  type="button"
+                  className={classNames("rounded px-3 py-2 text-sm font-black", seeFor === user.id ? "bg-steel-900 text-white" : "bg-steel-100 text-steel-900")}
+                  onClick={() => openSee(user)}
+                >
+                  {seeFor === user.id ? "Close" : "See Password"}
+                </button>
                 <button type="button" className="rounded bg-steel-100 px-3 py-2 text-sm font-black text-steel-900" onClick={() => resetPassword(user)}>Reset Password</button>
                 <button type="button" className="rounded bg-red-700 px-3 py-2 text-sm font-black text-white" onClick={() => deleteUser(user)}>Delete</button>
               </div>
             </div>
+
+            {seeFor === user.id && (
+              <div className="mt-3 rounded border border-steel-200 bg-steel-50 p-3">
+                {seenPassword && seenPassword.id === user.id ? (
+                  seenPassword.value ? (
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-xs font-black uppercase tracking-wide text-workshop-700">{user.fullName || user.username || user.email}&apos;s password</p>
+                        <p className="font-mono text-xl font-black text-steel-900">{seenPassword.value}</p>
+                      </div>
+                      <button type="button" className="rounded bg-workshop-500 px-3 py-2 text-sm font-black text-white" onClick={() => copyText(seenPassword.value ?? "")}>Copy</button>
+                    </div>
+                  ) : (
+                    <p className="text-sm font-bold text-steel-600">
+                      No viewable password saved for this user — it was set before this feature. Use <span className="font-black">Reset Password</span> once to set a viewable one.
+                    </p>
+                  )
+                ) : (
+                  <form
+                    className="flex flex-wrap items-end gap-2"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      revealPassword(user);
+                    }}
+                  >
+                    <Label title="Re-enter YOUR admin password to view" icon={<ShieldCheck size={16} />}>
+                      <input
+                        type="password"
+                        className="field"
+                        value={adminPw}
+                        autoComplete="current-password"
+                        onChange={(event) => setAdminPw(event.target.value)}
+                        placeholder="Your admin password"
+                      />
+                    </Label>
+                    <button type="submit" disabled={seeBusy || !adminPw} className="touch-target rounded bg-steel-900 px-4 text-sm font-black text-white disabled:bg-steel-300">
+                      {seeBusy ? "Checking…" : "Reveal"}
+                    </button>
+                  </form>
+                )}
+              </div>
+            )}
 
             {editingId === user.id && (
               <div className="mt-3 grid gap-3 rounded border border-steel-100 bg-steel-50 p-3 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_auto_auto] lg:items-end">

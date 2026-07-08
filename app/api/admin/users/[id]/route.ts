@@ -14,15 +14,16 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     allowedYards?: string[];
   };
 
+  const profilePatch: Record<string, unknown> = {};
   if (body.password) {
     if (body.password.length < 6) {
       return NextResponse.json({ ok: false, error: "Password must be at least 6 characters." });
     }
     const { error } = await auth.supabase.auth.admin.updateUserById(id, { password: body.password });
     if (error) return NextResponse.json({ ok: false, error: error.message });
+    // Keep the viewable copy in sync so it can be re-viewed later (admin-gated).
+    profilePatch.visible_password = body.password;
   }
-
-  const profilePatch: Record<string, unknown> = {};
   if (body.fullName !== undefined) {
     const cleanName = body.fullName.trim();
     profilePatch.full_name = cleanName;
@@ -41,18 +42,27 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   }
 
   if (Object.keys(profilePatch).length > 0) {
-    let { error } = await auth.supabase.from("profiles").update(profilePatch).eq("id", id);
-    // Retry without manager_yard if that column does not exist yet.
-    if (error && /manager_yard/i.test(error.message)) {
-      const { manager_yard, ...rest } = profilePatch;
-      void manager_yard;
-      if (Object.keys(rest).length > 0) {
-        ({ error } = await auth.supabase.from("profiles").update(rest).eq("id", id));
-      } else {
-        error = null;
+    // Retry without optional columns (visible_password, manager_yard) if the
+    // database predates them.
+    let attempt: Record<string, unknown> = { ...profilePatch };
+    for (let i = 0; i < 3; i += 1) {
+      if (Object.keys(attempt).length === 0) break;
+      const { error } = await auth.supabase.from("profiles").update(attempt).eq("id", id);
+      if (!error) break;
+      if (/visible_password/i.test(error.message) && "visible_password" in attempt) {
+        const { visible_password, ...rest } = attempt;
+        void visible_password;
+        attempt = rest;
+        continue;
       }
+      if (/manager_yard/i.test(error.message) && "manager_yard" in attempt) {
+        const { manager_yard, ...rest } = attempt;
+        void manager_yard;
+        attempt = rest;
+        continue;
+      }
+      return NextResponse.json({ ok: false, error: error.message });
     }
-    if (error) return NextResponse.json({ ok: false, error: error.message });
   }
 
   return NextResponse.json({ ok: true });

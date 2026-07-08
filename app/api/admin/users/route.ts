@@ -15,16 +15,28 @@ function yardsForRole(role: string, allowedYards?: string[] | null): string | nu
   return cleaned.length ? cleaned.join(",") : null;
 }
 
-// Upsert a profile row, retrying without the optional manager_yard column if it
-// does not exist yet (older databases before the migration is run).
+// Upsert a profile row, retrying without optional columns (manager_yard,
+// visible_password) if they do not exist yet on an older database.
 async function upsertProfile(supabase: SupabaseClient, row: Record<string, unknown>): Promise<string | null> {
-  let { error } = await supabase.from("profiles").upsert(row);
-  if (error && /manager_yard/i.test(error.message)) {
-    const { manager_yard, ...rest } = row;
-    void manager_yard;
-    ({ error } = await supabase.from("profiles").upsert(rest));
+  let attempt = { ...row };
+  for (let i = 0; i < 3; i += 1) {
+    const { error } = await supabase.from("profiles").upsert(attempt);
+    if (!error) return null;
+    if (/visible_password/i.test(error.message) && "visible_password" in attempt) {
+      const { visible_password, ...rest } = attempt;
+      void visible_password;
+      attempt = rest;
+      continue;
+    }
+    if (/manager_yard/i.test(error.message) && "manager_yard" in attempt) {
+      const { manager_yard, ...rest } = attempt;
+      void manager_yard;
+      attempt = rest;
+      continue;
+    }
+    return error.message;
   }
-  return error?.message ?? null;
+  return null;
 }
 
 export async function GET(request: Request) {
@@ -92,7 +104,9 @@ export async function POST(request: Request) {
     full_name: body.fullName?.trim() || username,
     role,
     active: true,
-    manager_yard: yardsForRole(role, body.allowedYards)
+    manager_yard: yardsForRole(role, body.allowedYards),
+    // Viewable copy so an admin can re-view it later (admin-gated read).
+    visible_password: password
   });
   if (profileError) {
     return NextResponse.json({ ok: false, error: profileError });

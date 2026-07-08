@@ -3,7 +3,7 @@ import { getSupabaseServerClient } from "./supabase";
 import { verifyUserToken } from "./verifyToken";
 
 type AdminCheck =
-  | { ok: true; supabase: SupabaseClient }
+  | { ok: true; supabase: SupabaseClient; userId: string }
   | { ok: false; status: number; error: string };
 
 // Ensures the caller is a signed-in admin before any privileged user-management
@@ -31,5 +31,5 @@ export async function requireAdmin(request: Request): Promise<AdminCheck> {
 
   if (!profile || profile.role !== "admin") return { ok: false, status: 403, error: "Admins only" };
 
-  return { ok: true, supabase };
+  return { ok: true, supabase, userId: check.userId };
 }
