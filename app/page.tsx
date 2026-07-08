@@ -1301,7 +1301,7 @@ export default function Home() {
     if (!entriesLoaded) return;
     const data = entryFormData(form.employeeId, form.date, form.locationId);
     setEditingEntryId(data.existingId);
-    setForm((current) => ({ ...current, lines: data.lines, phases: data.phases }));
+    setForm((current) => ({ ...current, lines: data.lines, phases: data.phases, customPallets: data.customPallets }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entriesLoaded]);
 
@@ -1315,7 +1315,7 @@ export default function Home() {
     if (!employeeId) return;
     const data = entryFormData(employeeId, date, locationId);
     setEditingEntryId(data.existingId);
-    setForm((current) => ({ ...current, lines: data.lines, phases: data.phases }));
+    setForm((current) => ({ ...current, lines: data.lines, phases: data.phases, customPallets: data.customPallets }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entries, entriesLoaded]);
 
@@ -1390,10 +1390,16 @@ export default function Home() {
     const primary =
       matching.find((entry) => entry.locationId === locationId) ??
       [...matching].sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""))[0];
+    // Carry the custom pallets from the matching entries, de-duped by id, so a
+    // reopened entry still shows its one-off pallet rows.
+    const customPallets = Array.from(
+      new Map(matching.flatMap((entry) => entry.customPallets ?? []).map((pallet) => [pallet.id, pallet])).values()
+    );
     return {
       existingId: primary?.id ?? null,
       lines: aggregatePhaseLines(phases),
-      phases
+      phases,
+      customPallets
     };
   }
 
@@ -1407,7 +1413,8 @@ export default function Home() {
       employeeId,
       shift: employee?.shift ?? current.shift,
       lines: data.lines,
-      phases: data.phases
+      phases: data.phases,
+      customPallets: data.customPallets
     }));
   }
 
@@ -1415,7 +1422,7 @@ export default function Home() {
     const data = entryFormData(form.employeeId, date, form.locationId);
     formDirtyRef.current = false;
     setEditingEntryId(data.existingId);
-    setForm((current) => ({ ...current, date, lines: data.lines, phases: data.phases }));
+    setForm((current) => ({ ...current, date, lines: data.lines, phases: data.phases, customPallets: data.customPallets }));
   }
 
   function handleYardChange(locationId: string) {
@@ -1438,7 +1445,8 @@ export default function Home() {
       yardManagerId,
       shift: selectedRepairer?.shift ?? current.shift,
       lines: data.lines,
-      phases: data.phases
+      phases: data.phases,
+      customPallets: data.customPallets
     }));
   }
 
@@ -1462,6 +1470,36 @@ export default function Home() {
     });
   }
 
+  // Add a one-off custom pallet the catalog doesn't have. It becomes an extra
+  // row on the entry grid (in every phase) that the manager can count against.
+  function addCustomPallet(name: string) {
+    const label = name.trim();
+    if (!label) return;
+    formDirtyRef.current = true;
+    setForm((current) => {
+      const id = `custom:${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+      return { ...current, customPallets: [...(current.customPallets ?? []), { id, name: label }] };
+    });
+  }
+
+  // Drop a custom pallet and any quantities entered against it across phases.
+  function removeCustomPallet(id: string) {
+    formDirtyRef.current = true;
+    setForm((current) => {
+      const phases = normalizePhases(current.phases).map((phase) => ({
+        ...phase,
+        lines: (phase.lines ?? []).filter((line) => line.palletTypeId !== id)
+      }));
+      const withAmounts = phases.map((phase) => ({ ...phase, amount: phasePalletCount(phase, palletTypes) }));
+      return {
+        ...current,
+        customPallets: (current.customPallets ?? []).filter((pallet) => pallet.id !== id),
+        phases: withAmounts,
+        lines: aggregatePhaseLines(withAmounts)
+      };
+    });
+  }
+
   async function saveEntry() {
     // Reuse the id of the entry being edited so this updates that day's record
     // (the cloud upserts by id) instead of piling up duplicate entries that the
@@ -1472,12 +1510,17 @@ export default function Home() {
       amount: phasePalletCount(phase, palletTypes),
       lines: (phase.lines ?? []).filter((line) => line.quantity !== 0)
     }));
+    // Only keep custom pallets that actually have a quantity entered, so unused
+    // ad-hoc rows don't pile up on the saved record.
+    const usedCustomIds = new Set(cleanPhases.flatMap((phase) => (phase.lines ?? []).map((line) => line.palletTypeId)));
+    const cleanCustomPallets = (form.customPallets ?? []).filter((pallet) => usedCustomIds.has(pallet.id));
     const cleanEntry: DailyEntry = {
       ...form,
       id: entryId,
       manualHours: Number(form.manualHours),
       phases: cleanPhases,
       lines: aggregatePhaseLines(cleanPhases),
+      customPallets: cleanCustomPallets,
       createdAt: new Date().toISOString(),
       submittedBy: profile?.fullName || profile?.username || undefined,
       submittedById: profile?.id
@@ -1779,7 +1822,7 @@ export default function Home() {
   // while on the Entry screen, so managers always see who they're entering for.
   const entryStationEmployee = employeeList.find((employee) => employee.id === form.employeeId) ?? selectedEmployee;
   const entryStationLabel = entryStationEmployee?.station
-    ? `${t(entryStationEmployee.station === "sorter" ? "Sorter" : "Repair Line")}${entryStationEmployee.stationSpot ? ` · ${t("Spot {n}", { n: entryStationEmployee.stationSpot })}` : ""}`
+    ? `${t(entryStationEmployee.station === "sorter" ? "Sorter" : "Repair Line")}${entryStationEmployee.stationSpot ? ` · ${t("Position {n}", { n: entryStationEmployee.stationSpot })}` : ""}`
     : t("No station set");
 
   return (
@@ -1794,7 +1837,7 @@ export default function Home() {
             <div className="min-w-0">
               <p className="truncate text-xs font-bold uppercase tracking-wide text-workshop-700">MGP</p>
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                <h1 className="truncate text-lg font-black sm:text-2xl">Pallet Repair Tracking</h1>
+                <h1 className="truncate text-lg font-black sm:text-2xl">{t("Pallet Repair Tracking")}</h1>
                 <a
                   href="/live-board"
                   target="_blank"
@@ -1832,7 +1875,7 @@ export default function Home() {
             )}
             <button
               type="button"
-              aria-label="Toggle dark mode"
+              aria-label={t("Toggle dark mode")}
               className={classNames("touch-target flex w-12 items-center justify-center rounded border", darkMode ? "border-white/20 bg-white/10" : "border-steel-100 bg-white")}
               onClick={() => setDarkMode((value) => !value)}
             >
@@ -1841,8 +1884,8 @@ export default function Home() {
             {configured && profile && (
               <button
                 type="button"
-                aria-label="Sign out"
-                title="Sign out"
+                aria-label={t("Sign out")}
+                title={t("Sign out")}
                 className={classNames("touch-target flex w-12 items-center justify-center rounded border", darkMode ? "border-white/20 bg-white/10" : "border-steel-100 bg-white")}
                 onClick={() => signOut()}
               >
@@ -1871,9 +1914,9 @@ export default function Home() {
           {allowedViews.includes("production-grid") && <NavButton icon={<FileSpreadsheet size={19} />} label={t("Production Grid")} active={view === "production-grid"} onClick={() => setView("production-grid")} />}
           {allowedViews.includes("dashboard") && <NavButton icon={<BarChart3 size={19} />} label={t("Dashboard")} active={view === "dashboard"} onClick={() => setView("dashboard")} />}
           {allowedViews.includes("payroll") && <NavButton icon={<FileSpreadsheet size={19} />} label={t("Payroll")} active={view === "payroll"} onClick={() => setView("payroll")} />}
-          {allowedViews.includes("cloud") && <NavButton icon={<Database size={19} />} label="Cloud" active={view === "cloud"} onClick={() => setView("cloud")} />}
-          {allowedViews.includes("users") && <NavButton icon={<UserRound size={19} />} label="Users" active={view === "users"} onClick={() => setView("users")} />}
-          {allowedViews.includes("settings") && <NavButton icon={<ShieldCheck size={19} />} label="Admin" active={view === "settings"} onClick={() => setView("settings")} />}
+          {allowedViews.includes("cloud") && <NavButton icon={<Database size={19} />} label={t("Cloud")} active={view === "cloud"} onClick={() => setView("cloud")} />}
+          {allowedViews.includes("users") && <NavButton icon={<UserRound size={19} />} label={t("Users")} active={view === "users"} onClick={() => setView("users")} />}
+          {allowedViews.includes("settings") && <NavButton icon={<ShieldCheck size={19} />} label={t("Admin")} active={view === "settings"} onClick={() => setView("settings")} />}
         </nav>
 
         <section className={classNames("rounded border p-4 shadow-panel", darkMode ? "border-white/10 bg-steel-800/[0.94]" : "border-steel-100 bg-white/95")}>
@@ -1894,7 +1937,8 @@ export default function Home() {
               onDateChange={handleDateChange}
               onFormChange={updateForm}
               onQuantityChange={updatePhaseLineQuantity}
-              onStationChange={(employeeId, patch) => updateEmployee(employeeId, patch)}
+              onAddCustomPallet={addCustomPallet}
+              onRemoveCustomPallet={removeCustomPallet}
               onSave={saveEntry}
               hideYardManager={configured && profile?.role === "supervisor"}
               hidePricing={configured && profile?.role === "supervisor"}
@@ -2083,55 +2127,12 @@ function PhaseTracker({
 }) {
   const { t } = useT();
   const lastDone = lastPhaseDone(phases);
-  // Full-screen view of a phase photo so count sheets can be read.
-  const [zoomPhoto, setZoomPhoto] = useState<string | null>(null);
-  // Rotation (degrees) applied to the zoomed photo so a sideways count sheet can
-  // be turned upright; resets each time a new photo is opened.
-  const [zoomRotation, setZoomRotation] = useState(0);
-  // Photos that fail to render (e.g. an old HEIC saved before conversion) so we
-  // can show a clear "re-upload" placeholder instead of a broken-image icon.
-  const [brokenPhotos, setBrokenPhotos] = useState<string[]>([]);
-
-  useEffect(() => {
-    setZoomRotation(0);
-  }, [zoomPhoto]);
-
-  // Close the full-screen viewer with the Escape key.
-  useEffect(() => {
-    if (!zoomPhoto) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setZoomPhoto(null);
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [zoomPhoto]);
 
   function updatePhase(index: number, patch: Partial<EntryPhase>) {
     onChange(phases.map((phase, current) => (current === index ? { ...phase, ...patch } : phase)));
   }
 
-  function readAsDataUrl(file: File): Promise<string> {
-    return new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result));
-      reader.readAsDataURL(file);
-    });
-  }
-
-  // Add one or more photos to a phase, keeping any already there.
-  async function handlePhasePhoto(index: number, files: File[]) {
-    if (!files.length) return;
-    const added = await Promise.all(files.map(async (file) => readAsDataUrl(await compressImage(file))));
-    const existing = phasePhotos(phases[index]);
-    updatePhase(index, { photoDataUrl: undefined, photoDataUrls: [...existing, ...added] });
-  }
-
-  function removePhasePhoto(index: number, photo: string) {
-    updatePhase(index, { photoDataUrl: undefined, photoDataUrls: phasePhotos(phases[index]).filter((item) => item !== photo) });
-  }
-
   const active = phases[selected];
-  const activePhotos = phasePhotos(active);
 
   return (
     <div className="grid gap-3 rounded border border-steel-100 bg-white p-3 text-steel-900 md:grid-cols-[1fr_300px]">
@@ -2217,58 +2218,6 @@ function PhaseTracker({
             >
               {active.bypassed ? t("Bypassed ✓") : t("Bypass")}
             </button>
-          </div>
-          <div className="sm:col-span-2">
-            <p className="mb-1 flex items-center gap-1.5 text-sm font-black">
-              <Camera size={15} /> {t("Phase {n} photos", { n: selected + 1 })}
-              {activePhotos.length > 0 && <span className="font-bold text-steel-500">({activePhotos.length})</span>}
-            </p>
-            {activePhotos.length > 0 && (
-              <div className="mb-3 flex flex-wrap gap-2">
-                {activePhotos.map((photo, photoIndex) => {
-                  const broken = brokenPhotos.includes(photo);
-                  return (
-                  <div key={photoIndex} className="relative shrink-0">
-                    {broken ? (
-                      <div className="flex h-16 w-24 flex-col items-center justify-center rounded bg-amber-50 px-1 text-center text-[10px] font-black leading-tight text-amber-700 ring-1 ring-amber-200">
-                        {t("Can't preview — remove & re-add")}
-                      </div>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => setZoomPhoto(photo)}
-                        className="group relative block rounded ring-1 ring-steel-200 transition-transform hover:scale-105"
-                        title={t("Tap to enlarge")}
-                      >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={photo}
-                          alt={`Phase ${selected + 1} photo ${photoIndex + 1}`}
-                          className="h-16 w-16 rounded object-cover"
-                          onError={() => setBrokenPhotos((current) => (current.includes(photo) ? current : [...current, photo]))}
-                        />
-                        <span className="absolute inset-0 flex items-center justify-center rounded bg-black/0 text-transparent transition-colors group-hover:bg-black/40 group-hover:text-white">
-                          <Maximize2 size={18} />
-                        </span>
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => removePhasePhoto(selected, photo)}
-                      aria-label="Remove photo"
-                      className="absolute -right-1.5 -top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-red-700 text-white shadow ring-2 ring-white"
-                    >
-                      <X size={13} />
-                    </button>
-                  </div>
-                  );
-                })}
-              </div>
-            )}
-            <DropZone
-              onFiles={(dropped) => handlePhasePhoto(selected, dropped)}
-              label={activePhotos.length > 0 ? t("Add more photos") : t("Drag & drop or tap to add phase photos")}
-            />
           </div>
         </div>
       </div>
@@ -2371,6 +2320,117 @@ function PhaseTracker({
           ));
         })()}
       </div>
+    </div>
+  );
+}
+
+// Phase photo capture, split out of PhaseTracker so it can sit at the very
+// bottom of the entry screen — managers count pallets first, then attach the
+// photos for the selected phase as the final step.
+function PhasePhotoCapture({
+  phases,
+  selected,
+  onChange
+}: {
+  phases: EntryPhase[];
+  selected: number;
+  onChange: (next: EntryPhase[]) => void;
+}) {
+  const { t } = useT();
+  const [zoomPhoto, setZoomPhoto] = useState<string | null>(null);
+  const [zoomRotation, setZoomRotation] = useState(0);
+  const [brokenPhotos, setBrokenPhotos] = useState<string[]>([]);
+
+  useEffect(() => {
+    setZoomRotation(0);
+  }, [zoomPhoto]);
+
+  useEffect(() => {
+    if (!zoomPhoto) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setZoomPhoto(null);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [zoomPhoto]);
+
+  function updatePhase(index: number, patch: Partial<EntryPhase>) {
+    onChange(phases.map((phase, current) => (current === index ? { ...phase, ...patch } : phase)));
+  }
+
+  function readAsDataUrl(file: File): Promise<string> {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function handlePhasePhoto(index: number, files: File[]) {
+    if (!files.length) return;
+    const added = await Promise.all(files.map(async (file) => readAsDataUrl(await compressImage(file))));
+    const existing = phasePhotos(phases[index]);
+    updatePhase(index, { photoDataUrl: undefined, photoDataUrls: [...existing, ...added] });
+  }
+
+  function removePhasePhoto(index: number, photo: string) {
+    updatePhase(index, { photoDataUrl: undefined, photoDataUrls: phasePhotos(phases[index]).filter((item) => item !== photo) });
+  }
+
+  const activePhotos = phasePhotos(phases[selected]);
+
+  return (
+    <div className="rounded border border-steel-100 bg-white p-3 text-steel-900">
+      <p className="mb-1 flex items-center gap-1.5 text-sm font-black">
+        <Camera size={15} /> {t("Phase {n} photos", { n: selected + 1 })}
+        {activePhotos.length > 0 && <span className="font-bold text-steel-500">({activePhotos.length})</span>}
+      </p>
+      {activePhotos.length > 0 && (
+        <div className="mb-3 flex flex-wrap gap-2">
+          {activePhotos.map((photo, photoIndex) => {
+            const broken = brokenPhotos.includes(photo);
+            return (
+            <div key={photoIndex} className="relative shrink-0">
+              {broken ? (
+                <div className="flex h-16 w-24 flex-col items-center justify-center rounded bg-amber-50 px-1 text-center text-[10px] font-black leading-tight text-amber-700 ring-1 ring-amber-200">
+                  {t("Can't preview — remove & re-add")}
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setZoomPhoto(photo)}
+                  className="group relative block rounded ring-1 ring-steel-200 transition-transform hover:scale-105"
+                  title={t("Tap to enlarge")}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={photo}
+                    alt={`Phase ${selected + 1} photo ${photoIndex + 1}`}
+                    className="h-16 w-16 rounded object-cover"
+                    onError={() => setBrokenPhotos((current) => (current.includes(photo) ? current : [...current, photo]))}
+                  />
+                  <span className="absolute inset-0 flex items-center justify-center rounded bg-black/0 text-transparent transition-colors group-hover:bg-black/40 group-hover:text-white">
+                    <Maximize2 size={18} />
+                  </span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => removePhasePhoto(selected, photo)}
+                aria-label={t("Remove photo")}
+                className="absolute -right-1.5 -top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-red-700 text-white shadow ring-2 ring-white"
+              >
+                <X size={13} />
+              </button>
+            </div>
+            );
+          })}
+        </div>
+      )}
+      <DropZone
+        onFiles={(dropped) => handlePhasePhoto(selected, dropped)}
+        label={activePhotos.length > 0 ? t("Add more photos") : t("Drag & drop or tap to add phase photos")}
+      />
 
       {/* Full-screen photo viewer so count sheets can be read up close.
           Click the backdrop or press Escape to close. */}
@@ -2381,7 +2441,6 @@ function PhaseTracker({
           role="dialog"
           aria-modal="true"
         >
-          {/* Toolbar: rotate, download, close. */}
           <div className="absolute right-3 top-3 z-10 flex items-center gap-2" onClick={(event) => event.stopPropagation()}>
             <button
               type="button"
@@ -2459,7 +2518,8 @@ function ProductionEntry({
   onDateChange,
   onFormChange,
   onQuantityChange,
-  onStationChange,
+  onAddCustomPallet,
+  onRemoveCustomPallet,
   onSave,
   hideYardManager,
   hidePricing
@@ -2479,8 +2539,8 @@ function ProductionEntry({
   onDateChange: (date: string) => void;
   onFormChange: <T extends keyof EntryForm>(key: T, value: EntryForm[T]) => void;
   onQuantityChange: (phaseIndex: number, palletTypeId: string, quantity: number, parts?: number[]) => void;
-  // Updates a repairer's station assignment (persisted on the roster).
-  onStationChange: (employeeId: string, patch: Partial<Employee>) => void;
+  onAddCustomPallet: (name: string) => void;
+  onRemoveCustomPallet: (id: string) => void;
   onSave: () => void;
   // When a Manager is signed in, the Yard Manager picker is hidden entirely.
   hideYardManager?: boolean;
@@ -2489,10 +2549,8 @@ function ProductionEntry({
   hidePricing?: boolean;
 }) {
   const { t } = useT();
-  // The repairer the station dropdowns read from must be the exact one they
-  // write to (form.employeeId) — not the fallback selectedEmployee, which can
-  // differ — otherwise the choice never sticks.
-  const stationEmployee = employees.find((employee) => employee.id === form.employeeId) ?? selectedEmployee;
+  const [customName, setCustomName] = useState("");
+  const customPallets = form.customPallets ?? [];
   const yardRepairers = employees.filter((employee) => employee.locationId === form.locationId && employee.role !== "supervisor");
   const yardManagers = employees.filter((employee) => employee.locationId === form.locationId && employee.role === "supervisor");
   const displayedPallets = palletsForYard(palletTypes, form.locationId);
@@ -2538,9 +2596,9 @@ function ProductionEntry({
         {/* Managers don't see pay figures — just the pallet count. */}
         <div className={classNames("grid grid-cols-2 gap-2", hidePricing ? "sm:grid-cols-1" : "sm:grid-cols-4")}>
           <Metric label={t("Pallets")} value={wholeNumber(calculation.quantity)} />
-          {!hidePricing && <Metric label="Piece Pay" value={currency(calculation.pieceEarnings)} />}
-          {!hidePricing && <Metric label="Make-up" value={currency(calculation.additionalOwed)} />}
-          {!hidePricing && <Metric label="Total" value={currency(calculation.totalPay)} />}
+          {!hidePricing && <Metric label={t("Piece Pay")} value={currency(calculation.pieceEarnings)} />}
+          {!hidePricing && <Metric label={t("Make-up")} value={currency(calculation.additionalOwed)} />}
+          {!hidePricing && <Metric label={t("Total")} value={currency(calculation.totalPay)} />}
         </div>
       </div>
 
@@ -2583,39 +2641,10 @@ function ProductionEntry({
             ))}
           </select>
         </Label>
-        {/* Station assignment for the selected repairer. Saved on the repairer,
-            so it stays until changed. */}
-        <Label title={t("Station")} icon={<MapPin size={17} />}>
-          <select
-            className="field"
-            value={stationEmployee?.station ?? ""}
-            disabled={!stationEmployee}
-            onChange={(event) => stationEmployee && onStationChange(stationEmployee.id, { station: (event.target.value || undefined) as Employee["station"] })}
-          >
-            <option value="">{t("— None —")}</option>
-            <option value="sorter">{t("Sorter")}</option>
-            <option value="repair">{t("Repair Line")}</option>
-          </select>
-        </Label>
-        <Label title={t("Spot")} icon={<UserRound size={17} />}>
-          <select
-            className="field"
-            value={stationEmployee?.stationSpot ?? ""}
-            disabled={!stationEmployee?.station}
-            onChange={(event) => stationEmployee && onStationChange(stationEmployee.id, { stationSpot: event.target.value ? Number(event.target.value) : undefined })}
-          >
-            <option value="">{t("— None —")}</option>
-            {[1, 2, 3, 4, 5].map((spot) => (
-              <option key={spot} value={spot}>
-                {t("Spot {n}", { n: spot })}
-              </option>
-            ))}
-          </select>
-        </Label>
       </div>
 
       <PhaseTracker
-        repairerName={selectedEmployee?.name ?? "Repairer"}
+        repairerName={selectedEmployee?.name ?? t("Repairer")}
         phases={activePhases}
         onChange={(next) => onFormChange("phases", next)}
         crew={crew}
@@ -2629,7 +2658,7 @@ function ProductionEntry({
 
       {SHOW_TIME_FIELDS && (
       <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5">
-        <Label title="Shift" icon={<Clock size={17} />}>
+        <Label title={t("Shift")} icon={<Clock size={17} />}>
           <select className="field" value={form.shift} onChange={(event) => onFormChange("shift", event.target.value as Shift)}>
             {shifts.map((shift) => (
               <option key={shift} value={shift}>
@@ -2638,7 +2667,7 @@ function ProductionEntry({
             ))}
           </select>
         </Label>
-        <Label title="Clock In" icon={<Clock size={17} />}>
+        <Label title={t("Clock In")} icon={<Clock size={17} />}>
           <select className="field" value={form.clockIn} onChange={(event) => onFormChange("clockIn", event.target.value)}>
             {timeOptions.map((time) => (
               <option key={time} value={time}>
@@ -2647,7 +2676,7 @@ function ProductionEntry({
             ))}
           </select>
         </Label>
-        <Label title="Clock Out" icon={<Clock size={17} />}>
+        <Label title={t("Clock Out")} icon={<Clock size={17} />}>
           <select className="field" value={form.clockOut} onChange={(event) => onFormChange("clockOut", event.target.value)}>
             {timeOptions.map((time) => (
               <option key={time} value={time}>
@@ -2656,14 +2685,14 @@ function ProductionEntry({
             ))}
           </select>
         </Label>
-        <Label title="Hours" icon={<Clock size={17} />}>
+        <Label title={t("Hours")} icon={<Clock size={17} />}>
           <input className="field" inputMode="decimal" type="number" min="0" step="0.25" value={form.manualHours} onChange={(event) => onFormChange("manualHours", Number(event.target.value))} />
         </Label>
-        <Label title="Break / Lunch" icon={<Clock size={17} />}>
+        <Label title={t("Break / Lunch")} icon={<Clock size={17} />}>
           <select className="field" value={form.breakProfile} onChange={(event) => onFormChange("breakProfile", event.target.value as BreakProfile)}>
-            <option value="standard">15 paid break + 30 unpaid lunch</option>
-            <option value="paidLunch">Paid 30-minute lunch</option>
-            <option value="noLunch">No lunch deduction</option>
+            <option value="standard">{t("15 paid break + 30 unpaid lunch")}</option>
+            <option value="paidLunch">{t("Paid 30-minute lunch")}</option>
+            <option value="noLunch">{t("No lunch deduction")}</option>
           </select>
         </Label>
       </div>
@@ -2697,17 +2726,17 @@ function ProductionEntry({
 
                 return (
                   <tr key={pallet.id} className="border-t border-steel-100 even:bg-steel-50">
-                    {!hidePricing && <td className={classNames(cellPad, "font-black")}>{pallet.category}</td>}
+                    {!hidePricing && <td className={classNames(cellPad, "font-black")}>{t(pallet.category)}</td>}
                     <td className={classNames(cellPad, hidePricing && "break-words")}>
                       {hidePricing ? (
                         <>
-                          <span className="block text-steel-500">{pallet.code}</span>
-                          <span className="block font-black">{pallet.description}</span>
+                          <span className="block text-steel-500">{t(pallet.code)}</span>
+                          <span className="block font-black">{t(pallet.description)}</span>
                         </>
                       ) : (
                         <>
-                          <span className="block font-black">{pallet.code}</span>
-                          <span className="text-steel-500">{pallet.description}</span>
+                          <span className="block font-black">{t(pallet.code)}</span>
+                          <span className="text-steel-500">{t(pallet.description)}</span>
                         </>
                       )}
                     </td>
@@ -2756,8 +2785,72 @@ function ProductionEntry({
                   </tr>
                 );
               })}
+              {/* One-off custom pallets a manager added for this entry. */}
+              {customPallets.map((customPallet) => {
+                const line = phaseLines.find((item) => item.palletTypeId === customPallet.id);
+                const quantity = line?.quantity ?? 0;
+                return (
+                  <tr key={customPallet.id} className="border-t border-steel-100 bg-workshop-50/60">
+                    {!hidePricing && <td className={classNames(cellPad, "font-black")}>{t("Custom")}</td>}
+                    <td className={classNames(cellPad, hidePricing && "break-words")}>
+                      <div className="flex items-center gap-2">
+                        <span className="block font-black">{customPallet.name}</span>
+                        <button
+                          type="button"
+                          aria-label={t("Remove {name}", { name: customPallet.name })}
+                          className="shrink-0 rounded bg-steel-100 p-1 text-steel-500 hover:bg-red-700 hover:text-white"
+                          onClick={() => onRemoveCustomPallet(customPallet.id)}
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                      <span className="block text-xs font-bold text-steel-400">{t("Custom pallet")}</span>
+                    </td>
+                    {!hidePricing && <td className="p-3 font-black text-steel-400">—</td>}
+                    <td className={cellPad}>
+                      <div className="flex justify-end">
+                        <QuantityInput
+                          className="w-20 rounded border border-steel-200 bg-white px-1 py-2.5 text-center font-black text-steel-900 outline-none focus:border-workshop-500"
+                          value={quantity}
+                          parts={line?.parts}
+                          onCommit={(sum, parts) => onQuantityChange(selectedPhase, customPallet.id, sum, parts)}
+                        />
+                      </div>
+                    </td>
+                    {!hidePricing && <td className="p-3 text-lg font-black text-steel-400">—</td>}
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
+        </div>
+        {/* Managers add one-off pallets that aren't in the catalog here. */}
+        <div className="flex flex-wrap items-center gap-2 border-t border-steel-100 p-3">
+          <input
+            className="field w-full sm:w-64"
+            value={customName}
+            onChange={(event) => setCustomName(event.target.value)}
+            placeholder={t("Custom pallet name")}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                onAddCustomPallet(customName);
+                setCustomName("");
+              }
+            }}
+          />
+          <button
+            type="button"
+            disabled={!customName.trim()}
+            className="touch-target flex items-center gap-2 rounded bg-steel-900 px-4 py-2 font-black text-white disabled:bg-steel-300"
+            onClick={() => {
+              onAddCustomPallet(customName);
+              setCustomName("");
+            }}
+          >
+            <Plus size={18} />
+            {t("Add Custom Pallet")}
+          </button>
         </div>
       </div>
 
@@ -2765,15 +2858,15 @@ function ProductionEntry({
       {!hidePricing && (
         <div className={classNames("grid gap-2 rounded border p-3 text-sm", darkMode ? "border-white/10 bg-white/[0.08]" : "border-steel-100 bg-steel-50")}>
           <div className="flex justify-between">
-            <span>Hourly equivalent</span>
+            <span>{t("Hourly equivalent")}</span>
             <strong>{currency(calculation.hourlyEquivalent)}/hr</strong>
           </div>
           <div className="flex justify-between">
-            <span>Minimum required</span>
+            <span>{t("Minimum required")}</span>
             <strong>{currency(calculation.minimumWageRequired)}</strong>
           </div>
           <div className="flex justify-between">
-            <span>Daily overtime</span>
+            <span>{t("Daily overtime")}</span>
             <strong>{calculation.overtimeHours.toFixed(2)} hrs</strong>
           </div>
         </div>
@@ -2782,6 +2875,10 @@ function ProductionEntry({
       <Label title={t("Notes")} icon={<FileSpreadsheet size={17} />}>
         <textarea className="field min-h-20 resize-none" value={form.notes} onChange={(event) => onFormChange("notes", event.target.value)} placeholder={t("Supervisor notes, trailer, customer, or repair issues")} />
       </Label>
+
+      {/* Photos are the last step: count the pallets first, then attach the
+          selected phase's photos at the bottom of the entry screen. */}
+      <PhasePhotoCapture phases={activePhases} selected={selectedPhase} onChange={(next) => onFormChange("phases", next)} />
 
       <button type="button" className="touch-target flex items-center justify-center gap-2 rounded bg-workshop-500 px-4 py-3 text-lg font-black text-white shadow-panel" onClick={onSave}>
         <Save size={22} />
@@ -2808,6 +2905,7 @@ function CountSheetsModule({
   onUpdate: (id: string, patch: Partial<CountSheet>) => void | Promise<void>;
   onDelete: (id: string) => void | Promise<void>;
 }) {
+  const { t } = useT();
   const [roleMode, setRoleMode] = useState<"counter" | "admin">("counter");
   const [date, setDate] = useState(today);
   const [locationId, setLocationId] = useState(locations[0]?.id ?? "fontana");
@@ -2817,7 +2915,7 @@ function CountSheetsModule({
   const [files, setFiles] = useState<File[]>([]);
   const filePreviews = useMemo(() => files.map((file) => ({ file, url: URL.createObjectURL(file) })), [files]);
   useEffect(() => () => filePreviews.forEach((preview) => URL.revokeObjectURL(preview.url)), [filePreviews]);
-  const [statusMessage, setStatusMessage] = useState("Ready for count sheet photos.");
+  const [statusMessage, setStatusMessage] = useState(t("Ready for count sheet photos."));
   const [isSaving, setIsSaving] = useState(false);
   const [selectedSheetId, setSelectedSheetId] = useState<string | null>(null);
   const [selectedPhotoIndex, setSelectedPhotoIndex] = useState(0);
@@ -2869,13 +2967,13 @@ function CountSheetsModule({
 
   async function saveCountSheet() {
     if (files.length === 0) {
-      setStatusMessage("Add at least one count sheet photo before saving.");
+      setStatusMessage(t("Add at least one count sheet photo before saving."));
       return;
     }
 
     setIsSaving(true);
     const message = await onCreate({ date, locationId, shift, uploadedBy, notes, files });
-    setStatusMessage(message);
+    setStatusMessage(t(message));
     setFiles([]);
     setNotes("");
     setIsSaving(false);
@@ -2892,7 +2990,7 @@ function CountSheetsModule({
         rejectedAt: nextStatus === "Rejected" ? now : undefined
       })
     );
-    setStatusMessage(`Count sheet marked ${nextStatus.toLowerCase()}.`);
+    setStatusMessage(t("Count sheet marked {status}.", { status: t(nextStatus).toLowerCase() }));
   }
 
   function clearFilters() {
@@ -2909,15 +3007,15 @@ function CountSheetsModule({
     <div className="grid gap-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-2xl font-black">Count Sheets</h2>
-          <p className="text-sm text-steel-500">Upload yard photos and link count documentation by date, location, and shift.</p>
+          <h2 className="text-2xl font-black">{t("Count Sheets")}</h2>
+          <p className="text-sm text-steel-500">{t("Upload yard photos and link count documentation by date, location, and shift.")}</p>
         </div>
         <div className="grid grid-cols-2 gap-2 rounded border border-steel-100 bg-steel-50 p-1">
           <button type="button" className={classNames("touch-target rounded px-4 font-black", roleMode === "counter" ? "bg-workshop-500 text-white" : "text-steel-700")} onClick={() => setRoleMode("counter")}>
-            Counter
+            {t("Counter")}
           </button>
           <button type="button" className={classNames("touch-target rounded px-4 font-black", roleMode === "admin" ? "bg-steel-900 text-white" : "text-steel-700")} onClick={() => setRoleMode("admin")}>
-            Admin
+            {t("Admin")}
           </button>
         </div>
       </div>
@@ -2927,18 +3025,18 @@ function CountSheetsModule({
       <div className="grid gap-4 lg:grid-cols-[420px_1fr]">
         <div className="grid gap-4 rounded border border-steel-100 bg-white p-4 text-steel-900">
           <div>
-            <h3 className="text-xl font-black">Upload Photos</h3>
-            <p className="text-sm text-steel-500">Counter mode keeps rates, payroll, and dollar amounts hidden.</p>
+            <h3 className="text-xl font-black">{t("Upload Photos")}</h3>
+            <p className="text-sm text-steel-500">{t("Counter mode keeps rates, payroll, and dollar amounts hidden.")}</p>
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
-            <Label title="Date" icon={<CalendarDays size={17} />}>
+            <Label title={t("Date")} icon={<CalendarDays size={17} />}>
               <CalendarField
                 single
                 value={{ mode: "day", start: date, end: date }}
                 onChange={(selection) => setDate(selection.start)}
               />
             </Label>
-            <Label title="Shift" icon={<Clock size={17} />}>
+            <Label title={t("Shift")} icon={<Clock size={17} />}>
               <select className="field" value={shift} onChange={(event) => setShift(event.target.value as Shift)}>
                 {shifts.map((item) => (
                   <option key={item} value={item}>{item}</option>
@@ -2946,34 +3044,34 @@ function CountSheetsModule({
               </select>
             </Label>
           </div>
-          <Label title="Location" icon={<MapPin size={17} />}>
+          <Label title={t("Location")} icon={<MapPin size={17} />}>
             <select className="field" value={locationId} onChange={(event) => setLocationId(event.target.value)}>
               {locations.filter((location) => location.active).map((location) => (
                 <option key={location.id} value={location.id}>{location.name}</option>
               ))}
             </select>
           </Label>
-          <Label title="Uploaded By" icon={<UserRound size={17} />}>
-            <input className="field" value={uploadedBy} onChange={(event) => setUploadedBy(event.target.value)} placeholder="Counter name or station" />
+          <Label title={t("Uploaded By")} icon={<UserRound size={17} />}>
+            <input className="field" value={uploadedBy} onChange={(event) => setUploadedBy(event.target.value)} placeholder={t("Counter name or station")} />
           </Label>
           <div className="grid gap-2 sm:grid-cols-2">
             <label className="touch-target flex cursor-pointer items-center justify-center gap-2 rounded bg-workshop-500 px-4 py-3 text-lg font-black text-white">
               <Camera size={22} />
-              Camera
+              {t("Camera")}
               <input className="hidden" type="file" accept="image/*" capture="environment" multiple onChange={(event) => handleFiles(event.target.files)} />
             </label>
             <label className="touch-target flex cursor-pointer items-center justify-center gap-2 rounded bg-steel-900 px-4 py-3 text-lg font-black text-white">
               <ImagePlus size={22} />
-              Photos
+              {t("Photos")}
               <input className="hidden" type="file" accept="image/*" multiple onChange={(event) => handleFiles(event.target.files)} />
             </label>
           </div>
-          <DropZone onFiles={handleFiles} label="Drag & drop count sheet photos here" />
+          <DropZone onFiles={handleFiles} label={t("Drag & drop count sheet photos here")} />
           {files.length > 0 && (
             <div className="rounded border border-steel-100 bg-steel-50 p-3">
               <div className="mb-2 flex items-center justify-between gap-2">
-                <strong>{files.length} photo{files.length === 1 ? "" : "s"} ready</strong>
-                <button type="button" className="rounded bg-steel-200 px-3 py-1 text-sm font-black" onClick={() => setFiles([])}>Clear</button>
+                <strong>{t("{n} photos ready", { n: files.length })}</strong>
+                <button type="button" className="rounded bg-steel-200 px-3 py-1 text-sm font-black" onClick={() => setFiles([])}>{t("Clear")}</button>
               </div>
               <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
                 {filePreviews.map(({ file, url }, index) => (
@@ -2982,7 +3080,7 @@ function CountSheetsModule({
                     <img src={url} alt={file.name} className="h-24 w-full object-cover" />
                     <button
                       type="button"
-                      aria-label={`Remove ${file.name}`}
+                      aria-label={t("Remove {name}", { name: file.name })}
                       className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-steel-900/80 text-white"
                       onClick={() => setFiles((current) => current.filter((_, position) => position !== index))}
                     >
@@ -2993,69 +3091,69 @@ function CountSheetsModule({
               </div>
             </div>
           )}
-          <Label title="Notes" icon={<FileSpreadsheet size={17} />}>
-            <textarea className="field min-h-24 resize-none" value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Line, table screen, trailer, or count notes" />
+          <Label title={t("Notes")} icon={<FileSpreadsheet size={17} />}>
+            <textarea className="field min-h-24 resize-none" value={notes} onChange={(event) => setNotes(event.target.value)} placeholder={t("Line, table screen, trailer, or count notes")} />
           </Label>
           <button type="button" disabled={isSaving} className="touch-target flex items-center justify-center gap-2 rounded bg-safety-400 px-4 py-3 text-lg font-black text-steel-900 disabled:bg-steel-300" onClick={saveCountSheet}>
             <Save size={22} />
-            {isSaving ? "Saving..." : "Save Count Sheet"}
+            {isSaving ? t("Saving...") : t("Save Count Sheet")}
           </button>
         </div>
 
         <div className="grid gap-4">
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-            <Metric label="Total Count Sheets" value={wholeNumber(galleryStats.total)} />
-            <Metric label="Photos Uploaded" value={wholeNumber(galleryStats.photos)} />
-            <Metric label="Pending Review" value={wholeNumber(galleryStats.pending)} />
-            <Metric label="Approved" value={wholeNumber(galleryStats.approved)} />
-            <Metric label="Rejected" value={wholeNumber(galleryStats.rejected)} />
+            <Metric label={t("Total Count Sheets")} value={wholeNumber(galleryStats.total)} />
+            <Metric label={t("Photos Uploaded")} value={wholeNumber(galleryStats.photos)} />
+            <Metric label={t("Pending Review")} value={wholeNumber(galleryStats.pending)} />
+            <Metric label={t("Approved")} value={wholeNumber(galleryStats.approved)} />
+            <Metric label={t("Rejected")} value={wholeNumber(galleryStats.rejected)} />
           </div>
 
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-            <Label title="Search" icon={<Search size={17} />}>
-              <input className="field" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search photos" />
+            <Label title={t("Search")} icon={<Search size={17} />}>
+              <input className="field" value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t("Search photos")} />
             </Label>
-            <Label title="Date" icon={<CalendarDays size={17} />}>
+            <Label title={t("Date")} icon={<CalendarDays size={17} />}>
               <CalendarField allowClear value={dateFilter} onChange={setDateFilter} />
             </Label>
-            <Label title="Location" icon={<MapPin size={17} />}>
+            <Label title={t("Location")} icon={<MapPin size={17} />}>
               <select className="field" value={locationFilter} onChange={(event) => setLocationFilter(event.target.value)}>
-                <option value="all">All Locations</option>
+                <option value="all">{t("All Locations")}</option>
                 {locations.map((location) => (
                   <option key={location.id} value={location.id}>{location.name}</option>
                 ))}
               </select>
             </Label>
-            <Label title="Shift" icon={<Clock size={17} />}>
+            <Label title={t("Shift")} icon={<Clock size={17} />}>
               <select className="field" value={shiftFilter} onChange={(event) => setShiftFilter(event.target.value)}>
-                <option value="all">All Shifts</option>
+                <option value="all">{t("All Shifts")}</option>
                 {shifts.map((item) => (
                   <option key={item} value={item}>{item}</option>
                 ))}
               </select>
             </Label>
-            <Label title="Status" icon={<Filter size={17} />}>
+            <Label title={t("Status")} icon={<Filter size={17} />}>
               <select className="field" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as "All" | CountSheetStatus)}>
-                <option value="All">All Statuses</option>
-                <option value="Pending">Pending</option>
-                <option value="Approved">Approved</option>
-                <option value="Rejected">Rejected</option>
+                <option value="All">{t("All Statuses")}</option>
+                <option value="Pending">{t("Pending")}</option>
+                <option value="Approved">{t("Approved")}</option>
+                <option value="Rejected">{t("Rejected")}</option>
               </select>
             </Label>
-            <Label title="Uploaded By" icon={<UserRound size={17} />}>
-              <input className="field" value={uploadedByFilter} onChange={(event) => setUploadedByFilter(event.target.value)} placeholder="Counter name" />
+            <Label title={t("Uploaded By")} icon={<UserRound size={17} />}>
+              <input className="field" value={uploadedByFilter} onChange={(event) => setUploadedByFilter(event.target.value)} placeholder={t("Counter name")} />
             </Label>
-            <Label title="Sort" icon={<Filter size={17} />}>
+            <Label title={t("Sort")} icon={<Filter size={17} />}>
               <select className="field" value={sortMode} onChange={(event) => setSortMode(event.target.value as "newest" | "oldest" | "date-asc" | "date-desc")}>
-                <option value="newest">Newest First</option>
-                <option value="oldest">Oldest First</option>
-                <option value="date-asc">Date Ascending</option>
-                <option value="date-desc">Date Descending</option>
+                <option value="newest">{t("Newest First")}</option>
+                <option value="oldest">{t("Oldest First")}</option>
+                <option value="date-asc">{t("Date Ascending")}</option>
+                <option value="date-desc">{t("Date Descending")}</option>
               </select>
             </Label>
             <button type="button" className="touch-target flex items-center justify-center gap-2 rounded bg-steel-900 px-4 py-2 font-black text-white xl:self-end" onClick={clearFilters}>
               <X size={18} />
-              Clear Filters
+              {t("Clear Filters")}
             </button>
           </div>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
@@ -3072,7 +3170,7 @@ function CountSheetsModule({
                       {sheet.photos[0] ? (
                         <img className="h-full w-full object-cover" src={sheet.photos[0].url} alt={`${sheet.date} ${location} count sheet`} />
                       ) : (
-                        <div className="flex h-full items-center justify-center font-black text-steel-500">No Photo</div>
+                        <div className="flex h-full items-center justify-center font-black text-steel-500">{t("No Photo")}</div>
                       )}
                     </div>
                     <div className="grid gap-1 p-3">
@@ -3081,21 +3179,21 @@ function CountSheetsModule({
                         <StatusBadge status={sheet.status} />
                       </div>
                       <p className="text-sm text-steel-500">{location} · {sheet.shift}</p>
-                      <p className="text-sm font-bold">{sheet.photos.length} photo{sheet.photos.length === 1 ? "" : "s"} · {matchingEntries.length} linked entries</p>
+                      <p className="text-sm font-bold">{t("{p} photos · {e} linked entries", { p: sheet.photos.length, e: matchingEntries.length })}</p>
                     </div>
                   </button>
                   {roleMode === "admin" && (
                     <div className="grid grid-cols-3 gap-2 border-t border-steel-100 p-2">
-                      <button type="button" className="rounded bg-workshop-500 px-2 py-2 text-xs font-black text-white" onClick={() => updateStatus(sheet, "Approved")}>Approve</button>
-                      <button type="button" className="rounded bg-red-700 px-2 py-2 text-xs font-black text-white" onClick={() => updateStatus(sheet, "Rejected")}>Reject</button>
-                      <button type="button" className="rounded bg-red-700 px-2 py-2 text-xs font-black text-white" onClick={() => onDelete(sheet.id)}>Delete</button>
+                      <button type="button" className="rounded bg-workshop-500 px-2 py-2 text-xs font-black text-white" onClick={() => updateStatus(sheet, "Approved")}>{t("Approve")}</button>
+                      <button type="button" className="rounded bg-red-700 px-2 py-2 text-xs font-black text-white" onClick={() => updateStatus(sheet, "Rejected")}>{t("Reject")}</button>
+                      <button type="button" className="rounded bg-red-700 px-2 py-2 text-xs font-black text-white" onClick={() => onDelete(sheet.id)}>{t("Delete")}</button>
                     </div>
                   )}
                 </div>
               );
             })}
             {filteredSheets.length === 0 && (
-              <div className="rounded border border-steel-100 bg-white p-5 text-center font-bold text-steel-500 sm:col-span-2 xl:col-span-3">No count sheets found.</div>
+              <div className="rounded border border-steel-100 bg-white p-5 text-center font-bold text-steel-500 sm:col-span-2 xl:col-span-3">{t("No count sheets found.")}</div>
             )}
           </div>
         </div>
@@ -3136,6 +3234,7 @@ function CountSheetViewer({
   onClose: () => void;
   onUpdate: (id: string, patch: Partial<CountSheet>) => void | Promise<void>;
 }) {
+  const { t } = useT();
   const allPhotos = sheets.flatMap((sheet) => sheet.photos.map((photo) => ({ photo, sheet })));
   const selected = allPhotos[photoIndex] ?? allPhotos[0];
   const fallbackSheet = selected?.sheet ?? sheets[0];
@@ -3152,35 +3251,35 @@ function CountSheetViewer({
   }, [sheet?.id, photoIndex]);
 
   return (
-    <Modal title="Count Sheet Viewer" onClose={onClose}>
+    <Modal title={t("Count Sheet Viewer")} onClose={onClose}>
       <div className="grid gap-4">
         <div className="grid gap-2 sm:grid-cols-4 xl:grid-cols-6">
-          <Metric label="Date" value={sheet.date} />
-          <Metric label="Location" value={location} />
-          <Metric label="Shift" value={sheet.shift} />
-          <Metric label="Uploaded By" value={sheet.uploadedBy} />
-          <Metric label="Status" value={sheet.status} />
-          <Metric label="Photos" value={`${photoIndex + 1} / ${Math.max(1, allPhotos.length)}`} />
+          <Metric label={t("Date")} value={sheet.date} />
+          <Metric label={t("Location")} value={location} />
+          <Metric label={t("Shift")} value={sheet.shift} />
+          <Metric label={t("Uploaded By")} value={sheet.uploadedBy} />
+          <Metric label={t("Status")} value={t(sheet.status)} />
+          <Metric label={t("Photos")} value={`${photoIndex + 1} / ${Math.max(1, allPhotos.length)}`} />
         </div>
         <div className="rounded border border-steel-100 bg-steel-50 p-3 text-sm text-steel-900">
-          <strong className="block">Notes</strong>
-          <span>{sheet.notes || "No notes"}</span>
+          <strong className="block">{t("Notes")}</strong>
+          <span>{sheet.notes || t("No notes")}</span>
         </div>
         <div className="flex flex-wrap gap-2">
-          <button type="button" className="touch-target rounded bg-steel-900 px-4 py-2 font-black text-white" onClick={() => setPhotoIndex(Math.max(0, photoIndex - 1))}>Previous</button>
-          <button type="button" className="touch-target rounded bg-steel-900 px-4 py-2 font-black text-white" onClick={() => setPhotoIndex(Math.min(allPhotos.length - 1, photoIndex + 1))}>Next</button>
-          <button type="button" className="touch-target rounded bg-steel-100 px-4 py-2 font-black text-steel-900" onClick={() => setZoom((value) => Math.max(0.5, Number((value - 0.25).toFixed(2))))}>Zoom Out</button>
-          <button type="button" className="touch-target rounded bg-steel-100 px-4 py-2 font-black text-steel-900" onClick={() => setZoom((value) => Math.min(3, Number((value + 0.25).toFixed(2))))}>Zoom In</button>
+          <button type="button" className="touch-target rounded bg-steel-900 px-4 py-2 font-black text-white" onClick={() => setPhotoIndex(Math.max(0, photoIndex - 1))}>{t("Previous")}</button>
+          <button type="button" className="touch-target rounded bg-steel-900 px-4 py-2 font-black text-white" onClick={() => setPhotoIndex(Math.min(allPhotos.length - 1, photoIndex + 1))}>{t("Next")}</button>
+          <button type="button" className="touch-target rounded bg-steel-100 px-4 py-2 font-black text-steel-900" onClick={() => setZoom((value) => Math.max(0.5, Number((value - 0.25).toFixed(2))))}>{t("Zoom Out")}</button>
+          <button type="button" className="touch-target rounded bg-steel-100 px-4 py-2 font-black text-steel-900" onClick={() => setZoom((value) => Math.min(3, Number((value + 0.25).toFixed(2))))}>{t("Zoom In")}</button>
           {photo && (
             <button type="button" className="touch-target flex items-center gap-2 rounded bg-steel-100 px-4 py-2 font-black text-steel-900" onClick={() => openImageInNewTab(photo.url)}>
               <ExternalLink size={18} />
-              Open in new tab
+              {t("Open in new tab")}
             </button>
           )}
           {photo && (
             <a className="touch-target flex items-center gap-2 rounded bg-workshop-500 px-4 py-2 font-black text-white" href={photo.url} download={photo.fileName}>
               <Download size={18} />
-              Download
+              {t("Download")}
             </a>
           )}
         </div>
@@ -3188,7 +3287,7 @@ function CountSheetViewer({
           {photo ? (
             <img className="mx-auto max-h-[72vh] max-w-none rounded bg-white" src={photo.url} alt={photo.fileName} style={{ transform: `scale(${zoom})`, transformOrigin: "top center" }} />
           ) : (
-            <div className="p-8 text-center font-black text-white">No photos</div>
+            <div className="p-8 text-center font-black text-white">{t("No photos")}</div>
           )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -3199,18 +3298,18 @@ function CountSheetViewer({
           ))}
         </div>
         <div className="rounded border border-steel-100 bg-steel-50 p-3 text-sm text-steel-900">
-          <strong className="block">Linked Production Entries</strong>
-          <span>{linkedEntries.length} saved production entr{linkedEntries.length === 1 ? "y" : "ies"} match this date, location, and shift.</span>
+          <strong className="block">{t("Linked Production Entries")}</strong>
+          <span>{t("{n} saved production entries match this date, location, and shift.", { n: linkedEntries.length })}</span>
         </div>
         {roleMode === "admin" && (
           <div className="grid gap-3">
-            <Label title="Admin Comments" icon={<FileSpreadsheet size={17} />}>
+            <Label title={t("Admin Comments")} icon={<FileSpreadsheet size={17} />}>
               <textarea className="field min-h-24 resize-none" value={comments} onChange={(event) => setComments(event.target.value)} />
             </Label>
             <div className="flex flex-wrap gap-2">
-              <button type="button" className="touch-target rounded bg-workshop-500 px-4 py-2 font-black text-white" onClick={() => onUpdate(sheet.id, { comments, status: "Approved", approvedBy: "Admin", approvedAt: new Date().toISOString() })}>Approve</button>
-              <button type="button" className="touch-target rounded bg-red-700 px-4 py-2 font-black text-white" onClick={() => onUpdate(sheet.id, { comments, status: "Rejected", rejectedBy: "Admin", rejectedAt: new Date().toISOString() })}>Reject</button>
-              <button type="button" className="touch-target rounded bg-steel-900 px-4 py-2 font-black text-white" onClick={() => onUpdate(sheet.id, { comments })}>Save Comments</button>
+              <button type="button" className="touch-target rounded bg-workshop-500 px-4 py-2 font-black text-white" onClick={() => onUpdate(sheet.id, { comments, status: "Approved", approvedBy: "Admin", approvedAt: new Date().toISOString() })}>{t("Approve")}</button>
+              <button type="button" className="touch-target rounded bg-red-700 px-4 py-2 font-black text-white" onClick={() => onUpdate(sheet.id, { comments, status: "Rejected", rejectedBy: "Admin", rejectedAt: new Date().toISOString() })}>{t("Reject")}</button>
+              <button type="button" className="touch-target rounded bg-steel-900 px-4 py-2 font-black text-white" onClick={() => onUpdate(sheet.id, { comments })}>{t("Save Comments")}</button>
             </div>
           </div>
         )}
@@ -3546,6 +3645,7 @@ function ProductionGrid({
   onViewEntry: (entry: DailyEntry) => void;
   onDeleteEntry: (id: string) => void;
 }) {
+  const { t } = useT();
   const weekDays = getWeekDays(selectedWeek);
   const weekEntries = entries.filter((entry) => weekDays.includes(entry.date));
   const activePallets = palletTypes.filter((pallet) => pallet.active || weekEntries.some((entry) => entry.lines.some((line) => line.palletTypeId === pallet.id)));
@@ -3568,18 +3668,18 @@ function ProductionGrid({
     <div className="grid gap-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-2xl font-black">Production Grid</h2>
-          <p className="text-sm text-steel-500">Weekly spreadsheet view by repairer, pallet type, day, and dollars.</p>
+          <h2 className="text-2xl font-black">{t("Production Grid")}</h2>
+          <p className="text-sm text-steel-500">{t("Weekly spreadsheet view by repairer, pallet type, day, and dollars.")}</p>
         </div>
         <WeekControls selectedWeek={selectedWeek} onWeekChange={onWeekChange} />
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        <Metric label="Week Quantity" value={wholeNumber(weekReport.summary.quantity)} />
-        <Metric label="Piece Pay" value={currency(weekReport.summary.piecePay)} />
-        <Metric label="Make-up Pay" value={currency(weekReport.summary.makeup)} />
-        <Metric label="Overtime" value={`${weekReport.summary.dailyOvertime.toFixed(2)} hrs`} />
-        <Metric label="Weekly Total" value={currency(weekReport.summary.totalPay)} />
+        <Metric label={t("Week Quantity")} value={wholeNumber(weekReport.summary.quantity)} />
+        <Metric label={t("Piece Pay")} value={currency(weekReport.summary.piecePay)} />
+        <Metric label={t("Make-up Pay")} value={currency(weekReport.summary.makeup)} />
+        <Metric label={t("Overtime")} value={`${weekReport.summary.dailyOvertime.toFixed(2)} hrs`} />
+        <Metric label={t("Weekly Total")} value={currency(weekReport.summary.totalPay)} />
       </div>
 
       {employees.filter((employee) => employee.active || weekEntries.some((entry) => entry.employeeId === employee.id)).map((employee) => {
@@ -3600,21 +3700,21 @@ function ProductionGrid({
                 </div>
               </button>
               <div className="grid grid-cols-3 gap-2 text-center text-sm">
-                <strong className="rounded bg-safety-400 px-3 py-2">{wholeNumber(employeeReport.summary.quantity)} qty</strong>
+                <strong className="rounded bg-safety-400 px-3 py-2">{wholeNumber(employeeReport.summary.quantity)} {t("qty")}</strong>
                 <strong className="rounded bg-safety-400 px-3 py-2">{currency(employeeReport.summary.piecePay)}</strong>
-                <strong className="rounded bg-safety-400 px-3 py-2">{currency(employeeReport.summary.totalPay)} total</strong>
+                <strong className="rounded bg-safety-400 px-3 py-2">{currency(employeeReport.summary.totalPay)} {t("total")}</strong>
               </div>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[1120px] text-left text-xs">
                 <thead>
                   <tr className="bg-steel-900 text-white">
-                    <th className="p-2">Pallet Type</th>
+                    <th className="p-2">{t("Pallet Type")}</th>
                     {weekDays.map((day) => (
                       <th key={day} className="p-2 text-center">{formatDayHeader(day)}</th>
                     ))}
-                    <th className="bg-safety-400 p-2 text-center text-steel-900">Weekly Qty</th>
-                    <th className="bg-safety-400 p-2 text-center text-steel-900">Weekly $</th>
+                    <th className="bg-safety-400 p-2 text-center text-steel-900">{t("Weekly Qty")}</th>
+                    <th className="bg-safety-400 p-2 text-center text-steel-900">{t("Weekly $")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -3631,8 +3731,8 @@ function ProductionGrid({
                     return (
                       <tr key={pallet.id} className="border-t border-steel-100 even:bg-steel-50">
                         <td className="p-2">
-                          <strong className="block">{pallet.code}</strong>
-                          <span className="text-steel-500">{pallet.description}</span>
+                          <strong className="block">{t(pallet.code)}</strong>
+                          <span className="text-steel-500">{t(pallet.description)}</span>
                         </td>
                         {dayCells.map((cell) => (
                           <td key={cell.day} className="p-2 text-center">
@@ -3646,7 +3746,7 @@ function ProductionGrid({
                     );
                   })}
                   <tr className="border-t-2 border-steel-900 bg-workshop-100 font-black">
-                    <td className="p-2">Daily Totals</td>
+                    <td className="p-2">{t("Daily Totals")}</td>
                     {weekDays.map((day) => {
                       const dayEntries = employeeEntries.filter((entry) => entry.date === day);
                       const dayReport = buildReport(dayEntries, palletTypes, employees, locations, settings);
@@ -3684,18 +3784,18 @@ function ProductionGrid({
 
       {weekEntries.length === 0 && (
         <div className="rounded border border-steel-100 bg-white p-5 text-center font-bold text-steel-500">
-          No production entries found for this week.
+          {t("No production entries found for this week.")}
         </div>
       )}
 
       <div className="rounded border border-steel-100 bg-white p-4 text-steel-900">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h3 className="text-lg font-black">Count Sheet Photos</h3>
-            <p className="text-sm font-bold text-steel-500">{rangeSheets.length} count sheet{rangeSheets.length === 1 ? "" : "s"} · {rangePhotos.length} photo{rangePhotos.length === 1 ? "" : "s"} in range</p>
+            <h3 className="text-lg font-black">{t("Count Sheet Photos")}</h3>
+            <p className="text-sm font-bold text-steel-500">{t("{c} count sheets · {p} photos in range", { c: rangeSheets.length, p: rangePhotos.length })}</p>
           </div>
           <div className="flex flex-wrap items-end gap-2">
-            <Label title="Date" icon={<CalendarDays size={16} />}>
+            <Label title={t("Date")} icon={<CalendarDays size={16} />}>
               <CalendarField
                 allowClear
                 align="right"
@@ -3714,7 +3814,7 @@ function ProductionGrid({
           </div>
         </div>
         {rangePhotos.length === 0 ? (
-          <p className="mt-3 text-sm font-bold text-steel-500">No count sheet photos in this date range.</p>
+          <p className="mt-3 text-sm font-bold text-steel-500">{t("No count sheet photos in this date range.")}</p>
         ) : (
           <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-6">
             {rangePhotos.map(({ photo, sheet }) => (
@@ -4387,6 +4487,10 @@ function EmployeeAdmin({
   }
 
   const yardName = (id: string) => locations.find((location) => location.id === id)?.name ?? id;
+  const stationText = (employee: Employee) =>
+    employee.station
+      ? `${employee.station === "sorter" ? "Sorter" : "Repair Line"}${employee.stationSpot ? ` · Position ${employee.stationSpot}` : ""}`
+      : "No station assigned";
   const grouped = yardFilter === "grouped";
   const visibleEmployees = yardFilter === "all" || grouped ? employees : employees.filter((employee) => employee.locationId === yardFilter);
   const sortByYardThenManager = (a: Employee, b: Employee) => {
@@ -4439,6 +4543,34 @@ function EmployeeAdmin({
           <input className="h-5 w-5" type="checkbox" checked={draft.active} onChange={(event) => setDraft((current) => ({ ...current, active: event.target.checked }))} />
           Active
         </label>
+      </div>
+      {/* Station is assigned by admin here; repairers/managers no longer pick it
+          on the entry screen. */}
+      <div className="grid gap-3 sm:grid-cols-2 md:max-w-md">
+        <Label title="Station" icon={<MapPin size={17} />}>
+          <select
+            className="field"
+            value={draft.station ?? ""}
+            onChange={(event) => setDraft((current) => ({ ...current, station: (event.target.value || undefined) as Employee["station"], stationSpot: event.target.value ? current.stationSpot : undefined }))}
+          >
+            <option value="">— None —</option>
+            <option value="sorter">Sorter</option>
+            <option value="repair">Repair Line</option>
+          </select>
+        </Label>
+        <Label title="Position" icon={<UserRound size={17} />}>
+          <select
+            className="field"
+            value={draft.stationSpot ?? ""}
+            disabled={!draft.station}
+            onChange={(event) => setDraft((current) => ({ ...current, stationSpot: event.target.value ? Number(event.target.value) : undefined }))}
+          >
+            <option value="">— None —</option>
+            {[1, 2, 3, 4, 5].map((spot) => (
+              <option key={spot} value={spot}>Position {spot}</option>
+            ))}
+          </select>
+        </Label>
       </div>
       <div className="grid gap-3 md:grid-cols-[220px_1fr]">
         <div className="grid gap-2">
@@ -4510,6 +4642,10 @@ function EmployeeAdmin({
                       )}
                     </div>
                     <p className="text-sm text-steel-500">{yardName(employee.locationId)} · {employee.shift}</p>
+                    <p className={classNames("mt-1 flex items-center gap-1 text-sm font-bold", employee.station ? "text-workshop-700" : "text-steel-400")}>
+                      <MapPin size={13} />
+                      {stationText(employee)}
+                    </p>
                     <p className="mt-1 text-sm text-steel-500">{employee.notes || "No notes"}</p>
                   </div>
                 </div>
@@ -4553,6 +4689,34 @@ function EmployeeAdmin({
                     <option key={shift} value={shift}>
                       {shift}
                     </option>
+                  ))}
+                </select>
+              </Label>
+            </div>
+            {/* Station assignment lives here so admins control it; repairers no
+                longer pick their own station/spot on the entry screen. */}
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Label title="Station" icon={<MapPin size={17} />}>
+                <select
+                  className="field"
+                  value={editDraft.station ?? ""}
+                  onChange={(event) => setEditDraft((current) => current ? { ...current, station: (event.target.value || undefined) as Employee["station"], stationSpot: event.target.value ? current.stationSpot : undefined } : current)}
+                >
+                  <option value="">— None —</option>
+                  <option value="sorter">Sorter</option>
+                  <option value="repair">Repair Line</option>
+                </select>
+              </Label>
+              <Label title="Position" icon={<UserRound size={17} />}>
+                <select
+                  className="field"
+                  value={editDraft.stationSpot ?? ""}
+                  disabled={!editDraft.station}
+                  onChange={(event) => setEditDraft((current) => current ? { ...current, stationSpot: event.target.value ? Number(event.target.value) : undefined } : current)}
+                >
+                  <option value="">— None —</option>
+                  {[1, 2, 3, 4, 5].map((spot) => (
+                    <option key={spot} value={spot}>Position {spot}</option>
                   ))}
                 </select>
               </Label>
@@ -4654,6 +4818,7 @@ function LocationShiftAdmin({ locations, shifts, onLocationsChange, onShiftsChan
 }
 
 function StatusBadge({ status }: { status: CountSheetStatus }) {
+  const { t } = useT();
   return (
     <span
       className={classNames(
@@ -4663,7 +4828,7 @@ function StatusBadge({ status }: { status: CountSheetStatus }) {
         status === "Pending" && "bg-steel-200 text-steel-900"
       )}
     >
-      {status}
+      {t(status)}
     </span>
   );
 }
@@ -5051,9 +5216,12 @@ function buildReport(entries: DailyEntry[], palletTypes: PalletType[], employees
       if (!line.palletTypeId) {
         console.warn(`Production entry ${entry.id} has a missing palletTypeId.`);
       }
+      const customPallet = (entry.customPallets ?? []).find((item) => item.id === line.palletTypeId);
       const pallet = findPalletType(palletTypes, line.palletTypeId);
-      const palletDisplay = getPalletDisplay(pallet, line.palletTypeId);
-      const key = pallet?.id ?? `unknown-${line.palletTypeId || entry.id}`;
+      const palletDisplay = customPallet
+        ? { label: customPallet.name, category: "Custom", rate: 0 }
+        : getPalletDisplay(pallet, line.palletTypeId);
+      const key = pallet?.id ?? (customPallet ? `custom-${customPallet.name.trim().toLowerCase()}` : `unknown-${line.palletTypeId || entry.id}`);
       const row = byPalletMap.get(key) ?? {
         id: key,
         palletTypeId: line.palletTypeId || "missing",
@@ -5061,7 +5229,7 @@ function buildReport(entries: DailyEntry[], palletTypes: PalletType[], employees
         category: palletDisplay.category,
         quantity: 0,
         piecePay: 0,
-        orphaned: !pallet
+        orphaned: !pallet && !customPallet
       };
       row.quantity += line.quantity;
       row.piecePay += line.quantity * palletDisplay.rate;
@@ -5237,7 +5405,7 @@ function Modal({ title, children, onClose }: { title: string; children: ReactNod
               <ExternalLink size={16} />
               <span className="hidden sm:inline">{t("Open in new tab")}</span>
             </button>
-            <button type="button" aria-label="Close edit modal" className="touch-target flex w-12 items-center justify-center rounded bg-steel-100 text-steel-900" onClick={onClose}>
+            <button type="button" aria-label={t("Close edit modal")} className="touch-target flex w-12 items-center justify-center rounded bg-steel-100 text-steel-900" onClick={onClose}>
               <X size={20} />
             </button>
           </div>

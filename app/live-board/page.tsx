@@ -124,9 +124,20 @@ export default function LiveBoardPage() {
   const [roster, setRoster] = useState<Record<string, { name: string; photo?: string }>>({});
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [scale, setScale] = useState(1);
+  // The board is authored at a 1080-tall canvas. We scale it to the window
+  // height and let the canvas WIDTH track the window width (so the fluid
+  // header/grid reflow to fill the space) — this fills any window/aspect
+  // ratio instead of letterboxing a fixed 16:9 canvas.
+  const [canvasWidth, setCanvasWidth] = useState(1920);
 
   useEffect(() => {
-    const fit = () => setScale(Math.min(window.innerWidth / 1920, window.innerHeight / 1080));
+    const fit = () => {
+      const next = window.innerHeight / 1080;
+      // Canvas width must equal window.innerWidth / scale so the scaled canvas
+      // exactly matches the window width (no letterbox, no overflow/clipping).
+      setScale(next > 0 ? next : 1);
+      setCanvasWidth(next > 0 ? window.innerWidth / next : 1920);
+    };
     fit();
     window.addEventListener("resize", fit);
     document.addEventListener("fullscreenchange", fit);
@@ -303,7 +314,7 @@ export default function LiveBoardPage() {
   return (
     <LanguageProvider value={{ language, setLanguage: changeLanguage, t }}>
     <main
-      className={`fixed inset-0 flex items-center justify-center overflow-hidden text-white ${cursorHidden ? "cursor-none" : ""}`}
+      className={`fixed inset-0 flex items-start justify-start overflow-hidden text-white ${cursorHidden ? "cursor-none" : ""}`}
       style={{
         fontFamily: "ui-sans-serif, system-ui, -apple-system, 'SF Pro Display', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
         background:
@@ -316,8 +327,8 @@ export default function LiveBoardPage() {
         <span className="absolute bottom-0 left-1/3 h-[30rem] w-[30rem] rounded-full bg-[#3f8a55]/15 blur-[120px] [animation:aurora-c_28s_ease-in-out_infinite]" />
       </div>
       <div
-        className="relative flex flex-col overflow-hidden"
-        style={{ width: 1920, height: 1080, transform: `scale(${scale})`, transformOrigin: "center" }}
+        className="relative flex shrink-0 flex-col overflow-hidden"
+        style={{ width: canvasWidth, height: 1080, transform: `scale(${scale})`, transformOrigin: "top left" }}
       >
       <header className="flex shrink-0 flex-wrap items-center justify-between gap-6 px-10 pt-6">
         <div className="flex items-center gap-4">

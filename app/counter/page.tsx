@@ -507,51 +507,6 @@ export default function CounterPage() {
           </section>
 
           <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-            <div className="flex items-center gap-2">
-              <Camera size={24} className="text-[#1f7a4d]" />
-              <h3 className="text-xl font-black">Count Sheet Photos</h3>
-            </div>
-            <p className="mt-1 text-sm font-bold text-slate-500">Photos attach to {today || "today"} · {locations.find((location) => location.id === selectedLocationId)?.name ?? selectedLocationId} · {selectedShift}</p>
-            <div className="mt-3 grid gap-3 sm:grid-cols-2">
-              <label className="flex min-h-16 cursor-pointer items-center justify-center gap-2 rounded-lg bg-[#1f7a4d] px-4 text-lg font-black text-white">
-                <Camera size={22} />
-                Take Photo
-                <input className="hidden" type="file" accept="image/*" capture="environment" onChange={(event) => addPhotoFiles(event.target.files)} />
-              </label>
-              <label className="flex min-h-16 cursor-pointer items-center justify-center gap-2 rounded-lg bg-[#16212b] px-4 text-lg font-black text-white">
-                <ImagePlus size={22} />
-                Upload Photos
-                <input className="hidden" type="file" accept="image/*" multiple onChange={(event) => addPhotoFiles(event.target.files)} />
-              </label>
-            </div>
-            <div className="mt-3">
-              <DropZone onFiles={addPhotoFiles} label="Drag & drop count sheet photos here" />
-            </div>
-            <div className="mt-3 grid gap-3 sm:grid-cols-2">
-              <label className="grid gap-1 text-sm font-black text-slate-600">
-                Uploaded By
-                <input className="h-14 rounded border border-slate-300 px-4 text-lg font-bold" value={uploadedBy} onChange={(event) => setUploadedBy(event.target.value)} />
-              </label>
-              <label className="grid gap-1 text-sm font-black text-slate-600">
-                Notes
-                <input className="h-14 rounded border border-slate-300 px-4 text-lg font-bold" placeholder="Count sheet, trailer, yard, screen..." value={photoNotes} onChange={(event) => setPhotoNotes(event.target.value)} />
-              </label>
-            </div>
-            {photoFiles.length > 0 && (
-              <div className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-5">
-                {photoFiles.map((file, index) => (
-                  <PhotoPreview key={`${file.name}-${file.lastModified}-${index}`} file={file} onRemove={() => setPhotoFiles((current) => current.filter((_, itemIndex) => itemIndex !== index))} />
-                ))}
-              </div>
-            )}
-            <button className="mt-3 flex min-h-14 w-full items-center justify-center gap-2 rounded bg-[#1f7a4d] text-xl font-black text-white" type="button" disabled={isUploadingPhotos || photoFiles.length === 0} onClick={uploadPhotos}>
-              <Save size={22} />
-              Save Photos to Count Sheets
-            </button>
-            <p className="mt-2 text-sm font-black text-slate-600">{photoStatus}</p>
-          </section>
-
-          <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
             <div className="flex flex-wrap items-end justify-between gap-2">
               <div>
                 <h3 className="text-xl font-black">Pallet Type</h3>
@@ -628,6 +583,51 @@ export default function CounterPage() {
                 Save Today's Changes
               </button>
             )}
+          </section>
+
+          <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="flex items-center gap-2">
+              <Camera size={24} className="text-[#1f7a4d]" />
+              <h3 className="text-xl font-black">Count Sheet Photos</h3>
+            </div>
+            <p className="mt-1 text-sm font-bold text-slate-500">Photos attach to {today || "today"} · {locations.find((location) => location.id === selectedLocationId)?.name ?? selectedLocationId} · {selectedShift}</p>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <label className="flex min-h-16 cursor-pointer items-center justify-center gap-2 rounded-lg bg-[#1f7a4d] px-4 text-lg font-black text-white">
+                <Camera size={22} />
+                Take Photo
+                <input className="hidden" type="file" accept="image/*" capture="environment" onChange={(event) => addPhotoFiles(event.target.files)} />
+              </label>
+              <label className="flex min-h-16 cursor-pointer items-center justify-center gap-2 rounded-lg bg-[#16212b] px-4 text-lg font-black text-white">
+                <ImagePlus size={22} />
+                Upload Photos
+                <input className="hidden" type="file" accept="image/*" multiple onChange={(event) => addPhotoFiles(event.target.files)} />
+              </label>
+            </div>
+            <div className="mt-3">
+              <DropZone onFiles={addPhotoFiles} label="Drag & drop count sheet photos here" />
+            </div>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <label className="grid gap-1 text-sm font-black text-slate-600">
+                Uploaded By
+                <input className="h-14 rounded border border-slate-300 px-4 text-lg font-bold" value={uploadedBy} onChange={(event) => setUploadedBy(event.target.value)} />
+              </label>
+              <label className="grid gap-1 text-sm font-black text-slate-600">
+                Notes
+                <input className="h-14 rounded border border-slate-300 px-4 text-lg font-bold" placeholder="Count sheet, trailer, yard, screen..." value={photoNotes} onChange={(event) => setPhotoNotes(event.target.value)} />
+              </label>
+            </div>
+            {photoFiles.length > 0 && (
+              <div className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-5">
+                {photoFiles.map((file, index) => (
+                  <PhotoPreview key={`${file.name}-${file.lastModified}-${index}`} file={file} onRemove={() => setPhotoFiles((current) => current.filter((_, itemIndex) => itemIndex !== index))} />
+                ))}
+              </div>
+            )}
+            <button className="mt-3 flex min-h-14 w-full items-center justify-center gap-2 rounded bg-[#1f7a4d] text-xl font-black text-white" type="button" disabled={isUploadingPhotos || photoFiles.length === 0} onClick={uploadPhotos}>
+              <Save size={22} />
+              Save Photos to Count Sheets
+            </button>
+            <p className="mt-2 text-sm font-black text-slate-600">{photoStatus}</p>
           </section>
         </div>
       </section>

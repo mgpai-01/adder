@@ -36,8 +36,10 @@ export const esDict: Record<string, string> = {
   Sorter: "Clasificador",
   "Repair Line": "Línea de Reparación",
   Spot: "Puesto",
+  Position: "Posición",
   "— None —": "— Ninguno —",
   "Spot {n}": "Puesto {n}",
+  "Position {n}": "Posición {n}",
   "No station set": "Sin estación asignada",
   "Entering for": "Ingresando para",
   Notes: "Notas",
@@ -54,6 +56,15 @@ export const esDict: Record<string, string> = {
   "— enter this phase's pallets, then switch phases above":
     "— ingrese las tarimas de esta fase, luego cambie de fase arriba",
   "{n} pallets": "{n} tarimas",
+  Custom: "Personalizado",
+  "Custom pallet": "Tarima personalizada",
+  "Custom pallet name": "Nombre de tarima personalizada",
+  "Add Custom Pallet": "Agregar Tarima Personalizada",
+
+  // Seeded pallet types shown on the entry grid (system rows, not user data)
+  "Quality Control Rejects": "Rechazos de Control de Calidad",
+  "Reject deduction": "Deducción por rechazo",
+  "QC Deductions": "Deducciones de CC",
 
   // Phase tracker
   "Phase {n}": "Fase {n}",
@@ -130,7 +141,110 @@ export const esDict: Record<string, string> = {
   "2nd": "2°",
   "3rd": "3°",
   pallets: "tarimas",
-  "No production entries for this selection.": "No hay registros de producción para esta selección."
+  "No production entries for this selection.": "No hay registros de producción para esta selección.",
+
+  // Header / nav
+  "Pallet Repair Tracking": "Seguimiento de Reparación de Tarimas",
+  "Toggle dark mode": "Alternar modo oscuro",
+  Cloud: "Nube",
+  Users: "Usuarios",
+  Admin: "Administración",
+
+  // Entry — pay & time fields
+  "Piece Pay": "Pago por Pieza",
+  "Make-up": "Ajuste",
+  "Make-up Pay": "Pago de Ajuste",
+  Total: "Total",
+  Shift: "Turno",
+  "Clock In": "Entrada",
+  "Clock Out": "Salida",
+  Hours: "Horas",
+  "Break / Lunch": "Descanso / Almuerzo",
+  "15 paid break + 30 unpaid lunch": "15 de descanso pagado + 30 de almuerzo sin pagar",
+  "Paid 30-minute lunch": "Almuerzo pagado de 30 minutos",
+  "No lunch deduction": "Sin deducción de almuerzo",
+  "Hourly equivalent": "Equivalente por hora",
+  "Minimum required": "Mínimo requerido",
+  "Daily overtime": "Horas extra diarias",
+  "Remove photo": "Quitar foto",
+
+  // Count Sheets
+  "Upload yard photos and link count documentation by date, location, and shift.":
+    "Suba fotos del patio y vincule la documentación de conteo por fecha, ubicación y turno.",
+  Counter: "Contador",
+  "Counter mode keeps rates, payroll, and dollar amounts hidden.":
+    "El modo contador mantiene ocultas las tarifas, la nómina y los montos en dólares.",
+  "Upload Photos": "Subir Fotos",
+  Location: "Ubicación",
+  "Uploaded By": "Subido Por",
+  "Counter name or station": "Nombre del contador o estación",
+  "Counter name": "Nombre del contador",
+  Camera: "Cámara",
+  Photos: "Fotos",
+  "{n} photos ready": "{n} fotos listas",
+  "{p} photos · {e} linked entries": "{p} fotos · {e} registros vinculados",
+  "{n} saved production entries match this date, location, and shift.":
+    "{n} registros de producción guardados coinciden con esta fecha, ubicación y turno.",
+  "Remove {name}": "Quitar {name}",
+  "Line, table screen, trailer, or count notes": "Línea, pantalla de mesa, tráiler o notas de conteo",
+  "Save Count Sheet": "Guardar Hoja de Conteo",
+  "Total Count Sheets": "Total de Hojas de Conteo",
+  "Photos Uploaded": "Fotos Subidas",
+  "Pending Review": "Pendiente de Revisión",
+  Approved: "Aprobado",
+  Rejected: "Rechazado",
+  Pending: "Pendiente",
+  Search: "Buscar",
+  "Search photos": "Buscar fotos",
+  Status: "Estado",
+  Sort: "Ordenar",
+  "All Statuses": "Todos los Estados",
+  "Newest First": "Más Recientes Primero",
+  "Oldest First": "Más Antiguos Primero",
+  "Date Ascending": "Fecha Ascendente",
+  "Date Descending": "Fecha Descendente",
+  "Clear Filters": "Borrar Filtros",
+  "No Photo": "Sin Foto",
+  Approve: "Aprobar",
+  Reject: "Rechazar",
+  Delete: "Eliminar",
+  "No count sheets found.": "No se encontraron hojas de conteo.",
+  "Ready for count sheet photos.": "Listo para fotos de hoja de conteo.",
+  "Add at least one count sheet photo before saving.":
+    "Agregue al menos una foto de hoja de conteo antes de guardar.",
+  "Count sheet marked {status}.": "Hoja de conteo marcada como {status}.",
+  "Count Sheet Viewer": "Visor de Hojas de Conteo",
+  "No notes": "Sin notas",
+  Previous: "Anterior",
+  Next: "Siguiente",
+  "Zoom Out": "Alejar",
+  "Zoom In": "Acercar",
+  "No photos": "Sin fotos",
+  "Linked Production Entries": "Registros de Producción Vinculados",
+  "Admin Comments": "Comentarios del Administrador",
+  "Save Comments": "Guardar Comentarios",
+  "Saving...": "Guardando...",
+
+  // Production Grid
+  "Weekly spreadsheet view by repairer, pallet type, day, and dollars.":
+    "Vista semanal por reparador, tipo de tarima, día y dólares.",
+  "Week Quantity": "Cantidad Semanal",
+  Overtime: "Horas Extra",
+  "Weekly Total": "Total Semanal",
+  qty: "cant",
+  total: "total",
+  "Pallet Type": "Tipo de Tarima",
+  "Weekly Qty": "Cant. Semanal",
+  "Weekly $": "$ Semanal",
+  "Daily Totals": "Totales Diarios",
+  "No production entries found for this week.": "No se encontraron registros de producción para esta semana.",
+  "Count Sheet Photos": "Fotos de Hoja de Conteo",
+  "No count sheet photos in this date range.": "No hay fotos de hoja de conteo en este rango de fechas.",
+  "{c} count sheets · {p} photos in range": "{c} hojas de conteo · {p} fotos en el rango",
+  "in range": "en el rango",
+
+  // Modal
+  "Close edit modal": "Cerrar ventana de edición"
 };
 
 // Translate `text` into `language`, substituting {key} placeholders from `vars`.
