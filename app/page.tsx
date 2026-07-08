@@ -5200,16 +5200,49 @@ function FilterSelect({ label, value, onChange, options }: { label: string; valu
 }
 
 function Modal({ title, children, onClose }: { title: string; children: ReactNode; onClose: () => void }) {
+  const { t } = useT();
+  const contentRef = useRef<HTMLDivElement>(null);
+
+  // Pop the pop-up's content out into its own browser tab: copy the page's
+  // stylesheets so it looks the same, and drop in the modal's current HTML
+  // (inline data-URL photos come along, so they render there too).
+  function openInNewTab() {
+    const node = contentRef.current;
+    const win = window.open("", "_blank");
+    if (!node || !win) return;
+    const styles = Array.from(document.querySelectorAll('style, link[rel="stylesheet"]'))
+      .map((element) => element.outerHTML)
+      .join("");
+    win.document.write(
+      `<!doctype html><html><head><meta charset="utf-8">` +
+        `<meta name="viewport" content="width=device-width, initial-scale=1">` +
+        `<title>${title}</title>${styles}</head>` +
+        `<body class="bg-white text-steel-900"><div class="mx-auto max-w-3xl p-6">` +
+        `<h1 class="mb-4 text-2xl font-black">${title}</h1>${node.innerHTML}</div></body></html>`
+    );
+    win.document.close();
+  }
+
   return (
     <div className="fixed inset-0 z-50 grid place-items-end bg-steel-900/70 p-0 sm:place-items-center sm:p-4">
       <div className="max-h-[92vh] w-full overflow-y-auto rounded-t bg-white p-4 text-steel-900 shadow-panel sm:max-w-2xl sm:rounded">
         <div className="mb-4 flex items-center justify-between gap-3 border-b border-steel-100 pb-3">
-          <h3 className="text-xl font-black">{title}</h3>
-          <button type="button" aria-label="Close edit modal" className="touch-target flex w-12 items-center justify-center rounded bg-steel-100 text-steel-900" onClick={onClose}>
-            <X size={20} />
-          </button>
+          <h3 className="min-w-0 truncate text-xl font-black">{title}</h3>
+          <div className="flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              onClick={openInNewTab}
+              className="flex items-center gap-1.5 rounded bg-steel-100 px-3 py-2 text-sm font-black text-steel-900 hover:bg-steel-200"
+            >
+              <ExternalLink size={16} />
+              <span className="hidden sm:inline">{t("Open in new tab")}</span>
+            </button>
+            <button type="button" aria-label="Close edit modal" className="touch-target flex w-12 items-center justify-center rounded bg-steel-100 text-steel-900" onClick={onClose}>
+              <X size={20} />
+            </button>
+          </div>
         </div>
-        {children}
+        <div ref={contentRef}>{children}</div>
       </div>
     </div>
   );
