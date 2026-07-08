@@ -19,7 +19,6 @@ import {
   LogOut,
   MapPin,
   Maximize2,
-  Minus,
   Moon,
   Plus,
   RotateCcw,
@@ -2469,10 +2468,9 @@ function ProductionEntry({
   const yardRepairers = employees.filter((employee) => employee.locationId === form.locationId && employee.role !== "supervisor");
   const yardManagers = employees.filter((employee) => employee.locationId === form.locationId && employee.role === "supervisor");
   const displayedPallets = palletsForYard(palletTypes, form.locationId);
-  // Manager view drops the price columns and uses compact cells + a smaller
-  // quantity stepper so the table fits a phone screen with no sideways scroll.
+  // Manager view drops the price columns and uses compact cells so the table
+  // fits a phone screen with no sideways scroll.
   const cellPad = hidePricing ? "p-2" : "p-3";
-  const qtyCols = hidePricing ? "grid-cols-[40px_minmax(0,1fr)_40px] gap-1" : "grid-cols-[44px_88px_44px] gap-2";
 
   // Each repairer's phase check-ins for the selected day + yard. Saved entries
   // are the source of truth; the repairer being edited reflects the live form.
@@ -2710,10 +2708,10 @@ function ProductionEntry({
                             value={quantity}
                           />
                         </div>
-                      ) : hidePricing ? (
-                        // Default box: a normal small box (not stretched), aligned
-                        // right. Type the numbers here and the row splits into the
-                        // formula + sum boxes above.
+                      ) : (
+                        // Default box: a normal small box aligned right. Type the
+                        // numbers here (use the keypad's + to add several together)
+                        // and the row splits into the formula + sum boxes above.
                         <div className="flex justify-end">
                           <QuantityInput
                             className="w-20 rounded border border-steel-200 bg-white px-1 py-2.5 text-center font-black text-steel-900 outline-none focus:border-workshop-500"
@@ -2721,21 +2719,6 @@ function ProductionEntry({
                             parts={line?.parts}
                             onCommit={(sum, parts) => onQuantityChange(selectedPhase, pallet.id, sum, parts)}
                           />
-                        </div>
-                      ) : (
-                        <div className={classNames("grid", qtyCols)}>
-                          <button type="button" className="touch-target flex items-center justify-center rounded bg-steel-800 text-white" onClick={() => onQuantityChange(selectedPhase, pallet.id, quantity - 1)}>
-                            <Minus size={18} />
-                          </button>
-                          <QuantityInput
-                            className="field min-w-0 px-1 text-center font-black"
-                            value={quantity}
-                            parts={line?.parts}
-                            onCommit={(sum, parts) => onQuantityChange(selectedPhase, pallet.id, sum, parts)}
-                          />
-                          <button type="button" className="touch-target flex items-center justify-center rounded bg-safety-400 text-steel-900" onClick={() => onQuantityChange(selectedPhase, pallet.id, quantity + 1)}>
-                            <Plus size={18} />
-                          </button>
                         </div>
                       )}
                     </td>
