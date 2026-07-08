@@ -2127,55 +2127,12 @@ function PhaseTracker({
 }) {
   const { t } = useT();
   const lastDone = lastPhaseDone(phases);
-  // Full-screen view of a phase photo so count sheets can be read.
-  const [zoomPhoto, setZoomPhoto] = useState<string | null>(null);
-  // Rotation (degrees) applied to the zoomed photo so a sideways count sheet can
-  // be turned upright; resets each time a new photo is opened.
-  const [zoomRotation, setZoomRotation] = useState(0);
-  // Photos that fail to render (e.g. an old HEIC saved before conversion) so we
-  // can show a clear "re-upload" placeholder instead of a broken-image icon.
-  const [brokenPhotos, setBrokenPhotos] = useState<string[]>([]);
-
-  useEffect(() => {
-    setZoomRotation(0);
-  }, [zoomPhoto]);
-
-  // Close the full-screen viewer with the Escape key.
-  useEffect(() => {
-    if (!zoomPhoto) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setZoomPhoto(null);
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [zoomPhoto]);
 
   function updatePhase(index: number, patch: Partial<EntryPhase>) {
     onChange(phases.map((phase, current) => (current === index ? { ...phase, ...patch } : phase)));
   }
 
-  function readAsDataUrl(file: File): Promise<string> {
-    return new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result));
-      reader.readAsDataURL(file);
-    });
-  }
-
-  // Add one or more photos to a phase, keeping any already there.
-  async function handlePhasePhoto(index: number, files: File[]) {
-    if (!files.length) return;
-    const added = await Promise.all(files.map(async (file) => readAsDataUrl(await compressImage(file))));
-    const existing = phasePhotos(phases[index]);
-    updatePhase(index, { photoDataUrl: undefined, photoDataUrls: [...existing, ...added] });
-  }
-
-  function removePhasePhoto(index: number, photo: string) {
-    updatePhase(index, { photoDataUrl: undefined, photoDataUrls: phasePhotos(phases[index]).filter((item) => item !== photo) });
-  }
-
   const active = phases[selected];
-  const activePhotos = phasePhotos(active);
 
   return (
     <div className="grid gap-3 rounded border border-steel-100 bg-white p-3 text-steel-900 md:grid-cols-[1fr_300px]">
@@ -2261,58 +2218,6 @@ function PhaseTracker({
             >
               {active.bypassed ? t("Bypassed ✓") : t("Bypass")}
             </button>
-          </div>
-          <div className="sm:col-span-2">
-            <p className="mb-1 flex items-center gap-1.5 text-sm font-black">
-              <Camera size={15} /> {t("Phase {n} photos", { n: selected + 1 })}
-              {activePhotos.length > 0 && <span className="font-bold text-steel-500">({activePhotos.length})</span>}
-            </p>
-            {activePhotos.length > 0 && (
-              <div className="mb-3 flex flex-wrap gap-2">
-                {activePhotos.map((photo, photoIndex) => {
-                  const broken = brokenPhotos.includes(photo);
-                  return (
-                  <div key={photoIndex} className="relative shrink-0">
-                    {broken ? (
-                      <div className="flex h-16 w-24 flex-col items-center justify-center rounded bg-amber-50 px-1 text-center text-[10px] font-black leading-tight text-amber-700 ring-1 ring-amber-200">
-                        {t("Can't preview — remove & re-add")}
-                      </div>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => setZoomPhoto(photo)}
-                        className="group relative block rounded ring-1 ring-steel-200 transition-transform hover:scale-105"
-                        title={t("Tap to enlarge")}
-                      >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={photo}
-                          alt={`Phase ${selected + 1} photo ${photoIndex + 1}`}
-                          className="h-16 w-16 rounded object-cover"
-                          onError={() => setBrokenPhotos((current) => (current.includes(photo) ? current : [...current, photo]))}
-                        />
-                        <span className="absolute inset-0 flex items-center justify-center rounded bg-black/0 text-transparent transition-colors group-hover:bg-black/40 group-hover:text-white">
-                          <Maximize2 size={18} />
-                        </span>
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => removePhasePhoto(selected, photo)}
-                      aria-label={t("Remove photo")}
-                      className="absolute -right-1.5 -top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-red-700 text-white shadow ring-2 ring-white"
-                    >
-                      <X size={13} />
-                    </button>
-                  </div>
-                  );
-                })}
-              </div>
-            )}
-            <DropZone
-              onFiles={(dropped) => handlePhasePhoto(selected, dropped)}
-              label={activePhotos.length > 0 ? t("Add more photos") : t("Drag & drop or tap to add phase photos")}
-            />
           </div>
         </div>
       </div>
@@ -2415,6 +2320,117 @@ function PhaseTracker({
           ));
         })()}
       </div>
+    </div>
+  );
+}
+
+// Phase photo capture, split out of PhaseTracker so it can sit at the very
+// bottom of the entry screen — managers count pallets first, then attach the
+// photos for the selected phase as the final step.
+function PhasePhotoCapture({
+  phases,
+  selected,
+  onChange
+}: {
+  phases: EntryPhase[];
+  selected: number;
+  onChange: (next: EntryPhase[]) => void;
+}) {
+  const { t } = useT();
+  const [zoomPhoto, setZoomPhoto] = useState<string | null>(null);
+  const [zoomRotation, setZoomRotation] = useState(0);
+  const [brokenPhotos, setBrokenPhotos] = useState<string[]>([]);
+
+  useEffect(() => {
+    setZoomRotation(0);
+  }, [zoomPhoto]);
+
+  useEffect(() => {
+    if (!zoomPhoto) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setZoomPhoto(null);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [zoomPhoto]);
+
+  function updatePhase(index: number, patch: Partial<EntryPhase>) {
+    onChange(phases.map((phase, current) => (current === index ? { ...phase, ...patch } : phase)));
+  }
+
+  function readAsDataUrl(file: File): Promise<string> {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function handlePhasePhoto(index: number, files: File[]) {
+    if (!files.length) return;
+    const added = await Promise.all(files.map(async (file) => readAsDataUrl(await compressImage(file))));
+    const existing = phasePhotos(phases[index]);
+    updatePhase(index, { photoDataUrl: undefined, photoDataUrls: [...existing, ...added] });
+  }
+
+  function removePhasePhoto(index: number, photo: string) {
+    updatePhase(index, { photoDataUrl: undefined, photoDataUrls: phasePhotos(phases[index]).filter((item) => item !== photo) });
+  }
+
+  const activePhotos = phasePhotos(phases[selected]);
+
+  return (
+    <div className="rounded border border-steel-100 bg-white p-3 text-steel-900">
+      <p className="mb-1 flex items-center gap-1.5 text-sm font-black">
+        <Camera size={15} /> {t("Phase {n} photos", { n: selected + 1 })}
+        {activePhotos.length > 0 && <span className="font-bold text-steel-500">({activePhotos.length})</span>}
+      </p>
+      {activePhotos.length > 0 && (
+        <div className="mb-3 flex flex-wrap gap-2">
+          {activePhotos.map((photo, photoIndex) => {
+            const broken = brokenPhotos.includes(photo);
+            return (
+            <div key={photoIndex} className="relative shrink-0">
+              {broken ? (
+                <div className="flex h-16 w-24 flex-col items-center justify-center rounded bg-amber-50 px-1 text-center text-[10px] font-black leading-tight text-amber-700 ring-1 ring-amber-200">
+                  {t("Can't preview — remove & re-add")}
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setZoomPhoto(photo)}
+                  className="group relative block rounded ring-1 ring-steel-200 transition-transform hover:scale-105"
+                  title={t("Tap to enlarge")}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={photo}
+                    alt={`Phase ${selected + 1} photo ${photoIndex + 1}`}
+                    className="h-16 w-16 rounded object-cover"
+                    onError={() => setBrokenPhotos((current) => (current.includes(photo) ? current : [...current, photo]))}
+                  />
+                  <span className="absolute inset-0 flex items-center justify-center rounded bg-black/0 text-transparent transition-colors group-hover:bg-black/40 group-hover:text-white">
+                    <Maximize2 size={18} />
+                  </span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => removePhasePhoto(selected, photo)}
+                aria-label={t("Remove photo")}
+                className="absolute -right-1.5 -top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-red-700 text-white shadow ring-2 ring-white"
+              >
+                <X size={13} />
+              </button>
+            </div>
+            );
+          })}
+        </div>
+      )}
+      <DropZone
+        onFiles={(dropped) => handlePhasePhoto(selected, dropped)}
+        label={activePhotos.length > 0 ? t("Add more photos") : t("Drag & drop or tap to add phase photos")}
+      />
 
       {/* Full-screen photo viewer so count sheets can be read up close.
           Click the backdrop or press Escape to close. */}
@@ -2425,7 +2441,6 @@ function PhaseTracker({
           role="dialog"
           aria-modal="true"
         >
-          {/* Toolbar: rotate, download, close. */}
           <div className="absolute right-3 top-3 z-10 flex items-center gap-2" onClick={(event) => event.stopPropagation()}>
             <button
               type="button"
@@ -2860,6 +2875,10 @@ function ProductionEntry({
       <Label title={t("Notes")} icon={<FileSpreadsheet size={17} />}>
         <textarea className="field min-h-20 resize-none" value={form.notes} onChange={(event) => onFormChange("notes", event.target.value)} placeholder={t("Supervisor notes, trailer, customer, or repair issues")} />
       </Label>
+
+      {/* Photos are the last step: count the pallets first, then attach the
+          selected phase's photos at the bottom of the entry screen. */}
+      <PhasePhotoCapture phases={activePhases} selected={selectedPhase} onChange={(next) => onFormChange("phases", next)} />
 
       <button type="button" className="touch-target flex items-center justify-center gap-2 rounded bg-workshop-500 px-4 py-3 text-lg font-black text-white shadow-panel" onClick={onSave}>
         <Save size={22} />
