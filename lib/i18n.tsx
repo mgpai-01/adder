@@ -55,6 +55,11 @@ export const esDict: Record<string, string> = {
     "— ingrese las tarimas de esta fase, luego cambie de fase arriba",
   "{n} pallets": "{n} tarimas",
 
+  // Seeded pallet types shown on the entry grid (system rows, not user data)
+  "Quality Control Rejects": "Rechazos de Control de Calidad",
+  "Reject deduction": "Deducción por rechazo",
+  "QC Deductions": "Deducciones de CC",
+
   // Phase tracker
   "Phase {n}": "Fase {n}",
   "Last entered: Phase {n}": "Última ingresada: Fase {n}",

@@ -2697,17 +2697,17 @@ function ProductionEntry({
 
                 return (
                   <tr key={pallet.id} className="border-t border-steel-100 even:bg-steel-50">
-                    {!hidePricing && <td className={classNames(cellPad, "font-black")}>{pallet.category}</td>}
+                    {!hidePricing && <td className={classNames(cellPad, "font-black")}>{t(pallet.category)}</td>}
                     <td className={classNames(cellPad, hidePricing && "break-words")}>
                       {hidePricing ? (
                         <>
-                          <span className="block text-steel-500">{pallet.code}</span>
-                          <span className="block font-black">{pallet.description}</span>
+                          <span className="block text-steel-500">{t(pallet.code)}</span>
+                          <span className="block font-black">{t(pallet.description)}</span>
                         </>
                       ) : (
                         <>
-                          <span className="block font-black">{pallet.code}</span>
-                          <span className="text-steel-500">{pallet.description}</span>
+                          <span className="block font-black">{t(pallet.code)}</span>
+                          <span className="text-steel-500">{t(pallet.description)}</span>
                         </>
                       )}
                     </td>
