@@ -134,7 +134,14 @@ export const esDict: Record<string, string> = {
   "2nd": "2°",
   "3rd": "3°",
   pallets: "tarimas",
-  "No production entries for this selection.": "No hay registros de producción para esta selección."
+  "No production entries for this selection.": "No hay registros de producción para esta selección.",
+
+  // Live Yards (admin)
+  "Live Yards": "Patios en Vivo",
+  "This Week": "Esta Semana",
+  "All Time": "Todo el Tiempo",
+  "No production yet": "Sin producción aún",
+  "Per-yard production · {period} · {total} pallets": "Producción por patio · {period} · {total} tarimas"
 };
 
 // Translate `text` into `language`, substituting {key} placeholders from `vars`.

@@ -374,7 +374,7 @@ export function getAccessToken(): string {
 // Which app views each role may open. Admin sees everything; Manager runs
 // production and reports; Counter only handles count sheets.
 export const roleViews: Record<AppRole, string[]> = {
-  admin: ["entry", "count-sheets", "production-grid", "dashboard", "payroll", "cloud", "users", "settings"],
+  admin: ["entry", "count-sheets", "production-grid", "dashboard", "live-yards", "payroll", "cloud", "users", "settings"],
   supervisor: ["entry", "count-sheets", "production-grid"],
   employee: ["count-sheets"]
 };
