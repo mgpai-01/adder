@@ -124,6 +124,7 @@ export const esDict: Record<string, string> = {
   to: "a",
   Ranking: "Clasificación",
   Yards: "Patios",
+  Total: "Total",
   "Location Totals": "Totales por Ubicación",
   "Company Total": "Total de la Compañía",
   "Live · auto-refresh": "En vivo · actualización automática",
