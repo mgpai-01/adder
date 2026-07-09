@@ -7,7 +7,7 @@ import { employees, locations, palletTypes, payrollSettings, shifts } from "@/li
 import { findPalletType } from "@/lib/payroll";
 import { getWeekKey, wholeNumber } from "@/lib/payroll";
 import { LanguageProvider, translate, useT, type Language } from "@/lib/i18n";
-import type { DailyEntry, PayrollSettings, Shift } from "@/lib/types";
+import type { DailyEntry, PalletType, PayrollSettings, Shift } from "@/lib/types";
 import CalendarField, { type DateSelection } from "@/components/CalendarField";
 
 type PeriodMode = "today" | "date" | "current-week" | "previous-week" | "custom-week" | "custom-range";
@@ -39,7 +39,7 @@ function getLocationName(locationId: string) {
   return locations.find((location) => location.id === locationId)?.name ?? locationId;
 }
 
-function quantityForEntry(entry: DailyEntry) {
+function quantityForEntry(entry: DailyEntry, palletTypes: PalletType[]) {
   // QC deductions (quality reductions) subtract from the pallet count shown on
   // the board — a rejected pallet lowers the productivity total.
   return (entry.lines ?? []).reduce((total, line) => {
@@ -48,33 +48,20 @@ function quantityForEntry(entry: DailyEntry) {
   }, 0);
 }
 
-// Short readable name for a pallet type, e.g. "3 STACKER · REGULAR" or "REPAIR
-// · 60x40", used to list exactly which pallets a repairer built.
-function palletLabel(palletTypeId: string) {
+// The pallet's code exactly as it reads on the entry sheet (e.g. "1 STACKER",
+// "REPAIR"), used for the matrix column headers.
+function palletCode(palletTypeId: string, palletTypes: PalletType[]) {
+  const pallet = findPalletType(palletTypes, palletTypeId);
+  return pallet ? pallet.code : palletTypeId.slice(0, 6).toUpperCase();
+}
+
+// Full name for a pallet type, code plus description (e.g. "3 STACKER ·
+// REGULAR"), kept as the column's title so it's available on hover.
+function palletLabel(palletTypeId: string, palletTypes: PalletType[]) {
   const pallet = findPalletType(palletTypes, palletTypeId);
   if (!pallet) return palletTypeId.replaceAll("-", " ");
   const description = pallet.description && !pallet.code.toUpperCase().includes(pallet.description.toUpperCase()) ? ` · ${pallet.description}` : "";
   return `${pallet.code}${description}`.trim();
-}
-
-// Very short header for a matrix column, e.g. "STK3", "REP", "OUT A1". The full
-// name is kept as the cell's title so it's still available on hover.
-function palletAbbrev(palletTypeId: string) {
-  const pallet = findPalletType(palletTypes, palletTypeId);
-  if (!pallet) return palletTypeId.slice(0, 6).toUpperCase();
-  const code = pallet.code.toUpperCase();
-  const description = (pallet.description ?? "").toUpperCase();
-  const stacker = code.match(/(\d+)\s*STACKER/);
-  if (stacker) return `STK${stacker[1]}`;
-  if (code.includes("STACK BY HAND")) return "HAND";
-  if (code.includes("REPAIR")) return "REP";
-  if (code.includes("EXTEND")) return "EXT";
-  if (code.includes("CUT")) return "CUT";
-  if (code.includes("OUTSIDE")) {
-    const grade = /A\s*#?1|GRADE A/.test(description) ? "A1" : /B\s*#?2|GRADE B/.test(description) ? "B2" : description.includes("BLOCK") ? "BLK" : description.includes("REGULAR") ? "REG" : "";
-    return grade ? `OUT ${grade}` : "OUT";
-  }
-  return pallet.code.slice(0, 6).toUpperCase();
 }
 
 function readUrlFilters() {
@@ -155,6 +142,10 @@ export default function LiveBoardPage() {
   const t = (text: string, vars?: Record<string, string | number>) => translate(language, text, vars);
   const dateLocale = language === "es" ? "es-ES" : "en-US";
   const [roster, setRoster] = useState<Record<string, { name: string; photo?: string }>>({});
+  // Real pallet types (admin-configured, from Supabase) so the matrix headers
+  // show the actual entry-sheet names instead of raw IDs. Seeded with the
+  // built-in defaults until the fetch lands.
+  const [palletTypeList, setPalletTypeList] = useState<PalletType[]>(palletTypes);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [scale, setScale] = useState(1);
 
@@ -173,14 +164,16 @@ export default function LiveBoardPage() {
     // Use the photo-free summary endpoints: the board only needs names and
     // pallet quantities, so pulling the embedded photos every refresh would
     // burn Supabase egress for nothing.
-    const [entryResponse, settingsResponse, employeesResponse] = await Promise.all([
+    const [entryResponse, settingsResponse, employeesResponse, palletTypesResponse] = await Promise.all([
       fetch("/api/entries/summary", { cache: "no-store" }),
       fetch("/api/settings", { cache: "no-store" }),
-      fetch("/api/employees?summary=1", { cache: "no-store" })
+      fetch("/api/employees?summary=1", { cache: "no-store" }),
+      fetch("/api/pallet-types", { cache: "no-store" })
     ]);
     const entryResult = (await entryResponse.json()) as { entries: DailyEntry[] };
     const settingsResult = (await settingsResponse.json()) as { settings: PayrollSettings };
     const employeesResult = (await employeesResponse.json()) as { employees?: Array<{ id: string; name: string; photoDataUrl?: string }> };
+    const palletTypesResult = (await palletTypesResponse.json()) as { palletTypes?: PalletType[] };
     const rosterMap: Record<string, { name: string; photo?: string }> = {};
     for (const employee of employeesResult.employees ?? []) {
       rosterMap[employee.id] = { name: employee.name, photo: employee.photoDataUrl || undefined };
@@ -188,6 +181,7 @@ export default function LiveBoardPage() {
     setRoster(rosterMap);
     setEntries(entryResult.entries ?? []);
     setSettings({ ...payrollSettings, ...settingsResult.settings });
+    if (palletTypesResult.palletTypes && palletTypesResult.palletTypes.length > 0) setPalletTypeList(palletTypesResult.palletTypes);
     setLastUpdated(new Date());
   }
 
@@ -258,7 +252,7 @@ export default function LiveBoardPage() {
   }, [entries, locationFilter, periodMode, selectedDate, selectedWeek, rangeStart, rangeEnd, shiftFilter]);
 
   const repairerRows = useMemo(() => {
-    type Acc = { employeeId: string; name: string; photo?: string; locationId: string; shift: Shift; quantity: number; palletMap: Map<string, { id: string; label: string; quantity: number }> };
+    type Acc = { employeeId: string; name: string; photo?: string; locationId: string; shift: Shift; quantity: number; palletMap: Map<string, { id: string; code: string; label: string; quantity: number }> };
     const totals = new Map<string, Acc>();
     for (const entry of filteredEntries) {
       const row = totals.get(entry.employeeId) ?? {
@@ -268,18 +262,18 @@ export default function LiveBoardPage() {
         locationId: entry.locationId,
         shift: entry.shift,
         quantity: 0,
-        palletMap: new Map<string, { id: string; label: string; quantity: number }>()
+        palletMap: new Map<string, { id: string; code: string; label: string; quantity: number }>()
       };
-      row.quantity += quantityForEntry(entry);
+      row.quantity += quantityForEntry(entry, palletTypeList);
       // Tally the specific pallet types this repairer produced (QC deductions
       // aren't pallets they "made", so they're left out of the breakdown).
       for (const line of entry.lines ?? []) {
-        const pallet = findPalletType(palletTypes, line.palletTypeId);
+        const pallet = findPalletType(palletTypeList, line.palletTypeId);
         if (pallet?.category === "QC Deductions") continue;
         const quantity = Number(line.quantity || 0);
         if (!quantity) continue;
         const key = pallet?.id ?? line.palletTypeId;
-        const existing = row.palletMap.get(key) ?? { id: key, label: palletLabel(line.palletTypeId), quantity: 0 };
+        const existing = row.palletMap.get(key) ?? { id: key, code: palletCode(line.palletTypeId, palletTypeList), label: palletLabel(line.palletTypeId, palletTypeList), quantity: 0 };
         existing.quantity += quantity;
         row.palletMap.set(key, existing);
       }
@@ -288,18 +282,18 @@ export default function LiveBoardPage() {
     return Array.from(totals.values())
       .map(({ palletMap, ...row }) => ({ ...row, pallets: Array.from(palletMap.values()).sort((a, b) => b.quantity - a.quantity) }))
       .sort((a, b) => b.quantity - a.quantity || a.name.localeCompare(b.name));
-  }, [filteredEntries, roster]);
+  }, [filteredEntries, roster, palletTypeList]);
 
   const locationRows = useMemo(() => {
     const totals = new Map<string, number>();
     for (const entry of filteredEntries) {
-      totals.set(entry.locationId, (totals.get(entry.locationId) ?? 0) + quantityForEntry(entry));
+      totals.set(entry.locationId, (totals.get(entry.locationId) ?? 0) + quantityForEntry(entry, palletTypeList));
     }
     return locations
       .filter((location) => locationFilter === "all" || location.id === locationFilter)
       .map((location) => ({ id: location.id, name: location.name, quantity: totals.get(location.id) ?? 0 }))
       .sort((a, b) => b.quantity - a.quantity);
-  }, [filteredEntries, locationFilter]);
+  }, [filteredEntries, locationFilter, palletTypeList]);
 
   // Each yard as its own column of ranked repairers, for the "All Yards" grid.
   // Fixed location order so tiles don't jump around as counts change live.
@@ -604,7 +598,7 @@ function YardTab({ active, onClick, children }: { active: boolean; onClick: () =
   );
 }
 
-type BoardRow = { employeeId: string; name: string; photo?: string; locationId: string; shift: Shift; quantity: number; pallets?: { id: string; label: string; quantity: number }[] };
+type BoardRow = { employeeId: string; name: string; photo?: string; locationId: string; shift: Shift; quantity: number; pallets?: { id: string; code: string; label: string; quantity: number }[] };
 
 function YardColumn({ yard }: { yard: { id: string; name: string; total: number; rows: BoardRow[] } }) {
   const { t } = useT();
@@ -613,7 +607,7 @@ function YardColumn({ yard }: { yard: { id: string; name: string; total: number;
   const columnMap = new Map<string, { id: string; label: string; abbrev: string; total: number }>();
   for (const row of yard.rows) {
     for (const pallet of row.pallets ?? []) {
-      const column = columnMap.get(pallet.id) ?? { id: pallet.id, label: pallet.label, abbrev: palletAbbrev(pallet.id), total: 0 };
+      const column = columnMap.get(pallet.id) ?? { id: pallet.id, label: pallet.label, abbrev: pallet.label, total: 0 };
       column.total += pallet.quantity;
       columnMap.set(pallet.id, column);
     }
