@@ -123,6 +123,7 @@ export const esDict: Record<string, string> = {
   Week: "Semana",
   to: "a",
   Ranking: "Clasificación",
+  Yards: "Patios",
   "Location Totals": "Totales por Ubicación",
   "Company Total": "Total de la Compañía",
   "Live · auto-refresh": "En vivo · actualización automática",
