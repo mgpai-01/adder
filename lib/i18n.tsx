@@ -109,6 +109,7 @@ export const esDict: Record<string, string> = {
   // Live board
   Live: "En Vivo",
   "Pallet Tracker": "Rastreador de Tarimas",
+  "Repair Tracking": "Registro de Reparación",
   Fullscreen: "Pantalla Completa",
   "All Yards": "Todos los Patios",
   "All Shifts": "Todos los Turnos",

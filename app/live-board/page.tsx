@@ -1,6 +1,6 @@
 "use client";
 
-import { Crown, Expand, MapPin, RefreshCw, Target, Trophy } from "lucide-react";
+import { Crown, Expand, LogIn, MapPin, RefreshCw, Target, Trophy } from "lucide-react";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { employees, locations, palletTypes, payrollSettings, shifts } from "@/lib/data";
@@ -56,10 +56,16 @@ function palletCode(palletTypeId: string, palletTypes: PalletType[]) {
 }
 
 // Full name for a pallet type, code plus description (e.g. "3 STACKER ·
-// REGULAR"), kept as the column's title so it's available on hover.
+// REGULAR"), kept as the column's title so it's available on hover. Pallet
+// types no longer in the list (orphaned custom entries whose id looks like
+// "custom:ab12cd") get a clean "Custom" label instead of the raw id.
 function palletLabel(palletTypeId: string, palletTypes: PalletType[]) {
   const pallet = findPalletType(palletTypes, palletTypeId);
-  if (!pallet) return palletTypeId.replaceAll("-", " ");
+  if (!pallet) {
+    const custom = palletTypeId.match(/^custom[:-]?(.+)$/i);
+    if (custom) return `Custom ${custom[1].slice(-4).toUpperCase()}`;
+    return palletTypeId.replaceAll("-", " ");
+  }
   const description = pallet.description && !pallet.code.toUpperCase().includes(pallet.description.toUpperCase()) ? ` · ${pallet.description}` : "";
   return `${pallet.code}${description}`.trim();
 }
@@ -395,6 +401,15 @@ export default function LiveBoardPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {/* Back to the main Pallet Repair Tracking app (shows the login
+              screen when signed out). */}
+          <a
+            href="/"
+            className="flex h-12 items-center gap-2 rounded-xl border border-white/10 bg-white/[0.05] px-4 font-bold text-white/70 backdrop-blur transition-colors hover:text-white"
+          >
+            <LogIn size={20} />
+            <span className="hidden sm:inline">{t("Repair Tracking")}</span>
+          </a>
           <div className="flex overflow-hidden rounded-xl border border-white/10 text-sm font-bold">
             {(["en", "es"] as Language[]).map((code) => (
               <button
