@@ -48,6 +48,15 @@ function quantityForEntry(entry: DailyEntry) {
   }, 0);
 }
 
+// Short readable name for a pallet type, e.g. "3 STACKER · REGULAR" or "REPAIR
+// · 60x40", used to list exactly which pallets a repairer built.
+function palletLabel(palletTypeId: string) {
+  const pallet = findPalletType(palletTypes, palletTypeId);
+  if (!pallet) return palletTypeId.replaceAll("-", " ");
+  const description = pallet.description && !pallet.code.toUpperCase().includes(pallet.description.toUpperCase()) ? ` · ${pallet.description}` : "";
+  return `${pallet.code}${description}`.trim();
+}
+
 function readUrlFilters() {
   if (typeof window === "undefined") {
     return {
@@ -225,7 +234,8 @@ export default function LiveBoardPage() {
   }, [entries, locationFilter, periodMode, selectedDate, selectedWeek, rangeStart, rangeEnd, shiftFilter]);
 
   const repairerRows = useMemo(() => {
-    const totals = new Map<string, { employeeId: string; name: string; photo?: string; locationId: string; shift: Shift; quantity: number }>();
+    type Acc = { employeeId: string; name: string; photo?: string; locationId: string; shift: Shift; quantity: number; palletMap: Map<string, { id: string; label: string; quantity: number }> };
+    const totals = new Map<string, Acc>();
     for (const entry of filteredEntries) {
       const row = totals.get(entry.employeeId) ?? {
         employeeId: entry.employeeId,
@@ -233,12 +243,27 @@ export default function LiveBoardPage() {
         photo: roster[entry.employeeId]?.photo,
         locationId: entry.locationId,
         shift: entry.shift,
-        quantity: 0
+        quantity: 0,
+        palletMap: new Map<string, { id: string; label: string; quantity: number }>()
       };
       row.quantity += quantityForEntry(entry);
+      // Tally the specific pallet types this repairer produced (QC deductions
+      // aren't pallets they "made", so they're left out of the breakdown).
+      for (const line of entry.lines ?? []) {
+        const pallet = findPalletType(palletTypes, line.palletTypeId);
+        if (pallet?.category === "QC Deductions") continue;
+        const quantity = Number(line.quantity || 0);
+        if (!quantity) continue;
+        const key = pallet?.id ?? line.palletTypeId;
+        const existing = row.palletMap.get(key) ?? { id: key, label: palletLabel(line.palletTypeId), quantity: 0 };
+        existing.quantity += quantity;
+        row.palletMap.set(key, existing);
+      }
       totals.set(entry.employeeId, row);
     }
-    return Array.from(totals.values()).sort((a, b) => b.quantity - a.quantity || a.name.localeCompare(b.name));
+    return Array.from(totals.values())
+      .map(({ palletMap, ...row }) => ({ ...row, pallets: Array.from(palletMap.values()).sort((a, b) => b.quantity - a.quantity) }))
+      .sort((a, b) => b.quantity - a.quantity || a.name.localeCompare(b.name));
   }, [filteredEntries, roster]);
 
   const locationRows = useMemo(() => {
@@ -550,7 +575,7 @@ function YardTab({ active, onClick, children }: { active: boolean; onClick: () =
   );
 }
 
-type BoardRow = { employeeId: string; name: string; photo?: string; locationId: string; shift: Shift; quantity: number };
+type BoardRow = { employeeId: string; name: string; photo?: string; locationId: string; shift: Shift; quantity: number; pallets?: { id: string; label: string; quantity: number }[] };
 
 function YardColumn({ yard }: { yard: { id: string; name: string; total: number; rows: BoardRow[] } }) {
   const { t } = useT();
@@ -569,11 +594,22 @@ function YardColumn({ yard }: { yard: { id: string; name: string; total: number;
       ) : (
         <div className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-hidden">
           {yard.rows.map((row, index) => (
-            <div key={row.employeeId} className="flex items-center gap-2.5">
-              <span className="w-5 shrink-0 text-center text-base font-bold tabular-nums text-white/30">{index + 1}</span>
+            <div key={row.employeeId} className="flex items-start gap-2.5">
+              <span className="w-5 shrink-0 pt-1 text-center text-base font-bold tabular-nums text-white/30">{index + 1}</span>
               <BoardAvatar name={row.name} photo={row.photo} size={36} />
-              <span className="min-w-0 flex-1 text-base font-bold leading-tight [overflow-wrap:anywhere]">{row.name}</span>
-              <span className="shrink-0 text-xl font-black tabular-nums">{wholeNumber(row.quantity)}</span>
+              <div className="min-w-0 flex-1">
+                <span className="block text-base font-bold leading-tight [overflow-wrap:anywhere]">{row.name}</span>
+                {row.pallets && row.pallets.length > 0 && (
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {row.pallets.map((pallet) => (
+                      <span key={pallet.id} className="rounded bg-white/[0.06] px-1.5 py-0.5 text-[11px] font-semibold leading-tight text-white/55">
+                        {pallet.label} <span className="tabular-nums text-white/85">{wholeNumber(pallet.quantity)}</span>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <span className="shrink-0 pt-0.5 text-xl font-black tabular-nums">{wholeNumber(row.quantity)}</span>
             </div>
           ))}
         </div>
