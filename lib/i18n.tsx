@@ -81,6 +81,10 @@ export const esDict: Record<string, string> = {
   "Now tap the end date": "Ahora toque la fecha de fin",
 
   // Photo viewer
+  "Side by side": "Lado a lado",
+  "Full screen": "Pantalla completa",
+  "Zoom in": "Acercar",
+  "Zoom out": "Alejar",
   "Rotate left": "Girar a la izquierda",
   "Rotate right": "Girar a la derecha",
   Download: "Descargar",
@@ -119,6 +123,7 @@ export const esDict: Record<string, string> = {
   Week: "Semana",
   to: "a",
   Ranking: "Clasificación",
+  Yards: "Patios",
   "Location Totals": "Totales por Ubicación",
   "Company Total": "Total de la Compañía",
   "Live · auto-refresh": "En vivo · actualización automática",
@@ -130,7 +135,14 @@ export const esDict: Record<string, string> = {
   "2nd": "2°",
   "3rd": "3°",
   pallets: "tarimas",
-  "No production entries for this selection.": "No hay registros de producción para esta selección."
+  "No production entries for this selection.": "No hay registros de producción para esta selección.",
+
+  // Live Yards (admin)
+  "Live Yards": "Patios en Vivo",
+  "This Week": "Esta Semana",
+  "All Time": "Todo el Tiempo",
+  "No production yet": "Sin producción aún",
+  "Per-yard production · {period} · {total} pallets": "Producción por patio · {period} · {total} tarimas"
 };
 
 // Translate `text` into `language`, substituting {key} placeholders from `vars`.

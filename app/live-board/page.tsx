@@ -252,6 +252,19 @@ export default function LiveBoardPage() {
       .sort((a, b) => b.quantity - a.quantity);
   }, [filteredEntries, locationFilter]);
 
+  // Each yard as its own column of ranked repairers, for the "All Yards" grid.
+  // Fixed location order so tiles don't jump around as counts change live.
+  const yardColumns = useMemo(
+    () =>
+      locations
+        .filter((location) => locationFilter === "all" || location.id === locationFilter)
+        .map((location) => {
+          const rows = repairerRows.filter((row) => row.locationId === location.id);
+          return { id: location.id, name: location.name, total: rows.reduce((sum, row) => sum + row.quantity, 0), rows };
+        }),
+    [repairerRows, locationFilter]
+  );
+
   const companyTotal = repairerRows.reduce((total, row) => total + row.quantity, 0);
   const goal = Math.max(0, settings.dailyProductionGoal || 4500);
   const goalPercent = goal > 0 ? Math.min(100, Math.round((companyTotal / goal) * 100)) : 0;
@@ -404,9 +417,18 @@ export default function LiveBoardPage() {
       <section className="min-h-0 flex-1 overflow-hidden px-10 pb-5 pt-3">
         <div className="grid h-full gap-6 xl:grid-cols-[1.5fr_0.9fr]">
           <GlassCard className="flex min-h-0 flex-col">
-            <SectionLabel icon={<Trophy size={22} />}>{t("Ranking")}</SectionLabel>
+            <SectionLabel icon={<Trophy size={22} />}>{locationFilter === "all" ? t("Yards") : t("Ranking")}</SectionLabel>
             {repairerRows.length === 0 ? (
               <EmptyBoardMessage />
+            ) : locationFilter === "all" ? (
+              <div
+                className="grid min-h-0 flex-1 gap-4 overflow-hidden"
+                style={{ gridTemplateColumns: `repeat(${Math.max(yardColumns.length, 1)}, minmax(0, 1fr))` }}
+              >
+                {yardColumns.map((yard) => (
+                  <YardColumn key={yard.id} yard={yard} />
+                ))}
+              </div>
             ) : (
               <div className="flex min-h-0 flex-1 flex-col gap-6">
                 <Podium rows={repairerRows.slice(0, 3)} />
@@ -529,6 +551,41 @@ function YardTab({ active, onClick, children }: { active: boolean; onClick: () =
 }
 
 type BoardRow = { employeeId: string; name: string; photo?: string; locationId: string; shift: Shift; quantity: number };
+
+function YardColumn({ yard }: { yard: { id: string; name: string; total: number; rows: BoardRow[] } }) {
+  const { t } = useT();
+  const max = yard.rows[0]?.quantity || 1;
+  return (
+    <div className="flex min-h-0 flex-col rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+      <div className="mb-3 flex items-center justify-between gap-2 border-b border-white/10 pb-3">
+        <span className="truncate text-2xl font-black">{yard.name}</span>
+        <div className="shrink-0 text-right">
+          <span className="text-3xl font-black tabular-nums text-[#aef2bc]">{wholeNumber(yard.total)}</span>
+          <span className="ml-1.5 text-sm font-bold uppercase tracking-wide text-white/35">{t("pallets")}</span>
+        </div>
+      </div>
+      {yard.rows.length === 0 ? (
+        <p className="pt-8 text-center text-lg font-semibold text-white/30">{t("No production yet")}</p>
+      ) : (
+        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden">
+          {yard.rows.map((row, index) => (
+            <div key={row.employeeId} className="flex items-center gap-3">
+              <span className="w-6 shrink-0 text-center text-lg font-bold tabular-nums text-white/30">{index + 1}</span>
+              <BoardAvatar name={row.name} photo={row.photo} size={40} />
+              <div className="min-w-0 flex-1">
+                <span className="block truncate text-xl font-bold">{row.name}</span>
+                <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-white/5">
+                  <div className="h-full rounded-full bg-gradient-to-r from-[#2a6b40] to-[#92d6a1]" style={{ width: `${Math.round((row.quantity / max) * 100)}%` }} />
+                </div>
+              </div>
+              <span className="shrink-0 text-2xl font-black tabular-nums">{wholeNumber(row.quantity)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function Podium({ rows }: { rows: BoardRow[] }) {
   const [first, second, third] = rows;

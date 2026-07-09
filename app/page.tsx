@@ -8,6 +8,7 @@ import {
   Check,
   CheckCircle2,
   Clock,
+  Columns2,
   Database,
   Download,
   ExternalLink,
@@ -17,6 +18,7 @@ import {
   FileSpreadsheet,
   Filter,
   ImagePlus,
+  LayoutGrid,
   LogOut,
   MapPin,
   Maximize2,
@@ -30,7 +32,9 @@ import {
   Sun,
   Trash2,
   UserRound,
-  X
+  X,
+  ZoomIn,
+  ZoomOut
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
@@ -86,7 +90,7 @@ const legacyPalletTypeAliases: Record<string, string> = {
   "no-2": "stacker-grade-b-2"
 };
 
-type View = "entry" | "count-sheets" | "production-grid" | "dashboard" | "payroll" | "cloud" | "users" | "settings";
+type View = "entry" | "count-sheets" | "production-grid" | "dashboard" | "live-yards" | "payroll" | "cloud" | "users" | "settings";
 type AdminTab = "settings" | "pallets" | "employees" | "locations";
 
 type EntryForm = Omit<DailyEntry, "id" | "createdAt">;
@@ -816,7 +820,7 @@ function classNames(...classes: Array<string | false | undefined>) {
   return classes.filter(Boolean).join(" ");
 }
 
-const allViews: View[] = ["entry", "count-sheets", "production-grid", "dashboard", "payroll", "cloud", "users", "settings"];
+const allViews: View[] = ["entry", "count-sheets", "production-grid", "dashboard", "live-yards", "payroll", "cloud", "users", "settings"];
 
 export default function Home() {
   const { configured, profile, signOut } = useAuth();
@@ -1870,6 +1874,7 @@ export default function Home() {
           {allowedViews.includes("count-sheets") && <NavButton icon={<Camera size={19} />} label={t("Count Sheets")} active={view === "count-sheets"} onClick={() => setView("count-sheets")} />}
           {allowedViews.includes("production-grid") && <NavButton icon={<FileSpreadsheet size={19} />} label={t("Production Grid")} active={view === "production-grid"} onClick={() => setView("production-grid")} />}
           {allowedViews.includes("dashboard") && <NavButton icon={<BarChart3 size={19} />} label={t("Dashboard")} active={view === "dashboard"} onClick={() => setView("dashboard")} />}
+          {allowedViews.includes("live-yards") && <NavButton icon={<LayoutGrid size={19} />} label={t("Live Yards")} active={view === "live-yards"} onClick={() => setView("live-yards")} />}
           {allowedViews.includes("payroll") && <NavButton icon={<FileSpreadsheet size={19} />} label={t("Payroll")} active={view === "payroll"} onClick={() => setView("payroll")} />}
           {allowedViews.includes("cloud") && <NavButton icon={<Database size={19} />} label="Cloud" active={view === "cloud"} onClick={() => setView("cloud")} />}
           {allowedViews.includes("users") && <NavButton icon={<UserRound size={19} />} label="Users" active={view === "users"} onClick={() => setView("users")} />}
@@ -1928,6 +1933,7 @@ export default function Home() {
             />
           )}
           {view === "dashboard" && <Dashboard settings={settings} darkMode={darkMode} countSheets={scopedCountSheets} entries={scopedEntries} locations={scopedLocationList} shifts={shiftList} palletTypes={palletTypes} employees={employeeList} onSelectEmployee={setProfileEmployeeId} />}
+          {view === "live-yards" && <LiveYards settings={settings} darkMode={darkMode} entries={scopedEntries} locations={scopedLocationList} palletTypes={palletTypes} employees={employeeList} onSelectEmployee={setProfileEmployeeId} />}
           {view === "payroll" && (
             <Payroll
               entries={entries}
@@ -2088,13 +2094,53 @@ function PhaseTracker({
   // Rotation (degrees) applied to the zoomed photo so a sideways count sheet can
   // be turned upright; resets each time a new photo is opened.
   const [zoomRotation, setZoomRotation] = useState(0);
+  // Magnification of the zoomed photo (1 = fit to screen) so small print on a
+  // count sheet can be enlarged, and the pixel offset used to pan/scroll around
+  // the enlarged image. Both reset each time a new photo is opened.
+  const [zoomScale, setZoomScale] = useState(1);
+  const [zoomOffset, setZoomOffset] = useState({ x: 0, y: 0 });
+  const [isPanning, setIsPanning] = useState(false);
+  // Where the current drag started, so pointer moves translate into an offset.
+  const panStart = useRef<{ x: number; y: number; originX: number; originY: number } | null>(null);
+  // Side-by-side mode: instead of covering the whole screen, the photo docks to
+  // the right half so accounting can read the count sheet and type the numbers
+  // into the form at the same time. The choice sticks for the session so the
+  // next photo opens the way they left it.
+  const [splitView, setSplitView] = useState(false);
   // Photos that fail to render (e.g. an old HEIC saved before conversion) so we
   // can show a clear "re-upload" placeholder instead of a broken-image icon.
   const [brokenPhotos, setBrokenPhotos] = useState<string[]>([]);
 
+  // While the photo is docked side-by-side, shrink the page so the form reflows
+  // into the visible left half instead of hiding behind the panel. Only on wide
+  // screens — on a phone the panel takes the full width like the full-screen view.
+  useEffect(() => {
+    if (!zoomPhoto || !splitView) return;
+    const apply = () => {
+      document.body.style.paddingRight = window.innerWidth >= 640 ? "46vw" : "";
+    };
+    apply();
+    window.addEventListener("resize", apply);
+    return () => {
+      window.removeEventListener("resize", apply);
+      document.body.style.paddingRight = "";
+    };
+  }, [zoomPhoto, splitView]);
+
   useEffect(() => {
     setZoomRotation(0);
+    setZoomScale(1);
+    setZoomOffset({ x: 0, y: 0 });
   }, [zoomPhoto]);
+
+  // Step the magnification within [1, 5]; dropping back to 1 re-centers the image.
+  function adjustZoom(delta: number) {
+    setZoomScale((value) => {
+      const next = Math.min(5, Math.max(1, Number((value + delta).toFixed(2))));
+      if (next === 1) setZoomOffset({ x: 0, y: 0 });
+      return next;
+    });
+  }
 
   // Close the full-screen viewer with the Escape key.
   useEffect(() => {
@@ -2372,17 +2418,43 @@ function PhaseTracker({
         })()}
       </div>
 
-      {/* Full-screen photo viewer so count sheets can be read up close.
-          Click the backdrop or press Escape to close. */}
-      {zoomPhoto && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-4 [animation:board-rise_0.2s_ease-out]"
-          onClick={() => setZoomPhoto(null)}
-          role="dialog"
-          aria-modal="true"
-        >
-          {/* Toolbar: rotate, download, close. */}
-          <div className="absolute right-3 top-3 z-10 flex items-center gap-2" onClick={(event) => event.stopPropagation()}>
+      {/* Photo viewer so count sheets can be read up close. Two modes:
+          - Full screen: covers everything; click the backdrop or press Escape to close.
+          - Side by side: docks to the right half so the count sheet stays open
+            while the numbers get typed into the form on the left. */}
+      {zoomPhoto && (() => {
+        const photoUrl = zoomPhoto;
+        const toolbarButtons = (
+          <>
+            <button
+              type="button"
+              onClick={() => setSplitView((value) => !value)}
+              aria-label={splitView ? t("Full screen") : t("Side by side")}
+              title={splitView ? t("Full screen") : t("Side by side")}
+              className="flex h-11 w-11 items-center justify-center rounded-full bg-white/15 text-white backdrop-blur transition-colors hover:bg-white/30"
+            >
+              {splitView ? <Maximize2 size={20} /> : <Columns2 size={20} />}
+            </button>
+            <button
+              type="button"
+              onClick={() => adjustZoom(-0.5)}
+              disabled={zoomScale <= 1}
+              aria-label={t("Zoom out")}
+              title={t("Zoom out")}
+              className="flex h-11 w-11 items-center justify-center rounded-full bg-white/15 text-white backdrop-blur transition-colors hover:bg-white/30 disabled:opacity-40"
+            >
+              <ZoomOut size={20} />
+            </button>
+            <button
+              type="button"
+              onClick={() => adjustZoom(0.5)}
+              disabled={zoomScale >= 5}
+              aria-label={t("Zoom in")}
+              title={t("Zoom in")}
+              className="flex h-11 w-11 items-center justify-center rounded-full bg-white/15 text-white backdrop-blur transition-colors hover:bg-white/30 disabled:opacity-40"
+            >
+              <ZoomIn size={20} />
+            </button>
             <button
               type="button"
               onClick={() => setZoomRotation((value) => value - 90)}
@@ -2403,7 +2475,7 @@ function PhaseTracker({
             </button>
             <button
               type="button"
-              onClick={() => openImageInNewTab(zoomPhoto)}
+              onClick={() => openImageInNewTab(photoUrl)}
               aria-label={t("Open in new tab")}
               title={t("Open in new tab")}
               className="flex h-11 w-11 items-center justify-center rounded-full bg-white/15 text-white backdrop-blur transition-colors hover:bg-white/30"
@@ -2412,7 +2484,7 @@ function PhaseTracker({
             </button>
             <button
               type="button"
-              onClick={() => downloadPhoto(zoomPhoto, zoomRotation, `count-sheet-${Date.now()}.jpg`)}
+              onClick={() => downloadPhoto(photoUrl, zoomRotation, `count-sheet-${Date.now()}.jpg`)}
               aria-label={t("Download")}
               title={t("Download")}
               className="flex h-11 w-11 items-center justify-center rounded-full bg-white/15 text-white backdrop-blur transition-colors hover:bg-white/30"
@@ -2428,17 +2500,70 @@ function PhaseTracker({
             >
               <X size={22} />
             </button>
-          </div>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
+          </>
+        );
+        const photoImg = (
+          /* eslint-disable-next-line @next/next/no-img-element */
           <img
-            src={zoomPhoto}
+            src={photoUrl}
             alt="Phase photo"
-            style={{ transform: `rotate(${zoomRotation}deg)` }}
-            className="max-h-full max-w-full rounded-lg object-contain shadow-2xl transition-transform"
+            draggable={false}
+            style={{
+              transform: `translate(${zoomOffset.x}px, ${zoomOffset.y}px) rotate(${zoomRotation}deg) scale(${zoomScale})`,
+              cursor: zoomScale > 1 ? (isPanning ? "grabbing" : "grab") : "auto",
+              touchAction: "none"
+            }}
+            className={classNames(
+              "max-h-full max-w-full rounded-lg object-contain shadow-2xl",
+              isPanning ? "" : "transition-transform"
+            )}
             onClick={(event) => event.stopPropagation()}
+            onWheel={(event) => adjustZoom(event.deltaY < 0 ? 0.25 : -0.25)}
+            onPointerDown={(event) => {
+              if (zoomScale <= 1) return;
+              event.preventDefault();
+              event.currentTarget.setPointerCapture(event.pointerId);
+              panStart.current = { x: event.clientX, y: event.clientY, originX: zoomOffset.x, originY: zoomOffset.y };
+              setIsPanning(true);
+            }}
+            onPointerMove={(event) => {
+              if (!panStart.current) return;
+              setZoomOffset({
+                x: panStart.current.originX + (event.clientX - panStart.current.x),
+                y: panStart.current.originY + (event.clientY - panStart.current.y)
+              });
+            }}
+            onPointerUp={() => {
+              panStart.current = null;
+              setIsPanning(false);
+            }}
+            onPointerCancel={() => {
+              panStart.current = null;
+              setIsPanning(false);
+            }}
           />
-        </div>
-      )}
+        );
+        return splitView ? (
+          <div
+            className="fixed inset-y-0 right-0 z-50 flex w-full flex-col border-l border-white/10 bg-black/95 shadow-2xl sm:w-[46vw] [animation:board-rise_0.2s_ease-out]"
+            role="dialog"
+          >
+            <div className="flex flex-wrap items-center justify-end gap-2 border-b border-white/10 px-3 py-2">{toolbarButtons}</div>
+            <div className="relative flex flex-1 items-center justify-center overflow-hidden p-3">{photoImg}</div>
+          </div>
+        ) : (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-4 [animation:board-rise_0.2s_ease-out]"
+            onClick={() => setZoomPhoto(null)}
+            role="dialog"
+            aria-modal="true"
+          >
+            {/* Toolbar: side-by-side, zoom, rotate, download, close. */}
+            <div className="absolute right-3 top-3 z-10 flex flex-wrap items-center justify-end gap-2" onClick={(event) => event.stopPropagation()}>{toolbarButtons}</div>
+            {photoImg}
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -3216,6 +3341,196 @@ function CountSheetViewer({
         )}
       </div>
     </Modal>
+  );
+}
+
+// Admin-only live view that breaks production down by yard. Each yard is its
+// own card listing the repairers working there and how many pallets they've
+// made (QC deductions already subtracted), ranked high to low. Toggle a single
+// yard to see just that crew, or "All Yards" to see all three side by side.
+// Entries refresh on the app's normal live poll, so this updates on its own.
+function LiveYards({
+  settings,
+  darkMode,
+  entries,
+  locations,
+  palletTypes,
+  employees,
+  onSelectEmployee
+}: {
+  settings: PayrollSettings;
+  darkMode: boolean;
+  entries: DailyEntry[];
+  locations: Location[];
+  palletTypes: PalletType[];
+  employees: Employee[];
+  onSelectEmployee: (employeeId: string) => void;
+}) {
+  const { t } = useT();
+  type Period = "today" | "week" | "all";
+  const [period, setPeriod] = useState<Period>("today");
+  const [yardFilter, setYardFilter] = useState<string>("all");
+
+  const currentWeek = getWeekKey(today);
+  const filteredEntries = useMemo(
+    () =>
+      entries.filter((entry) => {
+        if (period === "today") return entry.date === today;
+        if (period === "week") return getWeekKey(entry.date) === currentWeek;
+        return true;
+      }),
+    [entries, period, currentWeek]
+  );
+
+  const report = useMemo(
+    () => buildReport(filteredEntries, palletTypes, employees, locations, settings),
+    [filteredEntries, palletTypes, employees, locations, settings]
+  );
+
+  // People grouped by their yard. buildReport already returns rows sorted by
+  // pallet count (desc) and only for employees who logged production, so each
+  // yard's list comes out ranked without another sort.
+  const yardGroups = useMemo(() => {
+    const byYard = new Map<string, { employee: Employee; quantity: number }[]>();
+    for (const row of report.byEmployee) {
+      const locationId = row.employee.locationId ?? "unassigned";
+      const list = byYard.get(locationId) ?? [];
+      list.push({ employee: row.employee as Employee, quantity: row.quantity });
+      byYard.set(locationId, list);
+    }
+    return byYard;
+  }, [report]);
+
+  const visibleLocations = locations.filter((location) => yardFilter === "all" || location.id === yardFilter);
+  const grandTotal = report.byEmployee.reduce((sum, row) => sum + row.quantity, 0);
+  const periodLabel = period === "today" ? t("Today") : period === "week" ? t("This Week") : t("All Time");
+  const singleYard = yardFilter !== "all";
+
+  return (
+    <div className="grid gap-4">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2">
+            <h2 className="text-2xl font-black">{t("Live Yards")}</h2>
+            <span className="flex items-center gap-1.5 rounded-full bg-workshop-100 px-2.5 py-1 text-xs font-black uppercase tracking-wide text-workshop-700">
+              <span className="h-2 w-2 animate-pulse rounded-full bg-workshop-500" />
+              {t("Live")}
+            </span>
+          </div>
+          <p className={classNames("mt-0.5 text-sm", darkMode ? "text-steel-100" : "text-steel-500")}>
+            {t("Per-yard production · {period} · {total} pallets", { period: periodLabel, total: wholeNumber(grandTotal) })}
+          </p>
+        </div>
+        <div className={classNames("flex overflow-hidden rounded border text-sm font-black", darkMode ? "border-white/20" : "border-steel-200")}>
+          {(["today", "week", "all"] as Period[]).map((value) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => setPeriod(value)}
+              className={classNames(
+                "px-3 py-2",
+                period === value ? "bg-workshop-500 text-white" : darkMode ? "bg-white/10 text-white" : "bg-white text-steel-600"
+              )}
+            >
+              {value === "today" ? t("Today") : value === "week" ? t("This Week") : t("All Time")}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="no-scrollbar flex gap-2 overflow-x-auto">
+        <YardToggle active={yardFilter === "all"} darkMode={darkMode} onClick={() => setYardFilter("all")}>{t("All Yards")}</YardToggle>
+        {locations.map((location) => (
+          <YardToggle key={location.id} active={yardFilter === location.id} darkMode={darkMode} onClick={() => setYardFilter(location.id)}>
+            {location.name}
+          </YardToggle>
+        ))}
+      </div>
+
+      <div className={classNames("grid gap-4", singleYard ? "" : "md:grid-cols-2 xl:grid-cols-3")}>
+        {visibleLocations.map((location) => (
+          <LiveYardCard
+            key={location.id}
+            name={location.name}
+            people={yardGroups.get(location.id) ?? []}
+            darkMode={darkMode}
+            dense={!singleYard}
+            onSelectEmployee={onSelectEmployee}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function YardToggle({ active, darkMode, onClick, children }: { active: boolean; darkMode: boolean; onClick: () => void; children: ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={classNames(
+        "shrink-0 rounded-full px-4 py-2 text-sm font-black transition-colors",
+        active ? "bg-workshop-500 text-white shadow" : darkMode ? "bg-white/10 text-white/70 hover:text-white" : "bg-steel-100 text-steel-600 hover:text-steel-900"
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+function LiveYardCard({
+  name,
+  people,
+  darkMode,
+  dense,
+  onSelectEmployee
+}: {
+  name: string;
+  people: { employee: Employee; quantity: number }[];
+  darkMode: boolean;
+  dense: boolean;
+  onSelectEmployee: (employeeId: string) => void;
+}) {
+  const { t } = useT();
+  const total = people.reduce((sum, person) => sum + person.quantity, 0);
+  return (
+    <div className={classNames("flex min-w-0 flex-col rounded-xl border p-4", darkMode ? "border-white/10 bg-steel-900/40" : "border-steel-100 bg-steel-50")}>
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <MapPin size={18} className="shrink-0 text-workshop-600" />
+          <h3 className="truncate text-lg font-black">{name}</h3>
+          <span className="shrink-0 rounded-full bg-workshop-100 px-2 py-0.5 text-xs font-black text-workshop-700">{people.length}</span>
+        </div>
+        <div className="shrink-0 text-right">
+          <p className="text-2xl font-black tabular-nums text-workshop-700">{wholeNumber(total)}</p>
+          <p className="text-[10px] font-bold uppercase tracking-wide text-steel-400">{t("pallets")}</p>
+        </div>
+      </div>
+      {people.length === 0 ? (
+        <p className={classNames("rounded-lg border border-dashed p-6 text-center text-sm font-bold", darkMode ? "border-white/10 text-steel-300" : "border-steel-200 text-steel-400")}>
+          {t("No production yet")}
+        </p>
+      ) : (
+        <div className={classNames("grid gap-2", dense ? "grid-cols-1" : "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3")}>
+          {people.map((person, index) => (
+            <button
+              key={person.employee.id}
+              type="button"
+              onClick={() => onSelectEmployee(person.employee.id)}
+              className={classNames(
+                "flex items-center gap-2.5 rounded-lg border p-2 text-left transition-colors",
+                darkMode ? "border-white/10 bg-white/[0.03] hover:bg-white/[0.08]" : "border-steel-100 bg-white hover:border-workshop-300"
+              )}
+            >
+              <span className="w-5 shrink-0 text-center text-sm font-black tabular-nums text-steel-400">{index + 1}</span>
+              <Avatar employee={person.employee} size="sm" />
+              <span className="min-w-0 flex-1 truncate text-sm font-black">{person.employee.name}</span>
+              <span className="shrink-0 text-lg font-black tabular-nums text-workshop-700">{wholeNumber(person.quantity)}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
