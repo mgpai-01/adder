@@ -125,6 +125,10 @@ export default function LiveBoardPage() {
   const [settings, setSettings] = useState<PayrollSettings>(payrollSettings);
   const [locationFilter, setLocationFilter] = useState(initialFilters.location);
   const [shiftFilter, setShiftFilter] = useState(initialFilters.shift);
+  // Which layout the left panel uses, independent of the yard picked: the
+  // per-yard production "board" (matrix of people × pallet types) or the
+  // "leaderboard" (podium + ranked list).
+  const [boardStyle, setBoardStyle] = useState<"board" | "leaderboard">("board");
   const [periodMode, setPeriodMode] = useState<PeriodMode>(initialFilters.period);
   const [selectedDate, setSelectedDate] = useState(initialFilters.date);
   const [selectedWeek, setSelectedWeek] = useState(initialFilters.week);
@@ -419,7 +423,7 @@ export default function LiveBoardPage() {
         </div>
       </header>
 
-      <div className="flex shrink-0 px-10 pt-4">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 px-10 pt-4">
         <div className="flex flex-wrap gap-1 rounded-2xl border border-white/10 bg-white/[0.04] p-1.5 backdrop-blur">
           <YardTab active={locationFilter === "all"} onClick={() => setLocationFilter("all")}>{t("All Yards")}</YardTab>
           {locations.map((location) => (
@@ -427,6 +431,11 @@ export default function LiveBoardPage() {
               {location.name}
             </YardTab>
           ))}
+        </div>
+        {/* Choose how the left panel is shown, for any yard selection. */}
+        <div className="flex gap-1 rounded-2xl border border-white/10 bg-white/[0.04] p-1.5 backdrop-blur">
+          <YardTab active={boardStyle === "board"} onClick={() => setBoardStyle("board")}>{t("Board")}</YardTab>
+          <YardTab active={boardStyle === "leaderboard"} onClick={() => setBoardStyle("leaderboard")}>{t("Leaderboard")}</YardTab>
         </div>
       </div>
 
@@ -462,10 +471,10 @@ export default function LiveBoardPage() {
       <section className="min-h-0 flex-1 overflow-hidden px-10 pb-5 pt-3">
         <div className="grid h-full gap-6 xl:grid-cols-[1.5fr_0.9fr]">
           <GlassCard className="flex min-h-0 flex-col">
-            <SectionLabel icon={<Trophy size={22} />}>{locationFilter === "all" ? t("Yards") : t("Ranking")}</SectionLabel>
+            <SectionLabel icon={<Trophy size={22} />}>{boardStyle === "board" ? t("Yards") : t("Ranking")}</SectionLabel>
             {repairerRows.length === 0 ? (
               <EmptyBoardMessage />
-            ) : locationFilter === "all" ? (
+            ) : boardStyle === "board" ? (
               <div
                 className="grid min-h-0 flex-1 gap-4 overflow-hidden"
                 style={{ gridTemplateColumns: `repeat(${Math.max(yardColumns.length, 1)}, minmax(0, 1fr))` }}
