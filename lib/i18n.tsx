@@ -81,6 +81,8 @@ export const esDict: Record<string, string> = {
   "Now tap the end date": "Ahora toque la fecha de fin",
 
   // Photo viewer
+  "Zoom in": "Acercar",
+  "Zoom out": "Alejar",
   "Rotate left": "Girar a la izquierda",
   "Rotate right": "Girar a la derecha",
   Download: "Descargar",

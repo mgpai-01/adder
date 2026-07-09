@@ -30,7 +30,9 @@ import {
   Sun,
   Trash2,
   UserRound,
-  X
+  X,
+  ZoomIn,
+  ZoomOut
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
@@ -2088,13 +2090,32 @@ function PhaseTracker({
   // Rotation (degrees) applied to the zoomed photo so a sideways count sheet can
   // be turned upright; resets each time a new photo is opened.
   const [zoomRotation, setZoomRotation] = useState(0);
+  // Magnification of the zoomed photo (1 = fit to screen) so small print on a
+  // count sheet can be enlarged, and the pixel offset used to pan/scroll around
+  // the enlarged image. Both reset each time a new photo is opened.
+  const [zoomScale, setZoomScale] = useState(1);
+  const [zoomOffset, setZoomOffset] = useState({ x: 0, y: 0 });
+  const [isPanning, setIsPanning] = useState(false);
+  // Where the current drag started, so pointer moves translate into an offset.
+  const panStart = useRef<{ x: number; y: number; originX: number; originY: number } | null>(null);
   // Photos that fail to render (e.g. an old HEIC saved before conversion) so we
   // can show a clear "re-upload" placeholder instead of a broken-image icon.
   const [brokenPhotos, setBrokenPhotos] = useState<string[]>([]);
 
   useEffect(() => {
     setZoomRotation(0);
+    setZoomScale(1);
+    setZoomOffset({ x: 0, y: 0 });
   }, [zoomPhoto]);
+
+  // Step the magnification within [1, 5]; dropping back to 1 re-centers the image.
+  function adjustZoom(delta: number) {
+    setZoomScale((value) => {
+      const next = Math.min(5, Math.max(1, Number((value + delta).toFixed(2))));
+      if (next === 1) setZoomOffset({ x: 0, y: 0 });
+      return next;
+    });
+  }
 
   // Close the full-screen viewer with the Escape key.
   useEffect(() => {
@@ -2381,8 +2402,28 @@ function PhaseTracker({
           role="dialog"
           aria-modal="true"
         >
-          {/* Toolbar: rotate, download, close. */}
+          {/* Toolbar: zoom, rotate, download, close. */}
           <div className="absolute right-3 top-3 z-10 flex items-center gap-2" onClick={(event) => event.stopPropagation()}>
+            <button
+              type="button"
+              onClick={() => adjustZoom(-0.5)}
+              disabled={zoomScale <= 1}
+              aria-label={t("Zoom out")}
+              title={t("Zoom out")}
+              className="flex h-11 w-11 items-center justify-center rounded-full bg-white/15 text-white backdrop-blur transition-colors hover:bg-white/30 disabled:opacity-40"
+            >
+              <ZoomOut size={20} />
+            </button>
+            <button
+              type="button"
+              onClick={() => adjustZoom(0.5)}
+              disabled={zoomScale >= 5}
+              aria-label={t("Zoom in")}
+              title={t("Zoom in")}
+              className="flex h-11 w-11 items-center justify-center rounded-full bg-white/15 text-white backdrop-blur transition-colors hover:bg-white/30 disabled:opacity-40"
+            >
+              <ZoomIn size={20} />
+            </button>
             <button
               type="button"
               onClick={() => setZoomRotation((value) => value - 90)}
@@ -2433,9 +2474,40 @@ function PhaseTracker({
           <img
             src={zoomPhoto}
             alt="Phase photo"
-            style={{ transform: `rotate(${zoomRotation}deg)` }}
-            className="max-h-full max-w-full rounded-lg object-contain shadow-2xl transition-transform"
+            draggable={false}
+            style={{
+              transform: `translate(${zoomOffset.x}px, ${zoomOffset.y}px) rotate(${zoomRotation}deg) scale(${zoomScale})`,
+              cursor: zoomScale > 1 ? (isPanning ? "grabbing" : "grab") : "auto",
+              touchAction: "none"
+            }}
+            className={classNames(
+              "max-h-full max-w-full rounded-lg object-contain shadow-2xl",
+              isPanning ? "" : "transition-transform"
+            )}
             onClick={(event) => event.stopPropagation()}
+            onWheel={(event) => adjustZoom(event.deltaY < 0 ? 0.25 : -0.25)}
+            onPointerDown={(event) => {
+              if (zoomScale <= 1) return;
+              event.preventDefault();
+              event.currentTarget.setPointerCapture(event.pointerId);
+              panStart.current = { x: event.clientX, y: event.clientY, originX: zoomOffset.x, originY: zoomOffset.y };
+              setIsPanning(true);
+            }}
+            onPointerMove={(event) => {
+              if (!panStart.current) return;
+              setZoomOffset({
+                x: panStart.current.originX + (event.clientX - panStart.current.x),
+                y: panStart.current.originY + (event.clientY - panStart.current.y)
+              });
+            }}
+            onPointerUp={() => {
+              panStart.current = null;
+              setIsPanning(false);
+            }}
+            onPointerCancel={() => {
+              panStart.current = null;
+              setIsPanning(false);
+            }}
           />
         </div>
       )}
