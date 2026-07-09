@@ -557,28 +557,23 @@ function YardColumn({ yard }: { yard: { id: string; name: string; total: number;
   const max = yard.rows[0]?.quantity || 1;
   return (
     <div className="flex min-h-0 flex-col rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-      <div className="mb-3 flex items-center justify-between gap-2 border-b border-white/10 pb-3">
-        <span className="truncate text-2xl font-black">{yard.name}</span>
-        <div className="shrink-0 text-right">
-          <span className="text-3xl font-black tabular-nums text-[#aef2bc]">{wholeNumber(yard.total)}</span>
-          <span className="ml-1.5 text-sm font-bold uppercase tracking-wide text-white/35">{t("pallets")}</span>
+      <div className="mb-3 flex items-end justify-between gap-2 border-b border-white/10 pb-3">
+        <span className="text-xl font-black leading-tight">{yard.name}</span>
+        <div className="flex shrink-0 items-baseline gap-1.5">
+          <span className="text-2xl font-black tabular-nums text-[#aef2bc]">{wholeNumber(yard.total)}</span>
+          <span className="text-xs font-bold uppercase tracking-wide text-white/35">{t("pallets")}</span>
         </div>
       </div>
       {yard.rows.length === 0 ? (
         <p className="pt-8 text-center text-lg font-semibold text-white/30">{t("No production yet")}</p>
       ) : (
-        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden">
+        <div className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-hidden">
           {yard.rows.map((row, index) => (
-            <div key={row.employeeId} className="flex items-center gap-3">
-              <span className="w-6 shrink-0 text-center text-lg font-bold tabular-nums text-white/30">{index + 1}</span>
-              <BoardAvatar name={row.name} photo={row.photo} size={40} />
-              <div className="min-w-0 flex-1">
-                <span className="block truncate text-xl font-bold">{row.name}</span>
-                <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-white/5">
-                  <div className="h-full rounded-full bg-gradient-to-r from-[#2a6b40] to-[#92d6a1]" style={{ width: `${Math.round((row.quantity / max) * 100)}%` }} />
-                </div>
-              </div>
-              <span className="shrink-0 text-2xl font-black tabular-nums">{wholeNumber(row.quantity)}</span>
+            <div key={row.employeeId} className="flex items-center gap-2.5">
+              <span className="w-5 shrink-0 text-center text-base font-bold tabular-nums text-white/30">{index + 1}</span>
+              <BoardAvatar name={row.name} photo={row.photo} size={36} />
+              <span className="min-w-0 flex-1 text-base font-bold leading-tight [overflow-wrap:anywhere]">{row.name}</span>
+              <span className="shrink-0 text-xl font-black tabular-nums">{wholeNumber(row.quantity)}</span>
             </div>
           ))}
         </div>
