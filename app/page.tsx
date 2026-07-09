@@ -8,6 +8,7 @@ import {
   Check,
   CheckCircle2,
   Clock,
+  Columns2,
   Database,
   Download,
   ExternalLink,
@@ -2098,9 +2099,30 @@ function PhaseTracker({
   const [isPanning, setIsPanning] = useState(false);
   // Where the current drag started, so pointer moves translate into an offset.
   const panStart = useRef<{ x: number; y: number; originX: number; originY: number } | null>(null);
+  // Side-by-side mode: instead of covering the whole screen, the photo docks to
+  // the right half so accounting can read the count sheet and type the numbers
+  // into the form at the same time. The choice sticks for the session so the
+  // next photo opens the way they left it.
+  const [splitView, setSplitView] = useState(false);
   // Photos that fail to render (e.g. an old HEIC saved before conversion) so we
   // can show a clear "re-upload" placeholder instead of a broken-image icon.
   const [brokenPhotos, setBrokenPhotos] = useState<string[]>([]);
+
+  // While the photo is docked side-by-side, shrink the page so the form reflows
+  // into the visible left half instead of hiding behind the panel. Only on wide
+  // screens — on a phone the panel takes the full width like the full-screen view.
+  useEffect(() => {
+    if (!zoomPhoto || !splitView) return;
+    const apply = () => {
+      document.body.style.paddingRight = window.innerWidth >= 640 ? "46vw" : "";
+    };
+    apply();
+    window.addEventListener("resize", apply);
+    return () => {
+      window.removeEventListener("resize", apply);
+      document.body.style.paddingRight = "";
+    };
+  }, [zoomPhoto, splitView]);
 
   useEffect(() => {
     setZoomRotation(0);
@@ -2393,17 +2415,23 @@ function PhaseTracker({
         })()}
       </div>
 
-      {/* Full-screen photo viewer so count sheets can be read up close.
-          Click the backdrop or press Escape to close. */}
-      {zoomPhoto && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-4 [animation:board-rise_0.2s_ease-out]"
-          onClick={() => setZoomPhoto(null)}
-          role="dialog"
-          aria-modal="true"
-        >
-          {/* Toolbar: zoom, rotate, download, close. */}
-          <div className="absolute right-3 top-3 z-10 flex items-center gap-2" onClick={(event) => event.stopPropagation()}>
+      {/* Photo viewer so count sheets can be read up close. Two modes:
+          - Full screen: covers everything; click the backdrop or press Escape to close.
+          - Side by side: docks to the right half so the count sheet stays open
+            while the numbers get typed into the form on the left. */}
+      {zoomPhoto && (() => {
+        const photoUrl = zoomPhoto;
+        const toolbarButtons = (
+          <>
+            <button
+              type="button"
+              onClick={() => setSplitView((value) => !value)}
+              aria-label={splitView ? t("Full screen") : t("Side by side")}
+              title={splitView ? t("Full screen") : t("Side by side")}
+              className="flex h-11 w-11 items-center justify-center rounded-full bg-white/15 text-white backdrop-blur transition-colors hover:bg-white/30"
+            >
+              {splitView ? <Maximize2 size={20} /> : <Columns2 size={20} />}
+            </button>
             <button
               type="button"
               onClick={() => adjustZoom(-0.5)}
@@ -2444,7 +2472,7 @@ function PhaseTracker({
             </button>
             <button
               type="button"
-              onClick={() => openImageInNewTab(zoomPhoto)}
+              onClick={() => openImageInNewTab(photoUrl)}
               aria-label={t("Open in new tab")}
               title={t("Open in new tab")}
               className="flex h-11 w-11 items-center justify-center rounded-full bg-white/15 text-white backdrop-blur transition-colors hover:bg-white/30"
@@ -2453,7 +2481,7 @@ function PhaseTracker({
             </button>
             <button
               type="button"
-              onClick={() => downloadPhoto(zoomPhoto, zoomRotation, `count-sheet-${Date.now()}.jpg`)}
+              onClick={() => downloadPhoto(photoUrl, zoomRotation, `count-sheet-${Date.now()}.jpg`)}
               aria-label={t("Download")}
               title={t("Download")}
               className="flex h-11 w-11 items-center justify-center rounded-full bg-white/15 text-white backdrop-blur transition-colors hover:bg-white/30"
@@ -2469,10 +2497,12 @@ function PhaseTracker({
             >
               <X size={22} />
             </button>
-          </div>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
+          </>
+        );
+        const photoImg = (
+          /* eslint-disable-next-line @next/next/no-img-element */
           <img
-            src={zoomPhoto}
+            src={photoUrl}
             alt="Phase photo"
             draggable={false}
             style={{
@@ -2509,8 +2539,28 @@ function PhaseTracker({
               setIsPanning(false);
             }}
           />
-        </div>
-      )}
+        );
+        return splitView ? (
+          <div
+            className="fixed inset-y-0 right-0 z-50 flex w-full flex-col border-l border-white/10 bg-black/95 shadow-2xl sm:w-[46vw] [animation:board-rise_0.2s_ease-out]"
+            role="dialog"
+          >
+            <div className="flex flex-wrap items-center justify-end gap-2 border-b border-white/10 px-3 py-2">{toolbarButtons}</div>
+            <div className="relative flex flex-1 items-center justify-center overflow-hidden p-3">{photoImg}</div>
+          </div>
+        ) : (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-4 [animation:board-rise_0.2s_ease-out]"
+            onClick={() => setZoomPhoto(null)}
+            role="dialog"
+            aria-modal="true"
+          >
+            {/* Toolbar: side-by-side, zoom, rotate, download, close. */}
+            <div className="absolute right-3 top-3 z-10 flex flex-wrap items-center justify-end gap-2" onClick={(event) => event.stopPropagation()}>{toolbarButtons}</div>
+            {photoImg}
+          </div>
+        );
+      })()}
     </div>
   );
 }
