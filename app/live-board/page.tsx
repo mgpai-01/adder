@@ -57,6 +57,26 @@ function palletLabel(palletTypeId: string) {
   return `${pallet.code}${description}`.trim();
 }
 
+// Very short header for a matrix column, e.g. "STK3", "REP", "OUT A1". The full
+// name is kept as the cell's title so it's still available on hover.
+function palletAbbrev(palletTypeId: string) {
+  const pallet = findPalletType(palletTypes, palletTypeId);
+  if (!pallet) return palletTypeId.slice(0, 6).toUpperCase();
+  const code = pallet.code.toUpperCase();
+  const description = (pallet.description ?? "").toUpperCase();
+  const stacker = code.match(/(\d+)\s*STACKER/);
+  if (stacker) return `STK${stacker[1]}`;
+  if (code.includes("STACK BY HAND")) return "HAND";
+  if (code.includes("REPAIR")) return "REP";
+  if (code.includes("EXTEND")) return "EXT";
+  if (code.includes("CUT")) return "CUT";
+  if (code.includes("OUTSIDE")) {
+    const grade = /A\s*#?1|GRADE A/.test(description) ? "A1" : /B\s*#?2|GRADE B/.test(description) ? "B2" : description.includes("BLOCK") ? "BLK" : description.includes("REGULAR") ? "REG" : "";
+    return grade ? `OUT ${grade}` : "OUT";
+  }
+  return pallet.code.slice(0, 6).toUpperCase();
+}
+
 function readUrlFilters() {
   if (typeof window === "undefined") {
     return {
@@ -579,39 +599,75 @@ type BoardRow = { employeeId: string; name: string; photo?: string; locationId: 
 
 function YardColumn({ yard }: { yard: { id: string; name: string; total: number; rows: BoardRow[] } }) {
   const { t } = useT();
-  const max = yard.rows[0]?.quantity || 1;
+  // Build the product columns for this yard: the union of pallet types produced
+  // here, ordered by how much of each was made, with per-product totals.
+  const columnMap = new Map<string, { id: string; label: string; abbrev: string; total: number }>();
+  for (const row of yard.rows) {
+    for (const pallet of row.pallets ?? []) {
+      const column = columnMap.get(pallet.id) ?? { id: pallet.id, label: pallet.label, abbrev: palletAbbrev(pallet.id), total: 0 };
+      column.total += pallet.quantity;
+      columnMap.set(pallet.id, column);
+    }
+  }
+  const columns = Array.from(columnMap.values()).sort((a, b) => b.total - a.total);
+  const producedTotal = columns.reduce((sum, column) => sum + column.total, 0);
+
   return (
-    <div className="flex min-h-0 flex-col rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-      <div className="mb-3 flex items-end justify-between gap-2 border-b border-white/10 pb-3">
+    <div className="flex min-h-0 flex-col rounded-2xl border border-white/10 bg-white/[0.03] p-3">
+      <div className="mb-2 flex items-end justify-between gap-2 border-b border-white/10 pb-2">
         <span className="text-xl font-black leading-tight">{yard.name}</span>
         <div className="flex shrink-0 items-baseline gap-1.5">
           <span className="text-2xl font-black tabular-nums text-[#aef2bc]">{wholeNumber(yard.total)}</span>
           <span className="text-xs font-bold uppercase tracking-wide text-white/35">{t("pallets")}</span>
         </div>
       </div>
-      {yard.rows.length === 0 ? (
+      {yard.rows.length === 0 || columns.length === 0 ? (
         <p className="pt-8 text-center text-lg font-semibold text-white/30">{t("No production yet")}</p>
       ) : (
-        <div className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-hidden">
-          {yard.rows.map((row, index) => (
-            <div key={row.employeeId} className="flex items-start gap-2.5">
-              <span className="w-5 shrink-0 pt-1 text-center text-base font-bold tabular-nums text-white/30">{index + 1}</span>
-              <BoardAvatar name={row.name} photo={row.photo} size={36} />
-              <div className="min-w-0 flex-1">
-                <span className="block text-base font-bold leading-tight [overflow-wrap:anywhere]">{row.name}</span>
-                {row.pallets && row.pallets.length > 0 && (
-                  <div className="mt-1 flex flex-wrap gap-1">
-                    {row.pallets.map((pallet) => (
-                      <span key={pallet.id} className="rounded bg-white/[0.06] px-1.5 py-0.5 text-[11px] font-semibold leading-tight text-white/55">
-                        {pallet.label} <span className="tabular-nums text-white/85">{wholeNumber(pallet.quantity)}</span>
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
-              <span className="shrink-0 pt-0.5 text-xl font-black tabular-nums">{wholeNumber(row.quantity)}</span>
-            </div>
-          ))}
+        <div className="min-h-0 flex-1 overflow-auto">
+          {/* Matrix: repairers down the side, pallet types across the top. Each
+              cell is how many of that pallet the person built; the last column
+              tallies per person and the bottom row tallies per pallet type. */}
+          <table className="w-full border-collapse">
+            <thead>
+              <tr>
+                <th className="w-[74px] pb-1.5 pr-1 text-left text-[10px] font-black uppercase tracking-wide text-white/50">{t("Repairer")}</th>
+                {columns.map((column) => (
+                  <th key={column.id} title={column.label} className="px-0.5 pb-1.5 text-center text-[10px] font-bold text-white/60">{column.abbrev}</th>
+                ))}
+                <th className="pb-1.5 pl-1 text-right text-[10px] font-black uppercase tracking-wide text-[#aef2bc]">{t("Total")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {yard.rows.map((row) => {
+                const lookup = new Map((row.pallets ?? []).map((pallet) => [pallet.id, pallet.quantity]));
+                const rowTotal = (row.pallets ?? []).reduce((sum, pallet) => sum + pallet.quantity, 0);
+                return (
+                  <tr key={row.employeeId} className="border-t border-white/5">
+                    <td className="w-[74px] break-words py-1 pr-1 text-left text-xs font-bold leading-tight">{row.name}</td>
+                    {columns.map((column) => {
+                      const quantity = lookup.get(column.id) ?? 0;
+                      return (
+                        <td key={column.id} className="px-0.5 py-1 text-center text-xs tabular-nums">
+                          {quantity ? <span className="text-white/85">{wholeNumber(quantity)}</span> : <span className="text-white/15">·</span>}
+                        </td>
+                      );
+                    })}
+                    <td className="py-1 pl-1 text-right text-sm font-black tabular-nums">{wholeNumber(rowTotal)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+            <tfoot>
+              <tr className="border-t-2 border-white/15">
+                <td className="pt-1.5 pr-1 text-left text-[10px] font-black uppercase tracking-wide text-white/60">{t("Total")}</td>
+                {columns.map((column) => (
+                  <td key={column.id} className="px-0.5 pt-1.5 text-center text-xs font-black tabular-nums text-[#aef2bc]">{wholeNumber(column.total)}</td>
+                ))}
+                <td className="pt-1.5 pl-1 text-right text-sm font-black tabular-nums text-[#aef2bc]">{wholeNumber(producedTotal)}</td>
+              </tr>
+            </tfoot>
+          </table>
         </div>
       )}
     </div>
