@@ -287,8 +287,11 @@ const yardPalletIds: Record<string, string[]> = {
 };
 
 // Returns the pallets a given yard makes, in the right order. Yards not listed
-// in yardPalletIds (e.g. Fontana) get the full list unchanged.
+// in yardPalletIds (e.g. Fontana) get the full list unchanged. Custom pallets
+// aren't part of any yard's fixed PDF list, so they're appended to every yard
+// — add a Custom pallet once and it shows up everywhere for entry.
 function palletsForYard(palletTypes: PalletType[], locationId: string): PalletType[] {
+  const customPallets = palletTypes.filter((pallet) => pallet.active && pallet.category === "Custom");
   const allowed = yardPalletIds[locationId];
   if (!allowed) return palletTypes;
   // Match by the same flexible lookup the rest of the app uses (id, code, or
@@ -298,7 +301,9 @@ function palletsForYard(palletTypes: PalletType[], locationId: string): PalletTy
     .filter((pallet): pallet is PalletType => Boolean(pallet));
   // If nothing matched (unexpected ID scheme), fall back to showing everything
   // rather than an empty grid.
-  return matched.length > 0 ? matched : palletTypes;
+  const base = matched.length > 0 ? matched : palletTypes;
+  const extras = customPallets.filter((custom) => !base.some((pallet) => pallet.id === custom.id));
+  return [...base, ...extras];
 }
 
 function isManager(employee?: Employee): boolean {
