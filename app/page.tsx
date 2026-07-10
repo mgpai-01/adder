@@ -54,7 +54,8 @@ import {
   palletCategories,
   payrollSettings,
   shifts as defaultShifts,
-  timeOptions
+  timeOptions,
+  yardPalletIds
 } from "@/lib/data";
 import { calculateEntry, currency, getWeekKey, wholeNumber } from "@/lib/payroll";
 import { getAccessToken, roleLabels, roleViews, useAuth } from "@/lib/auth";
@@ -258,33 +259,8 @@ function lastPhaseDone(phases: EntryPhase[]): number {
 // back on by flipping this to true (the form still tracks sensible defaults).
 const SHOW_TIME_FIELDS = false;
 
-// Each yard only makes certain pallets. Fontana (the main yard) makes them all,
-// so it is left out of this map and shows every pallet. Citrus and Mesa show only
-// the pallets they actually make, in the order from the managers' PDF.
-const yardPalletIds: Record<string, string[]> = {
-  citrus: [
-    "stack-by-hand-cambiar-barrote",
-    "repair-60x40",
-    "extend-60x40",
-    "cut-60x40",
-    "outside-block",
-    "outside-grade-b-2",
-    "outside-regular",
-    "outside-grade-a-1",
-    "quality-control-rejects"
-  ],
-  mesa: [
-    "stack-by-hand-cambiar-barrote",
-    "repair-60x40",
-    "extend-60x40",
-    "cut-60x40",
-    "outside-block",
-    "outside-grade-b-2",
-    "outside-regular",
-    "outside-grade-a-1",
-    "quality-control-rejects"
-  ]
-};
+// Per-yard pallet menus live in lib/data so the entry grid and live board share
+// the same lists (imported as `yardPalletIds`).
 
 // Returns the pallets a given yard makes, in the right order. Yards not listed
 // in yardPalletIds (e.g. Fontana) get the full list unchanged. Custom pallets
