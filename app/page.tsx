@@ -1779,6 +1779,90 @@ export default function Home() {
     URL.revokeObjectURL(url);
   }
 
+  // Build a multi-sheet .xlsx from the (filtered) entries so accounting gets the
+  // information cleanly separated: a summary, payroll per employee, the raw
+  // per-pallet-line detail, and rollups by pallet type, yard, and day. Uses the
+  // same numbers as calculateEntry/buildReport, so it matches the on-screen totals.
+  async function exportExcel(filteredEntries = entries) {
+    const XLSX = await import("xlsx");
+    const report = buildReport(filteredEntries, palletTypes, employeeList, locationList, settings);
+    const money = (value: number) => Number((Number(value) || 0).toFixed(2));
+    const locName = (id: string) => locationList.find((location) => location.id === id)?.name ?? id;
+    const sortedDates = filteredEntries.map((entry) => entry.date).sort();
+    const rangeLabel = sortedDates.length ? `${sortedDates[0]} to ${sortedDates[sortedDates.length - 1]}` : "All dates";
+
+    const workbook = XLSX.utils.book_new();
+    const addSheet = (name: string, aoa: (string | number)[][], cols: number[], filter = false) => {
+      const sheet = XLSX.utils.aoa_to_sheet(aoa);
+      sheet["!cols"] = cols.map((wch) => ({ wch }));
+      if (filter && aoa.length > 1) sheet["!autofilter"] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: aoa.length - 1, c: aoa[0].length - 1 } }) };
+      XLSX.utils.book_append_sheet(workbook, sheet, name);
+    };
+
+    addSheet("Summary", [
+      ["MGP Pallet Repair — Production & Payroll Export"],
+      ["Date range", rangeLabel],
+      ["Generated", new Date().toLocaleString()],
+      ["Entries", filteredEntries.length],
+      [],
+      ["Total Pallets", report.summary.quantity],
+      ["Employees", report.byEmployee.length],
+      ["Piece Pay", money(report.summary.piecePay)],
+      ["Make-up Pay", money(report.summary.makeup)],
+      ["Total Payroll", money(report.summary.totalPay)]
+    ], [24, 42]);
+
+    addSheet("Payroll by Employee", [
+      ["Employee", "Yard", "Shift", "Total Pallets", "Paid Hours", "Piece Pay", "Make-up Pay", "Daily OT Hrs", "Weekly OT Hrs", "Total Pay"],
+      ...report.byEmployee.map((row) => [
+        row.employee.name, locName(row.employee.locationId), row.employee.shift ?? "",
+        row.quantity, money(row.hours), money(row.piecePay), money(row.makeup),
+        money(row.dailyOvertime), money(row.weeklyOvertime), money(row.totalPay)
+      ])
+    ], [20, 12, 7, 13, 11, 11, 12, 12, 13, 11], true);
+
+    addSheet("Production Detail", [
+      ["Date", "Week", "Employee", "Yard", "Shift", "Pallet Category", "Pallet Name", "Rate", "Quantity", "Line Earned"],
+      ...filteredEntries.flatMap((entry) => {
+        const employeeName = employeeList.find((employee) => employee.id === entry.employeeId)?.name ?? entry.employeeId;
+        const yard = locName(entry.locationId);
+        return entry.lines.map((line) => {
+          const pallet = findPalletType(palletTypes, line.palletTypeId);
+          const rate = Number(pallet?.rate ?? 0);
+          return [entry.date, getWeekKey(entry.date), employeeName, yard, entry.shift, pallet?.category ?? "", `${pallet?.code ?? ""} ${pallet?.description ?? ""}`.trim(), rate, line.quantity, money(rate * line.quantity)];
+        });
+      })
+    ], [12, 12, 20, 12, 7, 15, 34, 7, 10, 12], true);
+
+    addSheet("By Pallet Type", [
+      ["Pallet Category", "Pallet Name", "Total Quantity", "Total Piece Pay"],
+      ...report.byPallet.map((row) => [row.category, row.label, row.quantity, money(row.piecePay)])
+    ], [15, 34, 14, 15], true);
+
+    const yardTotals = new Map<string, { employees: number; quantity: number; piecePay: number; totalPay: number }>();
+    for (const row of report.byEmployee) {
+      const current = yardTotals.get(row.employee.locationId) ?? { employees: 0, quantity: 0, piecePay: 0, totalPay: 0 };
+      current.employees += 1;
+      current.quantity += row.quantity;
+      current.piecePay += row.piecePay;
+      current.totalPay += row.totalPay;
+      yardTotals.set(row.employee.locationId, current);
+    }
+    addSheet("Yard Totals", [
+      ["Yard", "Employees", "Total Pallets", "Piece Pay", "Total Pay"],
+      ...Array.from(yardTotals.entries())
+        .map(([id, value]) => [locName(id), value.employees, value.quantity, money(value.piecePay), money(value.totalPay)] as (string | number)[])
+        .sort((a, b) => Number(b[2]) - Number(a[2]))
+    ], [14, 11, 13, 11, 11]);
+
+    addSheet("Daily Totals", [
+      ["Date", "Pallets", "Piece Pay", "Total Pay"],
+      ...report.byDay.map((row) => [row.label, row.quantity, money(row.piecePay), money(row.totalPay)])
+    ], [12, 10, 11, 11]);
+
+    XLSX.writeFile(workbook, `mgp-production-payroll-${today}.xlsx`);
+  }
+
   // Current repairer + station, shown as a second row inside the app header
   // while on the Entry screen, so managers always see who they're entering for.
   const entryStationEmployee = employeeList.find((employee) => employee.id === form.employeeId) ?? selectedEmployee;
@@ -1944,6 +2028,7 @@ export default function Home() {
               palletTypes={palletTypes}
               settings={settings}
               exportCsv={exportCsv}
+              exportExcel={exportExcel}
               darkMode={darkMode}
               onEditEntry={setEditingEntry}
               onViewEntry={setViewingEntry}
@@ -3664,6 +3749,7 @@ function Payroll({
   palletTypes,
   settings,
   exportCsv,
+  exportExcel,
   darkMode,
   onEditEntry,
   onViewEntry,
@@ -3678,6 +3764,7 @@ function Payroll({
   palletTypes: PalletType[];
   settings: PayrollSettings;
   exportCsv: (entries: DailyEntry[]) => void;
+  exportExcel: (entries: DailyEntry[]) => void;
   darkMode: boolean;
   onEditEntry: (entry: DailyEntry) => void;
   onViewEntry: (entry: DailyEntry) => void;
@@ -3710,10 +3797,16 @@ function Payroll({
           <h2 className="text-2xl font-black">Payroll Reports</h2>
           <p className={classNames("text-sm", darkMode ? "text-steel-100" : "text-steel-500")}>Detailed pallet breakdown, compliance pay, and export filters.</p>
         </div>
-        <button type="button" className="touch-target flex items-center gap-2 rounded bg-steel-900 px-4 py-2 font-black text-white" onClick={() => exportCsv(filteredEntries)}>
-          <Download size={19} />
-          Export CSV
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button type="button" className="touch-target flex items-center gap-2 rounded border border-steel-300 bg-white px-4 py-2 font-black text-steel-900" onClick={() => exportCsv(filteredEntries)}>
+            <Download size={19} />
+            Export CSV
+          </button>
+          <button type="button" className="touch-target flex items-center gap-2 rounded bg-[#1f7a4d] px-4 py-2 font-black text-white" onClick={() => exportExcel(filteredEntries)}>
+            <Download size={19} />
+            Export Excel
+          </button>
+        </div>
       </div>
 
       <div className="grid gap-3 md:grid-cols-5">
