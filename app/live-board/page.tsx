@@ -40,10 +40,13 @@ function getLocationName(locationId: string) {
 }
 
 function quantityForEntry(entry: DailyEntry, palletTypes: PalletType[]) {
-  // QC deductions (quality reductions) subtract from the pallet count shown on
-  // the board — a rejected pallet lowers the productivity total.
   return (entry.lines ?? []).reduce((total, line) => {
-    if (findPalletType(palletTypes, line.palletTypeId)?.category === "QC Deductions") return total - Number(line.quantity || 0);
+    const pallet = findPalletType(palletTypes, line.palletTypeId);
+    // Pallet types that no longer exist (unnamed "custom" leftovers) are left
+    // off the board entirely, so nothing shows without a real name.
+    if (!pallet) return total;
+    // QC deductions (quality reductions) subtract from the pallet count.
+    if (pallet.category === "QC Deductions") return total - Number(line.quantity || 0);
     return total + Number(line.quantity || 0);
   }, 0);
 }
@@ -293,7 +296,8 @@ export default function LiveBoardPage() {
       // aren't pallets they "made", so they're left out of the breakdown).
       for (const line of entry.lines ?? []) {
         const pallet = findPalletType(palletTypeList, line.palletTypeId);
-        if (pallet?.category === "QC Deductions") continue;
+        // Skip QC deductions and any pallet with no name (orphaned customs).
+        if (!pallet || pallet.category === "QC Deductions") continue;
         const quantity = Number(line.quantity || 0);
         if (!quantity) continue;
         const key = pallet?.id ?? line.palletTypeId;

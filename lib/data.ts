@@ -45,6 +45,7 @@ export const palletCategories: PalletCategory[] = [
   "Extend",
   "Cut",
   "Outside",
+  "Custom",
   "QC Deductions"
 ];
 

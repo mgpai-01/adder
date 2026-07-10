@@ -24,7 +24,7 @@ export type Employee = {
   stationSpot?: number;
 };
 
-export type PalletCategory = "Stacker" | "Repair" | "Extend" | "Cut" | "Outside" | "QC Deductions";
+export type PalletCategory = "Stacker" | "Repair" | "Extend" | "Cut" | "Outside" | "Custom" | "QC Deductions";
 
 export type PalletType = {
   id: string;
