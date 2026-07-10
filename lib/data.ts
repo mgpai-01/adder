@@ -45,6 +45,7 @@ export const palletCategories: PalletCategory[] = [
   "Extend",
   "Cut",
   "Outside",
+  "Custom",
   "QC Deductions"
 ];
 
@@ -68,6 +69,35 @@ export const defaultPalletTypes: PalletType[] = [
 ];
 
 export const palletTypes = defaultPalletTypes;
+
+// Each yard only makes certain pallets. Fontana (the main yard) makes them all,
+// so it is left out of this map and shows every pallet. Citrus and Mesa show
+// only the pallets they actually make, in the order from the managers' PDF.
+// Shared by the entry grid and the live board so both offer the same menu.
+export const yardPalletIds: Record<string, string[]> = {
+  citrus: [
+    "stack-by-hand-cambiar-barrote",
+    "repair-60x40",
+    "extend-60x40",
+    "cut-60x40",
+    "outside-block",
+    "outside-grade-b-2",
+    "outside-regular",
+    "outside-grade-a-1",
+    "quality-control-rejects"
+  ],
+  mesa: [
+    "stack-by-hand-cambiar-barrote",
+    "repair-60x40",
+    "extend-60x40",
+    "cut-60x40",
+    "outside-block",
+    "outside-grade-b-2",
+    "outside-regular",
+    "outside-grade-a-1",
+    "quality-control-rejects"
+  ]
+};
 
 export const timeOptions = [
   "5:00 AM",

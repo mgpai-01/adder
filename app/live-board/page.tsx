@@ -3,7 +3,7 @@
 import { Crown, Expand, LogIn, Maximize2, MapPin, RefreshCw, Target, Trophy, X } from "lucide-react";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { employees, locations, palletTypes, payrollSettings, shifts } from "@/lib/data";
+import { employees, locations, palletTypes, payrollSettings, shifts, yardPalletIds } from "@/lib/data";
 import { findPalletType } from "@/lib/payroll";
 import { getWeekKey, wholeNumber } from "@/lib/payroll";
 import { LanguageProvider, translate, useT, type Language } from "@/lib/i18n";
@@ -40,10 +40,13 @@ function getLocationName(locationId: string) {
 }
 
 function quantityForEntry(entry: DailyEntry, palletTypes: PalletType[]) {
-  // QC deductions (quality reductions) subtract from the pallet count shown on
-  // the board — a rejected pallet lowers the productivity total.
   return (entry.lines ?? []).reduce((total, line) => {
-    if (findPalletType(palletTypes, line.palletTypeId)?.category === "QC Deductions") return total - Number(line.quantity || 0);
+    const pallet = findPalletType(palletTypes, line.palletTypeId);
+    // Pallet types that no longer exist (unnamed "custom" leftovers) are left
+    // off the board entirely, so nothing shows without a real name.
+    if (!pallet) return total;
+    // QC deductions (quality reductions) subtract from the pallet count.
+    if (pallet.category === "QC Deductions") return total - Number(line.quantity || 0);
     return total + Number(line.quantity || 0);
   }, 0);
 }
@@ -74,6 +77,26 @@ function palletLabel(palletTypeId: string, palletTypes: PalletType[]) {
   }
   const description = pallet.description && !pallet.code.toUpperCase().includes(pallet.description.toUpperCase()) ? ` · ${pallet.description}` : "";
   return `${pallet.code}${description}`.trim();
+}
+
+// The pallet types a yard can make, as board columns — the same per-yard menu
+// the entry grid uses (Fontana makes them all; Citrus/Mesa their list), plus
+// any active custom pallets. QC deductions and inactive pallets are left out.
+// Used so the board shows every product a yard makes, even at 0.
+function yardPalletMenu(yardId: string, palletTypes: PalletType[]) {
+  const allowed = yardPalletIds[yardId];
+  const base = allowed
+    ? allowed.map((id) => findPalletType(palletTypes, id)).filter((pallet): pallet is PalletType => Boolean(pallet))
+    : palletTypes;
+  const customs = palletTypes.filter((pallet) => pallet.active && pallet.category === "Custom");
+  const seen = new Set<string>();
+  const menu: { id: string; name: string; label: string }[] = [];
+  for (const pallet of [...base, ...customs]) {
+    if (!pallet.active || pallet.category === "QC Deductions" || seen.has(pallet.id)) continue;
+    seen.add(pallet.id);
+    menu.push({ id: pallet.id, name: palletName(pallet.id, palletTypes), label: palletLabel(pallet.id, palletTypes) });
+  }
+  return menu;
 }
 
 function readUrlFilters() {
@@ -293,7 +316,8 @@ export default function LiveBoardPage() {
       // aren't pallets they "made", so they're left out of the breakdown).
       for (const line of entry.lines ?? []) {
         const pallet = findPalletType(palletTypeList, line.palletTypeId);
-        if (pallet?.category === "QC Deductions") continue;
+        // Skip QC deductions and any pallet with no name (orphaned customs).
+        if (!pallet || pallet.category === "QC Deductions") continue;
         const quantity = Number(line.quantity || 0);
         if (!quantity) continue;
         const key = pallet?.id ?? line.palletTypeId;
@@ -507,7 +531,7 @@ export default function LiveBoardPage() {
                 style={{ gridTemplateColumns: `repeat(${Math.max(yardColumns.length, 1)}, minmax(0, 1fr))` }}
               >
                 {yardColumns.map((yard) => (
-                  <YardColumn key={yard.id} yard={yard} />
+                  <YardColumn key={yard.id} yard={yard} menu={yardPalletMenu(yard.id, palletTypeList)} />
                 ))}
               </div>
             ) : (
@@ -603,7 +627,7 @@ export default function LiveBoardPage() {
             {expanded === "board" && (
               <div className="flex flex-col gap-6">
                 {yardColumns.map((yard) => (
-                  <YardColumn key={yard.id} yard={yard} large />
+                  <YardColumn key={yard.id} yard={yard} menu={yardPalletMenu(yard.id, palletTypeList)} large />
                 ))}
               </div>
             )}
@@ -710,11 +734,13 @@ function YardTab({ active, onClick, children }: { active: boolean; onClick: () =
 
 type BoardRow = { employeeId: string; name: string; photo?: string; locationId: string; shift: Shift; quantity: number; pallets?: { id: string; name: string; label: string; quantity: number }[] };
 
-function YardColumn({ yard, large = false }: { yard: { id: string; name: string; total: number; rows: BoardRow[] }; large?: boolean }) {
+function YardColumn({ yard, menu, large = false }: { yard: { id: string; name: string; total: number; rows: BoardRow[] }; menu: { id: string; name: string; label: string }[]; large?: boolean }) {
   const { t } = useT();
-  // Build the product columns for this yard: the union of pallet types produced
-  // here, ordered by how much of each was made, with per-product totals.
+  // Columns are this yard's full pallet menu (so every product shows, even ones
+  // nobody made yet), then produced quantities are folded in. Any produced
+  // pallet that isn't in the menu is still added so nothing is lost.
   const columnMap = new Map<string, { id: string; label: string; name: string; total: number }>();
+  for (const item of menu) columnMap.set(item.id, { id: item.id, label: item.label, name: item.name, total: 0 });
   for (const row of yard.rows) {
     for (const pallet of row.pallets ?? []) {
       const column = columnMap.get(pallet.id) ?? { id: pallet.id, label: pallet.label, name: pallet.name, total: 0 };
