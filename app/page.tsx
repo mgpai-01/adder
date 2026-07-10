@@ -3754,6 +3754,85 @@ function Dashboard({
   );
 }
 
+// Live check that the numbers reconcile across screens. It flags pallets that
+// were entered but aren't in the Pallet Types list (no name, no rate → paid $0
+// and hidden from the live tracker), and confirms the internal totals foot:
+// per-employee sum == per-pallet-type sum == grand total.
+function ReconciliationCard({ entries, report, palletTypes }: { entries: DailyEntry[]; report: ReturnType<typeof buildReport>; palletTypes: PalletType[] }) {
+  const unknownList = useMemo(() => {
+    const totals = new Map<string, number>();
+    for (const entry of entries) {
+      for (const line of entry.lines ?? []) {
+        if (!findPalletType(palletTypes, line.palletTypeId)) {
+          totals.set(line.palletTypeId, (totals.get(line.palletTypeId) ?? 0) + Number(line.quantity || 0));
+        }
+      }
+    }
+    return Array.from(totals, ([id, quantity]) => ({ id, quantity })).sort((a, b) => b.quantity - a.quantity);
+  }, [entries, palletTypes]);
+
+  const unknownQty = unknownList.reduce((sum, item) => sum + item.quantity, 0);
+  const grandQty = report.summary.quantity;
+  const byEmployeeQty = report.byEmployee.reduce((sum, row) => sum + row.quantity, 0);
+  const byPalletQty = report.byPallet.reduce((sum, row) => (row.category === "QC Deductions" ? sum - row.quantity : sum + row.quantity), 0);
+  const booksBalance = byEmployeeQty === grandQty && byPalletQty === grandQty;
+  const trackerQty = grandQty - unknownQty;
+  const ok = booksBalance && unknownList.length === 0;
+
+  return (
+    <div className={classNames("rounded border-2 p-4", ok ? "border-workshop-300 bg-workshop-50" : "border-amber-300 bg-amber-50")}>
+      <div className="flex items-center gap-2">
+        {ok ? <CheckCircle2 size={20} className="text-workshop-700" /> : <ShieldCheck size={20} className="text-amber-700" />}
+        <h3 className="text-lg font-black text-steel-900">
+          {ok ? "Numbers reconcile" : `${unknownList.length} unmatched pallet type${unknownList.length === 1 ? "" : "s"} — needs attention`}
+        </h3>
+      </div>
+      <div className="mt-3 grid gap-3 sm:grid-cols-4">
+        <div className="rounded border border-steel-100 bg-white p-3">
+          <p className="text-xs font-bold uppercase tracking-wide text-steel-500">Total pallets (payroll)</p>
+          <p className="text-2xl font-black text-steel-900">{wholeNumber(grandQty)}</p>
+        </div>
+        <div className="rounded border border-steel-100 bg-white p-3">
+          <p className="text-xs font-bold uppercase tracking-wide text-steel-500">Shown on live tracker</p>
+          <p className="text-2xl font-black text-steel-900">{wholeNumber(trackerQty)}</p>
+        </div>
+        <div className="rounded border border-steel-100 bg-white p-3">
+          <p className="text-xs font-bold uppercase tracking-wide text-steel-500">Unmatched (no rate → $0)</p>
+          <p className={classNames("text-2xl font-black", unknownQty > 0 ? "text-amber-700" : "text-steel-900")}>{wholeNumber(unknownQty)}</p>
+        </div>
+        <div className="rounded border border-steel-100 bg-white p-3">
+          <p className="text-xs font-bold uppercase tracking-wide text-steel-500">Books balance</p>
+          <p className={classNames("text-2xl font-black", booksBalance ? "text-workshop-700" : "text-red-700")}>{booksBalance ? "✓ Even" : "✗ Off"}</p>
+        </div>
+      </div>
+      {unknownList.length > 0 ? (
+        <div className="mt-3 text-sm text-steel-900">
+          <p className="font-bold">
+            These {wholeNumber(unknownQty)} pallets were entered but aren&apos;t in your Pallet Types list, so they pay $0 and don&apos;t show on the tracker. Match them in <strong>Admin → Pallet Types → Match Unknown Pallets</strong>:
+          </p>
+          <ul className="mt-2 grid gap-1">
+            {unknownList.map((item) => (
+              <li key={item.id} className="flex items-center justify-between rounded border border-amber-200 bg-white px-3 py-1.5">
+                <span className="truncate font-mono text-xs font-black">{item.id}</span>
+                <span className="shrink-0 text-sm font-black">{wholeNumber(item.quantity)} pallets</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : (
+        <p className="mt-3 text-sm font-bold text-steel-600">
+          Every pallet entered resolves to a real type with a rate. Payroll, the production grid, the entry screen, and the live tracker all count the same {wholeNumber(grandQty)} pallets for this selection.
+        </p>
+      )}
+      {!booksBalance && (
+        <p className="mt-2 text-sm font-black text-red-700">
+          Internal totals don&apos;t foot (employee {wholeNumber(byEmployeeQty)} · pallet {wholeNumber(byPalletQty)} · grand {wholeNumber(grandQty)}). Send this to your developer — it shouldn&apos;t happen.
+        </p>
+      )}
+    </div>
+  );
+}
+
 function Payroll({
   entries,
   countSheets,
@@ -3852,6 +3931,8 @@ function Payroll({
         <Metric label="Min Wage" value={`${currency(settings.minimumWage)}/hr`} />
         <Metric label="Total Pay" value={currency(report.summary.totalPay)} />
       </div>
+
+      <ReconciliationCard entries={filteredEntries} report={report} palletTypes={palletTypes} />
 
       <EmployeeTable rows={report.byEmployee} onSelectEmployee={onSelectEmployee} />
       <BreakdownTable title="Quantities by Type" rows={report.byPallet} />
