@@ -1,6 +1,6 @@
 "use client";
 
-import { Crown, Expand, LogIn, MapPin, RefreshCw, Target, Trophy } from "lucide-react";
+import { Crown, Expand, LogIn, Maximize2, MapPin, RefreshCw, Target, Trophy, X } from "lucide-react";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { employees, locations, palletTypes, payrollSettings, shifts } from "@/lib/data";
@@ -122,6 +122,8 @@ export default function LiveBoardPage() {
   // per-yard production "board" (matrix of people × pallet types) or the
   // "leaderboard" (podium + ranked list).
   const [boardStyle, setBoardStyle] = useState<"board" | "leaderboard">("board");
+  // Which panel, if any, is blown up to a full-screen readable overlay.
+  const [expanded, setExpanded] = useState<null | "board" | "locations">(null);
   const [periodMode, setPeriodMode] = useState<PeriodMode>(initialFilters.period);
   const [selectedDate, setSelectedDate] = useState(initialFilters.date);
   const [selectedWeek, setSelectedWeek] = useState(initialFilters.week);
@@ -206,6 +208,16 @@ export default function LiveBoardPage() {
     document.addEventListener("fullscreenchange", onChange);
     return () => document.removeEventListener("fullscreenchange", onChange);
   }, []);
+
+  // Close the expanded panel overlay with the Escape key.
+  useEffect(() => {
+    if (!expanded) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setExpanded(null);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [expanded]);
 
   useEffect(() => {
     let cursorTimer = window.setTimeout(() => setCursorHidden(true), 5_000);
@@ -480,7 +492,24 @@ export default function LiveBoardPage() {
       <section className="min-h-0 flex-1 overflow-hidden px-10 pb-5 pt-3">
         <div className="grid h-full gap-6 xl:grid-cols-[1.5fr_0.9fr]">
           <GlassCard className="flex min-h-0 flex-col">
-            <SectionLabel icon={<Trophy size={22} />}>{boardStyle === "board" ? t("Yards") : t("Ranking")}</SectionLabel>
+            <div className="mb-6 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5">
+                <span className="text-[#92d6a1]"><Trophy size={22} /></span>
+                <h2 className="text-xl font-black uppercase tracking-[0.2em] text-white/80">{boardStyle === "board" ? t("Yards") : t("Ranking")}</h2>
+              </div>
+              {boardStyle === "board" && repairerRows.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setExpanded("board")}
+                  title={t("Expand")}
+                  aria-label={t("Expand")}
+                  className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.05] px-3.5 py-2 text-sm font-bold text-white/70 transition-colors hover:text-white"
+                >
+                  <Maximize2 size={16} />
+                  <span className="hidden sm:inline">{t("Expand")}</span>
+                </button>
+              )}
+            </div>
             {repairerRows.length === 0 ? (
               <EmptyBoardMessage />
             ) : boardStyle === "board" ? (
@@ -554,6 +583,35 @@ export default function LiveBoardPage() {
         <span>{lastUpdated ? t("Last updated {time}", { time: lastUpdated.toLocaleTimeString(dateLocale, { hour: "numeric", minute: "2-digit", second: "2-digit" }) }) : t("Loading…")}</span>
       </footer>
       </div>
+
+      {/* Full-screen, easy-to-read blow-up of the Yards board. Rendered outside
+          the scaled canvas so the text is at real size. Esc or the X closes it. */}
+      {expanded === "board" && (
+        <div className="fixed inset-0 z-50 flex flex-col bg-[#0b1512]" role="dialog" aria-modal="true">
+          <div className="flex shrink-0 items-center justify-between gap-4 border-b border-white/10 px-8 py-5">
+            <div className="min-w-0">
+              <h2 className="text-3xl font-black">{t("Yards")}</h2>
+              <p className="mt-1 truncate text-base font-medium text-white/45">{periodLabel} · {selectedLocationLabel} · {selectedShiftLabel}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setExpanded(null)}
+              aria-label={t("Close (Esc)")}
+              title={t("Close (Esc)")}
+              className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.06] text-white/70 transition-colors hover:bg-white/15 hover:text-white"
+            >
+              <X size={28} />
+            </button>
+          </div>
+          <div className="min-h-0 flex-1 overflow-auto p-8">
+            <div className="flex flex-col gap-6">
+              {yardColumns.map((yard) => (
+                <YardColumn key={yard.id} yard={yard} large />
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </main>
     </LanguageProvider>
   );
@@ -615,7 +673,7 @@ function YardTab({ active, onClick, children }: { active: boolean; onClick: () =
 
 type BoardRow = { employeeId: string; name: string; photo?: string; locationId: string; shift: Shift; quantity: number; pallets?: { id: string; code: string; label: string; quantity: number }[] };
 
-function YardColumn({ yard }: { yard: { id: string; name: string; total: number; rows: BoardRow[] } }) {
+function YardColumn({ yard, large = false }: { yard: { id: string; name: string; total: number; rows: BoardRow[] }; large?: boolean }) {
   const { t } = useT();
   // Build the product columns for this yard: the union of pallet types produced
   // here, ordered by how much of each was made, with per-product totals.
@@ -630,13 +688,19 @@ function YardColumn({ yard }: { yard: { id: string; name: string; total: number;
   const columns = Array.from(columnMap.values()).sort((a, b) => b.total - a.total);
   const producedTotal = columns.reduce((sum, column) => sum + column.total, 0);
 
+  // Two sizes: the compact board tile, and a big, easy-to-read version used
+  // when the panel is expanded full-screen.
+  const s = large
+    ? { card: "p-6", head: "pb-3 text-lg", nameW: "w-[220px]", name: "py-3 pr-3 text-2xl", num: "px-3 py-3 text-2xl", rowTotal: "py-3 pl-3 text-3xl", yardName: "text-4xl", yardTotal: "text-5xl", palletsLbl: "text-base", footLabel: "pt-3 pr-3 text-lg", footNum: "px-3 pt-3 text-2xl", footTotal: "pt-3 pl-3 text-3xl" }
+    : { card: "p-3", head: "pb-1.5 text-[10px]", nameW: "w-[74px]", name: "py-1 pr-1 text-xs", num: "px-0.5 py-1 text-xs", rowTotal: "py-1 pl-1 text-sm", yardName: "text-xl", yardTotal: "text-2xl", palletsLbl: "text-xs", footLabel: "pt-1.5 pr-1 text-[10px]", footNum: "px-0.5 pt-1.5 text-xs", footTotal: "pt-1.5 pl-1 text-sm" };
+
   return (
-    <div className="flex min-h-0 flex-col rounded-2xl border border-white/10 bg-white/[0.03] p-3">
+    <div className={`flex min-h-0 flex-col rounded-2xl border border-white/10 bg-white/[0.03] ${s.card}`}>
       <div className="mb-2 flex items-end justify-between gap-2 border-b border-white/10 pb-2">
-        <span className="text-xl font-black leading-tight">{yard.name}</span>
+        <span className={`font-black leading-tight ${s.yardName}`}>{yard.name}</span>
         <div className="flex shrink-0 items-baseline gap-1.5">
-          <span className="text-2xl font-black tabular-nums text-[#aef2bc]">{wholeNumber(yard.total)}</span>
-          <span className="text-xs font-bold uppercase tracking-wide text-white/35">{t("pallets")}</span>
+          <span className={`font-black tabular-nums text-[#aef2bc] ${s.yardTotal}`}>{wholeNumber(yard.total)}</span>
+          <span className={`font-bold uppercase tracking-wide text-white/35 ${s.palletsLbl}`}>{t("pallets")}</span>
         </div>
       </div>
       {yard.rows.length === 0 || columns.length === 0 ? (
@@ -649,11 +713,11 @@ function YardColumn({ yard }: { yard: { id: string; name: string; total: number;
           <table className="w-full border-collapse">
             <thead>
               <tr>
-                <th className="w-[74px] pb-1.5 pr-1 text-left text-[10px] font-black uppercase tracking-wide text-white/50">{t("Repairer")}</th>
+                <th className={`${s.nameW} pr-1 text-left font-black uppercase tracking-wide text-white/50 ${s.head}`}>{t("Repairer")}</th>
                 {columns.map((column) => (
-                  <th key={column.id} title={column.label} className="px-0.5 pb-1.5 text-center text-[10px] font-bold text-white/60">{column.abbrev}</th>
+                  <th key={column.id} title={column.label} className={`px-0.5 text-center font-bold text-white/60 ${s.head}`}>{column.abbrev}</th>
                 ))}
-                <th className="pb-1.5 pl-1 text-right text-[10px] font-black uppercase tracking-wide text-[#aef2bc]">{t("Total")}</th>
+                <th className={`pl-1 text-right font-black uppercase tracking-wide text-[#aef2bc] ${s.head}`}>{t("Total")}</th>
               </tr>
             </thead>
             <tbody>
@@ -662,27 +726,27 @@ function YardColumn({ yard }: { yard: { id: string; name: string; total: number;
                 const rowTotal = (row.pallets ?? []).reduce((sum, pallet) => sum + pallet.quantity, 0);
                 return (
                   <tr key={row.employeeId} className="border-t border-white/5">
-                    <td className="w-[74px] break-words py-1 pr-1 text-left text-xs font-bold leading-tight">{row.name}</td>
+                    <td className={`${s.nameW} break-words text-left font-bold leading-tight ${s.name}`}>{row.name}</td>
                     {columns.map((column) => {
                       const quantity = lookup.get(column.id) ?? 0;
                       return (
-                        <td key={column.id} className="px-0.5 py-1 text-center text-xs tabular-nums">
+                        <td key={column.id} className={`text-center tabular-nums ${s.num}`}>
                           {quantity ? <span className="text-white/85">{wholeNumber(quantity)}</span> : <span className="text-white/15">·</span>}
                         </td>
                       );
                     })}
-                    <td className="py-1 pl-1 text-right text-sm font-black tabular-nums">{wholeNumber(rowTotal)}</td>
+                    <td className={`text-right font-black tabular-nums ${s.rowTotal}`}>{wholeNumber(rowTotal)}</td>
                   </tr>
                 );
               })}
             </tbody>
             <tfoot>
               <tr className="border-t-2 border-white/15">
-                <td className="pt-1.5 pr-1 text-left text-[10px] font-black uppercase tracking-wide text-white/60">{t("Total")}</td>
+                <td className={`text-left font-black uppercase tracking-wide text-white/60 ${s.footLabel}`}>{t("Total")}</td>
                 {columns.map((column) => (
-                  <td key={column.id} className="px-0.5 pt-1.5 text-center text-xs font-black tabular-nums text-[#aef2bc]">{wholeNumber(column.total)}</td>
+                  <td key={column.id} className={`text-center font-black tabular-nums text-[#aef2bc] ${s.footNum}`}>{wholeNumber(column.total)}</td>
                 ))}
-                <td className="pt-1.5 pl-1 text-right text-sm font-black tabular-nums text-[#aef2bc]">{wholeNumber(producedTotal)}</td>
+                <td className={`text-right font-black tabular-nums text-[#aef2bc] ${s.footTotal}`}>{wholeNumber(producedTotal)}</td>
               </tr>
             </tfoot>
           </table>
