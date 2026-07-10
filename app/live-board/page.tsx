@@ -129,7 +129,7 @@ export default function LiveBoardPage() {
   // "leaderboard" (podium + ranked list).
   const [boardStyle, setBoardStyle] = useState<"board" | "leaderboard">("board");
   // Which panel, if any, is blown up to a full-screen readable overlay.
-  const [expanded, setExpanded] = useState<null | "board" | "locations">(null);
+  const [expanded, setExpanded] = useState<null | "board" | "total" | "goal" | "locations">(null);
   const [periodMode, setPeriodMode] = useState<PeriodMode>(initialFilters.period);
   const [selectedDate, setSelectedDate] = useState(initialFilters.date);
   const [selectedWeek, setSelectedWeek] = useState(initialFilters.week);
@@ -497,25 +497,8 @@ export default function LiveBoardPage() {
 
       <section className="min-h-0 flex-1 overflow-hidden px-10 pb-5 pt-3">
         <div className="grid h-full gap-6 xl:grid-cols-[1.5fr_0.9fr]">
-          <GlassCard className="flex min-h-0 flex-col">
-            <div className="mb-6 flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2.5">
-                <span className="text-[#92d6a1]"><Trophy size={22} /></span>
-                <h2 className="text-xl font-black uppercase tracking-[0.2em] text-white/80">{boardStyle === "board" ? t("Yards") : t("Ranking")}</h2>
-              </div>
-              {boardStyle === "board" && repairerRows.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => setExpanded("board")}
-                  title={t("Expand")}
-                  aria-label={t("Expand")}
-                  className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.05] px-3.5 py-2 text-sm font-bold text-white/70 transition-colors hover:text-white"
-                >
-                  <Maximize2 size={16} />
-                  <span className="hidden sm:inline">{t("Expand")}</span>
-                </button>
-              )}
-            </div>
+          <GlassCard className="flex min-h-0 flex-col" onClick={boardStyle === "board" && repairerRows.length > 0 ? () => setExpanded("board") : undefined}>
+            <SectionLabel icon={<Trophy size={22} />}>{boardStyle === "board" ? t("Yards") : t("Ranking")}</SectionLabel>
             {repairerRows.length === 0 ? (
               <EmptyBoardMessage />
             ) : boardStyle === "board" ? (
@@ -555,9 +538,13 @@ export default function LiveBoardPage() {
           </GlassCard>
 
           <div className="grid min-h-0 grid-rows-[auto_auto_1fr] gap-5">
-            <GrandTotal total={companyTotal} />
-            <GoalTracker actual={companyTotal} goal={goal} percent={goalPercent} />
-            <GlassCard className="flex min-h-0 flex-col">
+            <ClickCard onClick={() => setExpanded("total")}>
+              <GrandTotal total={companyTotal} />
+            </ClickCard>
+            <ClickCard onClick={() => setExpanded("goal")}>
+              <GoalTracker actual={companyTotal} goal={goal} percent={goalPercent} />
+            </ClickCard>
+            <GlassCard className="flex min-h-0 flex-col" onClick={locationRows.length > 0 ? () => setExpanded("locations") : undefined}>
               <SectionLabel icon={<MapPin size={22} />}>{t("Location Totals")}</SectionLabel>
               <div
                 className="grid min-h-0 flex-1 gap-3 overflow-hidden"
@@ -590,13 +577,16 @@ export default function LiveBoardPage() {
       </footer>
       </div>
 
-      {/* Full-screen, easy-to-read blow-up of the Yards board. Rendered outside
-          the scaled canvas so the text is at real size. Esc or the X closes it. */}
-      {expanded === "board" && (
+      {/* Full-screen, easy-to-read blow-up of whichever panel was clicked.
+          Rendered outside the scaled canvas so the text is at real size.
+          Esc or the X closes it. */}
+      {expanded && (
         <div className="fixed inset-0 z-50 flex flex-col bg-[#0b1512]" role="dialog" aria-modal="true">
           <div className="flex shrink-0 items-center justify-between gap-4 border-b border-white/10 px-8 py-5">
             <div className="min-w-0">
-              <h2 className="text-3xl font-black">{t("Yards")}</h2>
+              <h2 className="text-3xl font-black">
+                {expanded === "board" ? t("Yards") : expanded === "total" ? t("Company Total") : expanded === "goal" ? t("Today's Goal") : t("Location Totals")}
+              </h2>
               <p className="mt-1 truncate text-base font-medium text-white/45">{periodLabel} · {selectedLocationLabel} · {selectedShiftLabel}</p>
             </div>
             <button
@@ -610,11 +600,37 @@ export default function LiveBoardPage() {
             </button>
           </div>
           <div className="min-h-0 flex-1 overflow-auto p-8">
-            <div className="flex flex-col gap-6">
-              {yardColumns.map((yard) => (
-                <YardColumn key={yard.id} yard={yard} large />
-              ))}
-            </div>
+            {expanded === "board" && (
+              <div className="flex flex-col gap-6">
+                {yardColumns.map((yard) => (
+                  <YardColumn key={yard.id} yard={yard} large />
+                ))}
+              </div>
+            )}
+            {expanded === "total" && (
+              <div className="flex h-full flex-col items-center justify-center text-center">
+                <p className="text-3xl font-black uppercase tracking-[0.3em] text-[#aef2bc]">{t("Company Total")}</p>
+                <p className="mt-4 bg-gradient-to-b from-white to-[#bdecca] bg-clip-text text-[16rem] font-black leading-none tabular-nums text-transparent">{wholeNumber(companyTotal)}</p>
+                <p className="mt-4 text-3xl font-bold uppercase tracking-[0.3em] text-white/45">{t("Pallets")}</p>
+              </div>
+            )}
+            {expanded === "goal" && (
+              <div className="flex h-full flex-col items-center justify-center text-center">
+                <p className="text-3xl font-black uppercase tracking-[0.3em] text-[#92d6a1]">{t("Today's Goal")}</p>
+                <p className="mt-4 text-[14rem] font-black leading-none tabular-nums">{goalPercent}%</p>
+                <p className="mt-2 text-4xl font-bold text-white/60">{wholeNumber(companyTotal)} {t("of {goal}", { goal: wholeNumber(goal) })}</p>
+              </div>
+            )}
+            {expanded === "locations" && (
+              <div className="mx-auto flex max-w-4xl flex-col gap-5">
+                {locationRows.map((location) => (
+                  <div key={location.id} className="flex items-center justify-between rounded-3xl border border-white/10 bg-white/[0.03] px-10 py-8">
+                    <span className="text-5xl font-bold">{location.name}</span>
+                    <span className="text-6xl font-black tabular-nums text-[#aef2bc]">{wholeNumber(location.quantity)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -645,11 +661,26 @@ function useCountUp(value: number, duration = 900) {
   return display;
 }
 
-function GlassCard({ children, className = "" }: { children: ReactNode; className?: string }) {
+function GlassCard({ children, className = "", onClick }: { children: ReactNode; className?: string; onClick?: () => void }) {
   return (
-    <div className={`relative overflow-hidden rounded-3xl border border-white/10 bg-white/[0.045] p-7 shadow-[0_14px_50px_rgba(0,0,0,0.5)] backdrop-blur-xl ${className}`}>
+    <div
+      onClick={onClick}
+      className={`group relative overflow-hidden rounded-3xl border border-white/10 bg-white/[0.045] p-7 shadow-[0_14px_50px_rgba(0,0,0,0.5)] backdrop-blur-xl ${onClick ? "cursor-pointer transition-colors hover:border-white/25" : ""} ${className}`}
+    >
       <span className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/25 to-transparent" />
+      {onClick && <span className="pointer-events-none absolute right-4 top-4 z-10 text-white/25 transition-colors group-hover:text-white/70"><Maximize2 size={18} /></span>}
       {children}
+    </div>
+  );
+}
+
+// Wraps a self-styled card (Grand Total, Goal) to make the whole thing click to
+// expand, with a hover cue and a corner expand icon.
+function ClickCard({ onClick, children }: { onClick: () => void; children: ReactNode }) {
+  return (
+    <div onClick={onClick} className="group relative cursor-pointer rounded-3xl transition hover:brightness-110">
+      {children}
+      <span className="pointer-events-none absolute right-4 top-4 z-10 text-white/25 transition-colors group-hover:text-white/70"><Maximize2 size={18} /></span>
     </div>
   );
 }
