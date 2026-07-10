@@ -5210,11 +5210,21 @@ function EntryEditorModal({
   }
 
   function save() {
+    const cleanLines = draft.lines.filter((line) => line.quantity !== 0);
+    // Keep the flat `lines` and the per-phase `phases` in sync so the edit reads
+    // the same on the production grid, payroll, AND the entry screen (which is
+    // phase-based). This modal edits aggregate quantities, so the totals land in
+    // Phase 1 while every phase keeps its photos and bypassed state.
+    const phases = normalizePhases(draft.phases).map((phase, index) => {
+      const lines = index === 0 ? cleanLines : [];
+      return { ...phase, lines, amount: phasePalletCount({ ...phase, lines }, palletTypes) };
+    });
     onSave({
       ...entry,
       ...draft,
       manualHours: Number(draft.manualHours),
-      lines: draft.lines.filter((line) => line.quantity !== 0)
+      lines: cleanLines,
+      phases
     });
   }
 
