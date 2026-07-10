@@ -48,11 +48,17 @@ function quantityForEntry(entry: DailyEntry, palletTypes: PalletType[]) {
   }, 0);
 }
 
-// The pallet's code exactly as it reads on the entry sheet (e.g. "1 STACKER",
-// "REPAIR"), used for the matrix column headers.
-function palletCode(palletTypeId: string, palletTypes: PalletType[]) {
+// Just the pallet's name for a matrix column header — the description (e.g.
+// "REGULAR", "GRADE B #2", "60x40") without the category word like "STACKER"
+// or "OUTSIDE". Falls back to the code when there's no description.
+function palletName(palletTypeId: string, palletTypes: PalletType[]) {
   const pallet = findPalletType(palletTypes, palletTypeId);
-  return pallet ? pallet.code : palletTypeId.slice(0, 6).toUpperCase();
+  if (!pallet) {
+    const custom = palletTypeId.match(/^custom[:-]?(.+)$/i);
+    if (custom) return `Custom ${custom[1].slice(-4).toUpperCase()}`;
+    return palletTypeId.replaceAll("-", " ");
+  }
+  return (pallet.description ?? "").trim() || pallet.code;
 }
 
 // Full name for a pallet type, code plus description (e.g. "3 STACKER ·
@@ -270,7 +276,7 @@ export default function LiveBoardPage() {
   }, [entries, locationFilter, periodMode, selectedDate, selectedWeek, rangeStart, rangeEnd, shiftFilter]);
 
   const repairerRows = useMemo(() => {
-    type Acc = { employeeId: string; name: string; photo?: string; locationId: string; shift: Shift; quantity: number; palletMap: Map<string, { id: string; code: string; label: string; quantity: number }> };
+    type Acc = { employeeId: string; name: string; photo?: string; locationId: string; shift: Shift; quantity: number; palletMap: Map<string, { id: string; name: string; label: string; quantity: number }> };
     const totals = new Map<string, Acc>();
     for (const entry of filteredEntries) {
       const row = totals.get(entry.employeeId) ?? {
@@ -280,7 +286,7 @@ export default function LiveBoardPage() {
         locationId: entry.locationId,
         shift: entry.shift,
         quantity: 0,
-        palletMap: new Map<string, { id: string; code: string; label: string; quantity: number }>()
+        palletMap: new Map<string, { id: string; name: string; label: string; quantity: number }>()
       };
       row.quantity += quantityForEntry(entry, palletTypeList);
       // Tally the specific pallet types this repairer produced (QC deductions
@@ -291,7 +297,7 @@ export default function LiveBoardPage() {
         const quantity = Number(line.quantity || 0);
         if (!quantity) continue;
         const key = pallet?.id ?? line.palletTypeId;
-        const existing = row.palletMap.get(key) ?? { id: key, code: palletCode(line.palletTypeId, palletTypeList), label: palletLabel(line.palletTypeId, palletTypeList), quantity: 0 };
+        const existing = row.palletMap.get(key) ?? { id: key, name: palletName(line.palletTypeId, palletTypeList), label: palletLabel(line.palletTypeId, palletTypeList), quantity: 0 };
         existing.quantity += quantity;
         row.palletMap.set(key, existing);
       }
@@ -671,21 +677,27 @@ function YardTab({ active, onClick, children }: { active: boolean; onClick: () =
   );
 }
 
-type BoardRow = { employeeId: string; name: string; photo?: string; locationId: string; shift: Shift; quantity: number; pallets?: { id: string; code: string; label: string; quantity: number }[] };
+type BoardRow = { employeeId: string; name: string; photo?: string; locationId: string; shift: Shift; quantity: number; pallets?: { id: string; name: string; label: string; quantity: number }[] };
 
 function YardColumn({ yard, large = false }: { yard: { id: string; name: string; total: number; rows: BoardRow[] }; large?: boolean }) {
   const { t } = useT();
   // Build the product columns for this yard: the union of pallet types produced
   // here, ordered by how much of each was made, with per-product totals.
-  const columnMap = new Map<string, { id: string; label: string; abbrev: string; total: number }>();
+  const columnMap = new Map<string, { id: string; label: string; name: string; total: number }>();
   for (const row of yard.rows) {
     for (const pallet of row.pallets ?? []) {
-      const column = columnMap.get(pallet.id) ?? { id: pallet.id, label: pallet.label, abbrev: pallet.label, total: 0 };
+      const column = columnMap.get(pallet.id) ?? { id: pallet.id, label: pallet.label, name: pallet.name, total: 0 };
       column.total += pallet.quantity;
       columnMap.set(pallet.id, column);
     }
   }
   const columns = Array.from(columnMap.values()).sort((a, b) => b.total - a.total);
+  // Header is just the pallet name; if two pallets share a name in this yard
+  // (e.g. a stacker and an outside both "REGULAR"), show the full label so the
+  // columns stay distinguishable.
+  const nameCounts = new Map<string, number>();
+  for (const column of columns) nameCounts.set(column.name, (nameCounts.get(column.name) ?? 0) + 1);
+  const headerFor = (column: { name: string; label: string }) => ((nameCounts.get(column.name) ?? 0) > 1 ? column.label : column.name);
   const producedTotal = columns.reduce((sum, column) => sum + column.total, 0);
 
   // Two sizes: the compact board tile, and a big, easy-to-read version used
@@ -715,7 +727,7 @@ function YardColumn({ yard, large = false }: { yard: { id: string; name: string;
               <tr>
                 <th className={`${s.nameW} pr-1 text-left font-black uppercase tracking-wide text-white/50 ${s.head}`}>{t("Repairer")}</th>
                 {columns.map((column) => (
-                  <th key={column.id} title={column.label} className={`px-0.5 text-center font-bold text-white/60 ${s.head}`}>{column.abbrev}</th>
+                  <th key={column.id} title={column.label} className={`px-0.5 text-center font-bold text-white/60 ${s.head}`}>{headerFor(column)}</th>
                 ))}
                 <th className={`pl-1 text-right font-black uppercase tracking-wide text-[#aef2bc] ${s.head}`}>{t("Total")}</th>
               </tr>
