@@ -749,13 +749,11 @@ function YardColumn({ yard, menu, large = false }: { yard: { id: string; name: s
     }
   }
   const columns = Array.from(columnMap.values()).sort((a, b) => b.total - a.total);
-  // Header is just the pallet name; if two pallets share a name in this yard
-  // (e.g. a stacker and an outside both "REGULAR"), show the full label so the
-  // columns stay distinguishable.
-  const nameCounts = new Map<string, number>();
-  for (const column of columns) nameCounts.set(column.name, (nameCounts.get(column.name) ?? 0) + 1);
-  const headerFor = (column: { name: string; label: string }) => ((nameCounts.get(column.name) ?? 0) > 1 ? column.label : column.name);
   const producedTotal = columns.reduce((sum, column) => sum + column.total, 0);
+  // Header width band: each pallet column keeps a minimum width so long names
+  // wrap onto 2–3 tidy lines instead of one letter per row, and the whole table
+  // scrolls sideways when there are many pallet types rather than squishing.
+  const colWidth = large ? "min-w-[92px] max-w-[132px]" : "min-w-[52px] max-w-[86px]";
 
   // Two sizes: the compact board tile, and a big, easy-to-read version used
   // when the panel is expanded full-screen.
@@ -783,9 +781,22 @@ function YardColumn({ yard, menu, large = false }: { yard: { id: string; name: s
             <thead>
               <tr>
                 <th className={`${s.nameW} pr-1 text-left font-black uppercase tracking-wide text-white/50 ${s.head}`}>{t("Repairer")}</th>
-                {columns.map((column) => (
-                  <th key={column.id} title={column.label} className={`px-0.5 text-center font-bold text-white/60 ${s.head}`}>{headerFor(column)}</th>
-                ))}
+                {columns.map((column) => {
+                  // Header shows the pallet code on top (small) and its name
+                  // below, wrapping onto 2–3 tidy lines. The width band keeps
+                  // words whole instead of squishing one letter per row.
+                  const [code, ...rest] = column.label.split(" · ");
+                  const name = rest.join(" · ") || column.name;
+                  const hasCode = name && code && code !== name;
+                  return (
+                    <th key={column.id} title={column.label} className={`px-1 align-bottom text-center font-bold text-white/60 ${s.head}`}>
+                      <div className={`mx-auto leading-tight ${colWidth}`}>
+                        {hasCode && <span className="block font-black uppercase tracking-wide text-white/35" style={{ fontSize: "0.72em" }}>{code}</span>}
+                        <span className="block break-words hyphens-auto">{name || code}</span>
+                      </div>
+                    </th>
+                  );
+                })}
                 <th className={`pl-1 text-right font-black uppercase tracking-wide text-[#aef2bc] ${s.head}`}>{t("Total")}</th>
               </tr>
             </thead>
