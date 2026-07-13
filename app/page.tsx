@@ -86,9 +86,15 @@ function withSeedPhotos(list: Employee[]): Employee[] {
     employee.photoDataUrl ? employee : { ...employee, photoDataUrl: seedPhotoById.get(employee.id) }
   );
 }
+// Maps an old/default pallet id to the slug of its code+description, so entries
+// saved under a built-in default id (e.g. "stacker-grade-a-1") still resolve to
+// the current pallet with that code+description after pallets were re-created
+// with new (cloud) ids.
+const defaultLabelSlugById = new Map(defaultPalletTypes.map((pallet) => [pallet.id, slugify(`${pallet.code} ${pallet.description}`)]));
 const legacyPalletTypeAliases: Record<string, string> = {
-  "no-1": "stacker-grade-a-1",
-  "no-2": "stacker-grade-b-2"
+  ...Object.fromEntries(defaultPalletTypes.map((pallet) => [pallet.id, defaultLabelSlugById.get(pallet.id)!])),
+  "no-1": defaultLabelSlugById.get("stacker-grade-a-1") ?? "stacker-grade-a-1",
+  "no-2": defaultLabelSlugById.get("stacker-grade-b-2") ?? "stacker-grade-b-2"
 };
 
 type View = "entry" | "count-sheets" | "production-grid" | "dashboard" | "live-yards" | "payroll" | "cloud" | "users" | "settings";

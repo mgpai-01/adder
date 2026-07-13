@@ -1,3 +1,4 @@
+import { defaultPalletTypes } from "./data";
 import type { DailyEntry, EntryCalculation, PalletType, PayrollSettings } from "./types";
 
 export function currency(value: number) {
@@ -41,9 +42,15 @@ function slugify(value: string) {
     .replace(/^-+|-+$/g, "");
 }
 
+// Maps an old/default pallet id to the slug of its code+description. Entries
+// saved under a built-in default id (e.g. "stacker-grade-a-1") then resolve to
+// whichever pallet in the current list shares that code+description, so they
+// keep working even after pallets were re-created with new (cloud) ids.
+const defaultLabelSlugById = new Map(defaultPalletTypes.map((pallet) => [pallet.id, slugify(`${pallet.code} ${pallet.description}`)]));
 const legacyPalletTypeAliases: Record<string, string> = {
-  "no-1": "stacker-grade-a-1",
-  "no-2": "stacker-grade-b-2"
+  ...Object.fromEntries(defaultPalletTypes.map((pallet) => [pallet.id, defaultLabelSlugById.get(pallet.id)!])),
+  "no-1": defaultLabelSlugById.get("stacker-grade-a-1") ?? "stacker-grade-a-1",
+  "no-2": defaultLabelSlugById.get("stacker-grade-b-2") ?? "stacker-grade-b-2"
 };
 
 export function findPalletType(palletTypes: PalletType[], palletTypeId: string) {
