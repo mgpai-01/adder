@@ -734,6 +734,55 @@ function YardTab({ active, onClick, children }: { active: boolean; onClick: () =
 
 type BoardRow = { employeeId: string; name: string; photo?: string; locationId: string; shift: Shift; quantity: number; pallets?: { id: string; name: string; label: string; quantity: number }[] };
 
+// Scales its content down uniformly so it always fits the available width —
+// like "fit to page". The inner table is laid out at its natural size (each
+// column just wide enough for its longest whole word, so nothing ever breaks
+// mid-word), then zoomed to fit. On a wide board display the zoom stays at 1
+// (full size); on a narrow laptop window everything shrinks together instead
+// of scrolling sideways or squishing letters.
+function FitWidth({ children }: { children: ReactNode }) {
+  const outerRef = useRef<HTMLDivElement>(null);
+  const innerRef = useRef<HTMLDivElement>(null);
+  const [scale, setScale] = useState(1);
+  const [height, setHeight] = useState<number | undefined>(undefined);
+
+  useEffect(() => {
+    const outer = outerRef.current;
+    const inner = innerRef.current;
+    if (!outer || !inner) return;
+    const measure = () => {
+      // transform: scale does not affect layout, so the inner element's
+      // natural size is stable no matter the current scale — measure it, then
+      // shrink to fit the container width (never enlarge past full size).
+      const natural = inner.scrollWidth;
+      const available = outer.clientWidth;
+      const next = natural > 0 ? Math.min(1, available / natural) : 1;
+      setScale(next);
+      // The scaled element still reserves its unscaled height in layout, so
+      // reserve only the visible (scaled) height to avoid a gap below.
+      setHeight(inner.scrollHeight * next);
+    };
+    measure();
+    // Only the container's width matters; observing the inner element would
+    // feed back on itself. Re-measure on the next frame too, once fonts settle.
+    const observer = new ResizeObserver(measure);
+    observer.observe(outer);
+    const raf = requestAnimationFrame(measure);
+    return () => {
+      observer.disconnect();
+      cancelAnimationFrame(raf);
+    };
+  }, [children]);
+
+  return (
+    <div ref={outerRef} className="w-full overflow-hidden" style={{ height }}>
+      <div ref={innerRef} className="w-max" style={{ transformOrigin: "top left", transform: `scale(${scale})` }}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
 function YardColumn({ yard, menu, large = false }: { yard: { id: string; name: string; total: number; rows: BoardRow[] }; menu: { id: string; name: string; label: string }[]; large?: boolean }) {
   const { t } = useT();
   // Columns are this yard's full pallet menu (so every product shows, even ones
@@ -750,15 +799,14 @@ function YardColumn({ yard, menu, large = false }: { yard: { id: string; name: s
   }
   const columns = Array.from(columnMap.values()).sort((a, b) => b.total - a.total);
   const producedTotal = columns.reduce((sum, column) => sum + column.total, 0);
-  // Header width band: each pallet column keeps a minimum width so long names
-  // wrap onto 2–3 tidy lines instead of one letter per row, and the whole table
-  // scrolls sideways when there are many pallet types rather than squishing.
-  const colWidth = large ? "min-w-[92px] max-w-[132px]" : "min-w-[52px] max-w-[86px]";
 
   // Two sizes: the compact board tile, and a big, easy-to-read version used
-  // when the panel is expanded full-screen.
+  // when the panel is expanded full-screen. The table uses a fixed layout so
+  // every pallet column shares the width evenly and the whole matrix shrinks
+  // to fit the window — no sideways scrolling — while long header names wrap
+  // onto as many lines as they need.
   const s = large
-    ? { card: "p-6", head: "pb-3 text-lg", nameW: "w-[220px]", name: "py-3 pr-3 text-2xl", num: "px-3 py-3 text-2xl", rowTotal: "py-3 pl-3 text-3xl", yardName: "text-4xl", yardTotal: "text-5xl", palletsLbl: "text-base", footLabel: "pt-3 pr-3 text-lg", footNum: "px-3 pt-3 text-2xl", footTotal: "pt-3 pl-3 text-3xl" }
+    ? { card: "p-6", head: "pb-3 text-base", nameW: "w-[200px]", name: "py-3 pr-3 text-xl", num: "px-3 py-3 text-2xl", rowTotal: "py-3 pl-3 text-2xl", yardName: "text-4xl", yardTotal: "text-5xl", palletsLbl: "text-base", footLabel: "pt-3 pr-3 text-base", footNum: "px-3 pt-3 text-2xl", footTotal: "pt-3 pl-3 text-2xl" }
     : { card: "p-3", head: "pb-1.5 text-[10px]", nameW: "w-[74px]", name: "py-1 pr-1 text-xs", num: "px-0.5 py-1 text-xs", rowTotal: "py-1 pl-1 text-sm", yardName: "text-xl", yardTotal: "text-2xl", palletsLbl: "text-xs", footLabel: "pt-1.5 pr-1 text-[10px]", footNum: "px-0.5 pt-1.5 text-xs", footTotal: "pt-1.5 pl-1 text-sm" };
 
   return (
@@ -773,67 +821,97 @@ function YardColumn({ yard, menu, large = false }: { yard: { id: string; name: s
       {yard.rows.length === 0 || columns.length === 0 ? (
         <p className="pt-8 text-center text-lg font-semibold text-white/30">{t("No production yet")}</p>
       ) : (
-        <div className="min-h-0 flex-1 overflow-auto">
-          {/* Matrix: repairers down the side, pallet types across the top. Each
-              cell is how many of that pallet the person built; the last column
-              tallies per person and the bottom row tallies per pallet type. */}
-          <table className="w-full border-collapse">
-            <thead>
-              <tr>
-                <th className={`${s.nameW} pr-1 text-left font-black uppercase tracking-wide text-white/50 ${s.head}`}>{t("Repairer")}</th>
-                {columns.map((column) => {
-                  // Header shows the pallet code on top (small) and its name
-                  // below, wrapping onto 2–3 tidy lines. The width band keeps
-                  // words whole instead of squishing one letter per row.
-                  const [code, ...rest] = column.label.split(" · ");
-                  const name = rest.join(" · ") || column.name;
-                  const hasCode = name && code && code !== name;
-                  return (
-                    <th key={column.id} title={column.label} className={`px-1 align-bottom text-center font-bold text-white/60 ${s.head}`}>
-                      <div className={`mx-auto leading-tight ${colWidth}`}>
-                        {hasCode && <span className="block font-black uppercase tracking-wide text-white/35" style={{ fontSize: "0.72em" }}>{code}</span>}
-                        <span className="block break-words hyphens-auto">{name || code}</span>
-                      </div>
-                    </th>
-                  );
-                })}
-                <th className={`pl-1 text-right font-black uppercase tracking-wide text-[#aef2bc] ${s.head}`}>{t("Total")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {yard.rows.map((row) => {
-                const lookup = new Map((row.pallets ?? []).map((pallet) => [pallet.id, pallet.quantity]));
-                const rowTotal = (row.pallets ?? []).reduce((sum, pallet) => sum + pallet.quantity, 0);
-                return (
-                  <tr key={row.employeeId} className="border-t border-white/5">
-                    <td className={`${s.nameW} break-words text-left font-bold leading-tight ${s.name}`}>{row.name}</td>
-                    {columns.map((column) => {
-                      const quantity = lookup.get(column.id) ?? 0;
-                      return (
-                        <td key={column.id} className={`text-center tabular-nums ${s.num}`}>
-                          {quantity ? <span className="text-white/85">{wholeNumber(quantity)}</span> : <span className="text-white/15">·</span>}
-                        </td>
-                      );
-                    })}
-                    <td className={`text-right font-black tabular-nums ${s.rowTotal}`}>{wholeNumber(rowTotal)}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-            <tfoot>
-              <tr className="border-t-2 border-white/15">
-                <td className={`text-left font-black uppercase tracking-wide text-white/60 ${s.footLabel}`}>{t("Total")}</td>
-                {columns.map((column) => (
-                  <td key={column.id} className={`text-center font-black tabular-nums text-[#aef2bc] ${s.footNum}`}>{wholeNumber(column.total)}</td>
-                ))}
-                <td className={`text-right font-black tabular-nums text-[#aef2bc] ${s.footTotal}`}>{wholeNumber(producedTotal)}</td>
-              </tr>
-            </tfoot>
-          </table>
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <MatrixTable large={large} s={s} columns={columns} rows={yard.rows} producedTotal={producedTotal} t={t} />
         </div>
       )}
     </div>
   );
+}
+
+// The repairer × pallet-type grid. On the expanded (large) view it is laid out
+// at its natural size — each column only as wide as its longest whole word, so
+// names wrap between words and never break mid-word — and wrapped in FitWidth
+// so the whole grid scales down to fit the window with no sideways scrolling.
+// The compact board tile uses a fixed layout that fills its small tile.
+function MatrixTable({
+  large,
+  s,
+  columns,
+  rows,
+  producedTotal,
+  t
+}: {
+  large: boolean;
+  s: Record<string, string>;
+  columns: { id: string; label: string; name: string; total: number }[];
+  rows: BoardRow[];
+  producedTotal: number;
+  t: (key: string, vars?: Record<string, string | number>) => string;
+}) {
+  // Natural layout in both sizes: each column is only as wide as its longest
+  // whole word, so names wrap between words and never break mid-letter. The
+  // whole grid is then scaled by FitWidth to fit its container.
+  const headCap = large ? "mx-auto max-w-[7.5rem]" : "mx-auto max-w-[3.75rem]";
+  const table = (
+    <table className="border-collapse">
+      <thead>
+        <tr>
+          <th className={`${s.nameW} pr-3 text-left align-bottom font-black uppercase tracking-wide text-white/50 ${s.head}`}>{t("Repairer")}</th>
+          {columns.map((column) => {
+            // Header shows the pallet code on top (small) and its name below,
+            // wrapping between words onto as many lines as it needs.
+            const [code, ...rest] = column.label.split(" · ");
+            const name = rest.join(" · ") || column.name;
+            const hasCode = name && code && code !== name;
+            return (
+              <th key={column.id} title={column.label} className={`${large ? "px-2" : "px-1"} align-bottom text-center font-bold text-white/60 ${s.head}`}>
+                {/* Cap the width so long names wrap onto a few lines (keeps the
+                    table compact so it scales up larger) without ever breaking
+                    a word mid-way. */}
+                <div className={`leading-tight ${headCap}`}>
+                  {hasCode && <span className="block font-black uppercase tracking-wide text-white/35" style={{ fontSize: "0.72em" }}>{code}</span>}
+                  <span className="block whitespace-normal">{name || code}</span>
+                </div>
+              </th>
+            );
+          })}
+          <th className={`pl-3 text-right align-bottom font-black uppercase tracking-wide text-[#aef2bc] ${s.head}`}>{t("Total")}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((row) => {
+          const lookup = new Map((row.pallets ?? []).map((pallet) => [pallet.id, pallet.quantity]));
+          const rowTotal = (row.pallets ?? []).reduce((sum, pallet) => sum + pallet.quantity, 0);
+          return (
+            <tr key={row.employeeId} className="border-t border-white/5">
+              <td className={`${s.nameW} whitespace-normal text-left font-bold leading-tight ${s.name}`}>{row.name}</td>
+              {columns.map((column) => {
+                const quantity = lookup.get(column.id) ?? 0;
+                return (
+                  <td key={column.id} className={`whitespace-nowrap text-center tabular-nums ${s.num}`}>
+                    {quantity ? <span className="text-white/85">{wholeNumber(quantity)}</span> : <span className="text-white/15">·</span>}
+                  </td>
+                );
+              })}
+              <td className={`whitespace-nowrap text-right font-black tabular-nums ${s.rowTotal}`}>{wholeNumber(rowTotal)}</td>
+            </tr>
+          );
+        })}
+      </tbody>
+      <tfoot>
+        <tr className="border-t-2 border-white/15">
+          <td className={`text-left font-black uppercase tracking-wide text-white/60 ${s.footLabel}`}>{t("Total")}</td>
+          {columns.map((column) => (
+            <td key={column.id} className={`whitespace-nowrap text-center font-black tabular-nums text-[#aef2bc] ${s.footNum}`}>{wholeNumber(column.total)}</td>
+          ))}
+          <td className={`whitespace-nowrap text-right font-black tabular-nums text-[#aef2bc] ${s.footTotal}`}>{wholeNumber(producedTotal)}</td>
+        </tr>
+      </tfoot>
+    </table>
+  );
+
+  return <FitWidth>{table}</FitWidth>;
 }
 
 function Podium({ rows }: { rows: BoardRow[] }) {
