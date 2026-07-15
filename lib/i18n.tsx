@@ -41,6 +41,7 @@ export const esDict: Record<string, string> = {
   "No station set": "Sin estación asignada",
   "Entering for": "Ingresando para",
   Notes: "Notas",
+  "Notes — Phase {n}": "Notas — Fase {n}",
   "Supervisor notes, trailer, customer, or repair issues":
     "Notas del supervisor, tráiler, cliente o problemas de reparación",
 

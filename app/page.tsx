@@ -147,7 +147,7 @@ const PHASE_COUNT = 3;
 const PHASE_TIMES = ["6–9 AM", "9 AM–12:30 PM", "12:30–3:30 PM"];
 
 function createPhases(): EntryPhase[] {
-  return Array.from({ length: PHASE_COUNT }, () => ({ amount: 0, bypassed: false, lines: [] as ProductionLine[] }));
+  return Array.from({ length: PHASE_COUNT }, () => ({ amount: 0, bypassed: false, lines: [] as ProductionLine[], notes: "" }));
 }
 
 // All photos on a phase, combining the legacy single photo with the array.
@@ -167,6 +167,7 @@ function normalizePhases(phases?: EntryPhase[]): EntryPhase[] {
       amount: Number(phase?.amount) || 0,
       bypassed: Boolean(phase?.bypassed),
       photoDataUrls: phasePhotos(phase),
+      notes: typeof phase?.notes === "string" ? phase.notes : "",
       lines: (phase?.lines ?? []).map((line) => ({
         palletTypeId: line.palletTypeId,
         quantity: Number(line.quantity) || 0,
@@ -229,6 +230,7 @@ function combinePhases(entries: DailyEntry[], palletTypes: PalletType[]): EntryP
     const lineSets: (ProductionLine[] | undefined)[] = [];
     let bypassed = false;
     const photoDataUrls: string[] = [];
+    const noteParts: string[] = [];
     entries.forEach((entry) => {
       const phs = normalizePhases(entry.phases);
       const phase = phs[index];
@@ -239,9 +241,14 @@ function combinePhases(entries: DailyEntry[], palletTypes: PalletType[]): EntryP
       phasePhotos(phase).forEach((photo) => {
         if (!photoDataUrls.includes(photo)) photoDataUrls.push(photo);
       });
+      const entryHasPhaseNotes = phs.some((p) => (p.notes ?? "").trim().length > 0);
+      // Legacy entries stored one note at the day level; surface it on Phase 1
+      // so older notes aren't lost now that notes live per phase.
+      const note = ((phase.notes ?? "").trim() || (index === 0 && !entryHasPhaseNotes ? (entry.notes ?? "").trim() : "")).trim();
+      if (note && !noteParts.includes(note)) noteParts.push(note);
     });
     const lines = sumLines(lineSets).filter((line) => line.quantity !== 0);
-    return { amount: 0, bypassed, photoDataUrls, lines };
+    return { amount: 0, bypassed, photoDataUrls, notes: noteParts.join("\n"), lines };
   });
   return phases.map((phase) => ({ ...phase, amount: phasePalletCount(phase, palletTypes) }));
 }
@@ -1453,6 +1460,16 @@ export default function Home() {
     });
   }
 
+  // Notes are kept per repairer per phase: this updates only the given phase's
+  // note on the current form, so it never leaks to other phases or repairers.
+  function updatePhaseNotes(phaseIndex: number, value: string) {
+    formDirtyRef.current = true;
+    setForm((current) => {
+      const phases = normalizePhases(current.phases).map((phase, index) => (index === phaseIndex ? { ...phase, notes: value } : phase));
+      return { ...current, phases };
+    });
+  }
+
   async function saveEntry() {
     // Reuse the id of the entry being edited so this updates that day's record
     // (the cloud upserts by id) instead of piling up duplicate entries that the
@@ -1463,9 +1480,15 @@ export default function Home() {
       amount: phasePalletCount(phase, palletTypes),
       lines: (phase.lines ?? []).filter((line) => line.quantity !== 0)
     }));
+    // The day-level note is just a summary of the per-phase notes (deduped),
+    // kept so the entries list and board still show something at a glance.
+    const combinedNotes = Array.from(
+      new Set(cleanPhases.map((phase) => (phase.notes ?? "").trim()).filter(Boolean))
+    ).join("\n");
     const cleanEntry: DailyEntry = {
       ...form,
       id: entryId,
+      notes: combinedNotes,
       manualHours: Number(form.manualHours),
       phases: cleanPhases,
       lines: aggregatePhaseLines(cleanPhases),
@@ -2001,6 +2024,7 @@ export default function Home() {
               onDateChange={handleDateChange}
               onFormChange={updateForm}
               onQuantityChange={updatePhaseLineQuantity}
+              onPhaseNotesChange={updatePhaseNotes}
               onStationChange={(employeeId, patch) => updateEmployee(employeeId, patch)}
               onSave={saveEntry}
               hideYardManager={configured && profile?.role === "supervisor"}
@@ -2689,6 +2713,7 @@ function ProductionEntry({
   onDateChange,
   onFormChange,
   onQuantityChange,
+  onPhaseNotesChange,
   onStationChange,
   onSave,
   hideYardManager,
@@ -2709,6 +2734,8 @@ function ProductionEntry({
   onDateChange: (date: string) => void;
   onFormChange: <T extends keyof EntryForm>(key: T, value: EntryForm[T]) => void;
   onQuantityChange: (phaseIndex: number, palletTypeId: string, quantity: number, parts?: number[]) => void;
+  // Updates the note for a single phase (kept per repairer per phase).
+  onPhaseNotesChange: (phaseIndex: number, value: string) => void;
   // Updates a repairer's station assignment (persisted on the roster).
   onStationChange: (employeeId: string, patch: Partial<Employee>) => void;
   onSave: () => void;
@@ -3009,8 +3036,16 @@ function ProductionEntry({
         </div>
       )}
 
-      <Label title={t("Notes")} icon={<FileSpreadsheet size={17} />}>
-        <textarea className="field min-h-20 resize-none" value={form.notes} onChange={(event) => onFormChange("notes", event.target.value)} placeholder={t("Supervisor notes, trailer, customer, or repair issues")} />
+      {/* Notes are kept per repairer per phase — the box shows and edits the
+          note for the phase selected above, so switching phases or repairers
+          shows that phase's own note instead of one shared note for everyone. */}
+      <Label title={t("Notes — Phase {n}", { n: selectedPhase + 1 })} icon={<FileSpreadsheet size={17} />}>
+        <textarea
+          className="field min-h-20 resize-none"
+          value={activePhases[selectedPhase]?.notes ?? ""}
+          onChange={(event) => onPhaseNotesChange(selectedPhase, event.target.value)}
+          placeholder={t("Supervisor notes, trailer, customer, or repair issues")}
+        />
       </Label>
 
       <button type="button" className="touch-target flex items-center justify-center gap-2 rounded bg-workshop-500 px-4 py-3 text-lg font-black text-white shadow-panel" onClick={onSave}>
