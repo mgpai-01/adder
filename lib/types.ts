@@ -61,6 +61,9 @@ export type EntryPhase = {
   photoDataUrl?: string;
   photoDataUrls?: string[];
   lines?: ProductionLine[];
+  // Free-text note for this phase, kept per repairer per phase (not shared
+  // across the whole day or across repairers).
+  notes?: string;
 };
 
 export type DailyEntry = {
