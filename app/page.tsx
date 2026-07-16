@@ -282,17 +282,36 @@ const SHOW_TIME_FIELDS = false;
 function palletsForYard(palletTypes: PalletType[], locationId: string): PalletType[] {
   const customPallets = palletTypes.filter((pallet) => pallet.active && pallet.category === "Custom");
   const allowed = yardPalletIds[locationId];
-  if (!allowed) return palletTypes;
-  // Match by the same flexible lookup the rest of the app uses (id, code, or
-  // slug) so it works even when the stored pallets carry legacy/cloud IDs.
-  const matched = allowed
-    .map((id) => findPalletType(palletTypes, id))
-    .filter((pallet): pallet is PalletType => Boolean(pallet));
-  // If nothing matched (unexpected ID scheme), fall back to showing everything
-  // rather than an empty grid.
-  const base = matched.length > 0 ? matched : palletTypes;
-  const extras = customPallets.filter((custom) => !base.some((pallet) => pallet.id === custom.id));
-  return [...base, ...extras];
+  let result: PalletType[];
+  if (!allowed) {
+    // Yards without a fixed list (e.g. Fontana) show every pallet in whatever
+    // order they arrive from the cloud/defaults.
+    result = [...palletTypes];
+  } else {
+    // Match by the same flexible lookup the rest of the app uses (id, code, or
+    // slug) so it works even when the stored pallets carry legacy/cloud IDs.
+    const matched = allowed
+      .map((id) => findPalletType(palletTypes, id))
+      .filter((pallet): pallet is PalletType => Boolean(pallet));
+    // If nothing matched (unexpected ID scheme), fall back to showing everything
+    // rather than an empty grid.
+    const base = matched.length > 0 ? matched : palletTypes;
+    const extras = customPallets.filter((custom) => !base.some((pallet) => pallet.id === custom.id));
+    result = [...base, ...extras];
+  }
+  // Always list OUTSIDE GRADE B #2 before OUTSIDE GRADE A #1 in the grid,
+  // whatever order they come back from the cloud in. Only reorders when A is
+  // currently ahead of B, so it's a no-op where they're already in that order.
+  const gradeA = findPalletType(result, "outside-grade-a-1");
+  const gradeB = findPalletType(result, "outside-grade-b-2");
+  if (gradeA && gradeB) {
+    const indexA = result.indexOf(gradeA);
+    const indexB = result.indexOf(gradeB);
+    if (indexA > -1 && indexB > -1 && indexA < indexB) {
+      [result[indexA], result[indexB]] = [result[indexB], result[indexA]];
+    }
+  }
+  return result;
 }
 
 function isManager(employee?: Employee): boolean {
