@@ -2075,6 +2075,8 @@ export default function Home() {
               onEditEntry={setEditingEntry}
               onViewEntry={setViewingEntry}
               onDeleteEntry={deleteSavedEntry}
+              exportCsv={exportCsv}
+              exportExcel={exportExcel}
             />
           )}
           {view === "dashboard" && <Dashboard settings={settings} darkMode={darkMode} countSheets={scopedCountSheets} entries={scopedEntries} locations={scopedLocationList} shifts={shiftList} palletTypes={palletTypes} employees={employeeList} onSelectEmployee={setProfileEmployeeId} />}
@@ -4103,7 +4105,9 @@ function ProductionGrid({
   onSelectEmployee,
   onEditEntry,
   onViewEntry,
-  onDeleteEntry
+  onDeleteEntry,
+  exportCsv,
+  exportExcel
 }: {
   entries: DailyEntry[];
   countSheets: CountSheet[];
@@ -4117,6 +4121,9 @@ function ProductionGrid({
   onEditEntry: (entry: DailyEntry) => void;
   onViewEntry: (entry: DailyEntry) => void;
   onDeleteEntry: (id: string) => void;
+  // Export the currently-shown week's entries as CSV / multi-sheet Excel.
+  exportCsv: (entries: DailyEntry[]) => void;
+  exportExcel: (entries: DailyEntry[]) => void;
 }) {
   const weekDays = getWeekDays(selectedWeek);
   const weekEntries = entries.filter((entry) => weekDays.includes(entry.date));
@@ -4143,7 +4150,28 @@ function ProductionGrid({
           <h2 className="text-2xl font-black">Production Grid</h2>
           <p className="text-sm text-steel-500">Weekly spreadsheet view by repairer, pallet type, day, and dollars.</p>
         </div>
-        <WeekControls selectedWeek={selectedWeek} onWeekChange={onWeekChange} />
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Export the week currently shown. Disabled when the week is empty. */}
+          <button
+            type="button"
+            disabled={weekEntries.length === 0}
+            className="touch-target flex items-center gap-2 rounded border border-steel-300 bg-white px-4 py-2 font-black text-steel-900 disabled:cursor-not-allowed disabled:opacity-50"
+            onClick={() => exportCsv(weekEntries)}
+          >
+            <Download size={19} />
+            Export CSV
+          </button>
+          <button
+            type="button"
+            disabled={weekEntries.length === 0}
+            className="touch-target flex items-center gap-2 rounded bg-[#1f7a4d] px-4 py-2 font-black text-white disabled:cursor-not-allowed disabled:opacity-50"
+            onClick={() => exportExcel(weekEntries)}
+          >
+            <Download size={19} />
+            Export Excel
+          </button>
+          <WeekControls selectedWeek={selectedWeek} onWeekChange={onWeekChange} />
+        </div>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
