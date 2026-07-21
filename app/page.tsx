@@ -19,6 +19,7 @@ import {
   Filter,
   ImagePlus,
   LayoutGrid,
+  Loader2,
   LogOut,
   MapPin,
   Maximize2,
@@ -2759,7 +2760,7 @@ function ProductionEntry({
   onPhaseNotesChange: (phaseIndex: number, value: string) => void;
   // Updates a repairer's station assignment (persisted on the roster).
   onStationChange: (employeeId: string, patch: Partial<Employee>) => void;
-  onSave: () => void;
+  onSave: () => void | Promise<void>;
   // When a Manager is signed in, the Yard Manager picker is hidden entirely.
   hideYardManager?: boolean;
   // Managers don't need pay figures: hide the Rate/Total Earned columns so the
@@ -2797,6 +2798,23 @@ function ProductionEntry({
   // Which phase the quantity grid is currently editing. Each phase keeps its
   // own quantities; switching phases shows that phase's numbers (0 if fresh).
   const [selectedPhase, setSelectedPhase] = useState(0);
+  // Save button feedback so it's obvious the save happened: the button shows a
+  // spinner while saving, then a green "Saved" tick for a moment.
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
+  const savedTimer = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(savedTimer.current), []);
+  async function handleSaveClick() {
+    if (saveState === "saving") return;
+    setSaveState("saving");
+    try {
+      await onSave();
+      setSaveState("saved");
+      window.clearTimeout(savedTimer.current);
+      savedTimer.current = window.setTimeout(() => setSaveState("idle"), 2500);
+    } catch {
+      setSaveState("idle");
+    }
+  }
   // Pallets produced per phase (QC deductions excluded) for the productivity
   // figures shown on each phase tab.
   const phaseCounts = activePhases.map((phase) => phasePalletCount(phase, palletTypes));
@@ -3069,9 +3087,33 @@ function ProductionEntry({
         />
       </Label>
 
-      <button type="button" className="touch-target flex items-center justify-center gap-2 rounded bg-workshop-500 px-4 py-3 text-lg font-black text-white shadow-panel" onClick={onSave}>
-        <Save size={22} />
-        {t("Save Daily Grid")}
+      <button
+        type="button"
+        disabled={saveState === "saving"}
+        aria-live="polite"
+        className={classNames(
+          "touch-target flex items-center justify-center gap-2 rounded px-4 py-3 text-lg font-black text-white shadow-panel transition-colors",
+          saveState === "saved" ? "bg-[#1f7a4d]" : "bg-workshop-500",
+          saveState === "saving" && "opacity-80"
+        )}
+        onClick={handleSaveClick}
+      >
+        {saveState === "saving" ? (
+          <>
+            <Loader2 size={22} className="animate-spin" />
+            {t("Saving…")}
+          </>
+        ) : saveState === "saved" ? (
+          <>
+            <CheckCircle2 size={22} />
+            {t("Saved!")}
+          </>
+        ) : (
+          <>
+            <Save size={22} />
+            {t("Save Daily Grid")}
+          </>
+        )}
       </button>
     </div>
   );
