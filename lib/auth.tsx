@@ -266,12 +266,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setProfile(null);
   }, [supabase]);
 
-  // Auto sign-out an admin after 5 minutes of no activity, so an unattended
+  // Auto sign-out an admin after 15 minutes of no activity, so an unattended
   // admin screen locks itself — without forcing a fresh login every time they
-  // navigate (e.g. to the live board and back). Any interaction resets the timer.
+  // navigate (e.g. to the live board and back). ANY interaction — scrolling,
+  // moving the mouse, typing, tapping — resets the timer, so it only fires when
+  // the screen is genuinely idle.
   useEffect(() => {
     if (!profile || profile.role !== "admin") return;
-    const TIMEOUT_MS = 5 * 60 * 1000;
+    const TIMEOUT_MS = 15 * 60 * 1000;
     let timer: ReturnType<typeof setTimeout>;
     const reset = () => {
       clearTimeout(timer);
@@ -312,26 +314,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     },
     [supabase]
   );
-
-  // Admins are signed out after 5 minutes of inactivity so an unattended admin
-  // screen can't be browsed by someone else. Any interaction resets the timer.
-  useEffect(() => {
-    if (profile?.role !== "admin") return;
-    let timer: ReturnType<typeof setTimeout>;
-    const reset = () => {
-      clearTimeout(timer);
-      timer = setTimeout(() => {
-        void signOut();
-      }, 5 * 60 * 1000);
-    };
-    const events = ["pointerdown", "click", "keydown", "touchstart"];
-    events.forEach((event) => window.addEventListener(event, reset, { passive: true }));
-    reset();
-    return () => {
-      clearTimeout(timer);
-      events.forEach((event) => window.removeEventListener(event, reset));
-    };
-  }, [profile?.role, signOut]);
 
   return (
     <AuthContext.Provider
