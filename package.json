@@ -12,6 +12,7 @@
     "@supabase/supabase-js": "^2.49.1",
     "@vercel/analytics": "^2.0.1",
     "@vercel/speed-insights": "^2.0.0",
+    "exceljs": "^4.4.0",
     "googleapis": "^144.0.0",
     "heic2any": "^0.0.4",
     "jose": "^6.2.3",
