@@ -1876,22 +1876,33 @@ export default function Home() {
   // per-pallet-line detail, and rollups by pallet type, yard, and day. Uses the
   // same numbers as calculateEntry/buildReport, so it matches the on-screen totals.
   async function exportExcel(filteredEntries = entries) {
-    const XLSX = await import("xlsx");
+    const ExcelJSModule = await import("exceljs");
+    // The browser build may expose the API on `default` or on the module itself.
+    const ExcelJS = ((ExcelJSModule as unknown as { default?: typeof ExcelJSModule }).default ?? ExcelJSModule) as typeof ExcelJSModule;
     const report = buildReport(filteredEntries, palletTypes, employeeList, locationList, settings);
     const money = (value: number) => Number((Number(value) || 0).toFixed(2));
     const locName = (id: string) => locationList.find((location) => location.id === id)?.name ?? id;
     const sortedDates = filteredEntries.map((entry) => entry.date).sort();
     const rangeLabel = sortedDates.length ? `${sortedDates[0]} to ${sortedDates[sortedDates.length - 1]}` : "All dates";
 
-    const workbook = XLSX.utils.book_new();
-    const addSheet = (name: string, aoa: (string | number)[][], cols: number[], filter = false) => {
-      const sheet = XLSX.utils.aoa_to_sheet(aoa);
-      sheet["!cols"] = cols.map((wch) => ({ wch }));
-      if (filter && aoa.length > 1) sheet["!autofilter"] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: aoa.length - 1, c: aoa[0].length - 1 } }) };
-      XLSX.utils.book_append_sheet(workbook, sheet, name);
+    const workbook = new ExcelJS.Workbook();
+    // A plain data sheet: header row (bold), then rows, with column widths and an
+    // optional autofilter — matches the previous export's look.
+    const addSheet = (name: string, header: (string | number)[], rows: (string | number)[][], widths: number[], filter = false) => {
+      const sheet = workbook.addWorksheet(name);
+      sheet.columns = widths.map((width) => ({ width }));
+      sheet.addRow(header);
+      sheet.getRow(1).font = { bold: true };
+      rows.forEach((row) => sheet.addRow(row));
+      if (filter && rows.length > 0) {
+        sheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: rows.length + 1, column: header.length } };
+      }
+      return sheet;
     };
 
-    addSheet("Summary", [
+    const summary = workbook.addWorksheet("Summary");
+    summary.columns = [{ width: 24 }, { width: 42 }];
+    [
       ["MGP Pallet Repair — Production & Payroll Export"],
       ["Date range", rangeLabel],
       ["Generated", new Date().toLocaleString()],
@@ -1902,20 +1913,25 @@ export default function Home() {
       ["Piece Pay", money(report.summary.piecePay)],
       ["Make-up Pay", money(report.summary.makeup)],
       ["Total Payroll", money(report.summary.totalPay)]
-    ], [24, 42]);
+    ].forEach((row) => summary.addRow(row));
+    summary.getRow(1).font = { bold: true, size: 13 };
 
-    addSheet("Payroll by Employee", [
+    addSheet(
+      "Payroll by Employee",
       ["Employee", "Yard", "Shift", "Total Pallets", "Paid Hours", "Piece Pay", "Make-up Pay", "Daily OT Hrs", "Weekly OT Hrs", "Total Pay"],
-      ...report.byEmployee.map((row) => [
+      report.byEmployee.map((row) => [
         row.employee.name, locName(row.employee.locationId), row.employee.shift ?? "",
         row.quantity, money(row.hours), money(row.piecePay), money(row.makeup),
         money(row.dailyOvertime), money(row.weeklyOvertime), money(row.totalPay)
-      ])
-    ], [20, 12, 7, 13, 11, 11, 12, 12, 13, 11], true);
+      ]),
+      [20, 12, 7, 13, 11, 11, 12, 12, 13, 11],
+      true
+    );
 
-    addSheet("Production Detail", [
+    addSheet(
+      "Production Detail",
       ["Date", "Week", "Employee", "Yard", "Shift", "Pallet Category", "Pallet Name", "Rate", "Quantity", "Line Earned"],
-      ...filteredEntries.flatMap((entry) => {
+      filteredEntries.flatMap((entry) => {
         const employeeName = employeeList.find((employee) => employee.id === entry.employeeId)?.name ?? entry.employeeId;
         const yard = locName(entry.locationId);
         return entry.lines.map((line) => {
@@ -1923,13 +1939,18 @@ export default function Home() {
           const rate = Number(pallet?.rate ?? 0);
           return [entry.date, getWeekKey(entry.date), employeeName, yard, entry.shift, pallet?.category ?? "", `${pallet?.code ?? ""} ${pallet?.description ?? ""}`.trim(), rate, line.quantity, money(rate * line.quantity)];
         });
-      })
-    ], [12, 12, 20, 12, 7, 15, 34, 7, 10, 12], true);
+      }),
+      [12, 12, 20, 12, 7, 15, 34, 7, 10, 12],
+      true
+    );
 
-    addSheet("By Pallet Type", [
+    addSheet(
+      "By Pallet Type",
       ["Pallet Category", "Pallet Name", "Total Quantity", "Total Piece Pay"],
-      ...report.byPallet.map((row) => [row.category, row.label, row.quantity, money(row.piecePay)])
-    ], [15, 34, 14, 15], true);
+      report.byPallet.map((row) => [row.category, row.label, row.quantity, money(row.piecePay)]),
+      [15, 34, 14, 15],
+      true
+    );
 
     const yardTotals = new Map<string, { employees: number; quantity: number; piecePay: number; totalPay: number }>();
     for (const row of report.byEmployee) {
@@ -1940,12 +1961,14 @@ export default function Home() {
       current.totalPay += row.totalPay;
       yardTotals.set(row.employee.locationId, current);
     }
-    addSheet("Yard Totals", [
+    addSheet(
+      "Yard Totals",
       ["Yard", "Employees", "Total Pallets", "Piece Pay", "Total Pay"],
-      ...Array.from(yardTotals.entries())
+      Array.from(yardTotals.entries())
         .map(([id, value]) => [locName(id), value.employees, value.quantity, money(value.piecePay), money(value.totalPay)] as (string | number)[])
-        .sort((a, b) => Number(b[2]) - Number(a[2]))
-    ], [14, 11, 13, 11, 11]);
+        .sort((a, b) => Number(b[2]) - Number(a[2])),
+      [14, 11, 13, 11, 11]
+    );
 
     // Photos per day, so the daily rollup shows how many count-sheet photos
     // back up each day's numbers.
@@ -1953,35 +1976,77 @@ export default function Home() {
     for (const entry of filteredEntries) {
       photosByDate.set(entry.date, (photosByDate.get(entry.date) ?? 0) + entryPhotoUrls(entry).length);
     }
-
-    addSheet("Daily Totals", [
+    addSheet(
+      "Daily Totals",
       ["Date", "Pallets", "Piece Pay", "Total Pay", "Photos"],
-      ...report.byDay.map((row) => [row.label, row.quantity, money(row.piecePay), money(row.totalPay), photosByDate.get(row.label) ?? 0])
-    ], [12, 10, 11, 11, 8]);
+      report.byDay.map((row) => [row.label, row.quantity, money(row.piecePay), money(row.totalPay), photosByDate.get(row.label) ?? 0]),
+      [12, 10, 11, 11, 8]
+    );
 
-    // Photos tab: one row per photo, listed by date, with a clickable link to
-    // open the image. Legacy embedded photos show a note instead of a link.
-    const photoAoa: (string | number)[][] = [["Date", "Employee", "Yard", "Shift", "Photo #", "Link"]];
-    const photoTargets: (string | null)[] = [null];
+    // Photos tab: one row per photo, listed by date, with the actual image
+    // embedded. Each image is fetched and dropped into the Photo column; if it
+    // can't be loaded (e.g. blocked), the row still carries a clickable link so
+    // the photo is never lost.
+    const photoSheet = workbook.addWorksheet("Photos");
+    photoSheet.columns = [{ width: 12 }, { width: 20 }, { width: 12 }, { width: 7 }, { width: 8 }, { width: 24 }, { width: 60 }];
+    photoSheet.addRow(["Date", "Employee", "Yard", "Shift", "Photo #", "Photo", "Link"]);
+    photoSheet.getRow(1).font = { bold: true };
+
+    const loadPhoto = async (url: string): Promise<{ dataUri: string; extension: "jpeg" | "png" | "gif" } | null> => {
+      try {
+        if (url.startsWith("data:")) {
+          const kind = /^data:image\/(png|gif)/i.exec(url)?.[1]?.toLowerCase();
+          return { dataUri: url, extension: kind === "png" ? "png" : kind === "gif" ? "gif" : "jpeg" };
+        }
+        const response = await fetch(absolutePhotoUrl(url));
+        if (!response.ok) return null;
+        const blob = await response.blob();
+        const dataUri = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result));
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
+        const type = (blob.type || "").toLowerCase();
+        return { dataUri, extension: type.includes("png") ? "png" : type.includes("gif") ? "gif" : "jpeg" };
+      } catch {
+        return null;
+      }
+    };
+
+    let photoRowIndex = 1;
     for (const entry of [...filteredEntries].sort((a, b) => a.date.localeCompare(b.date) || (a.createdAt ?? "").localeCompare(b.createdAt ?? ""))) {
       const employeeName = employeeList.find((employee) => employee.id === entry.employeeId)?.name ?? entry.employeeId;
       const yard = locName(entry.locationId);
-      entryPhotoUrls(entry).forEach((url, index) => {
-        const isData = url.startsWith("data:");
-        photoAoa.push([entry.date, employeeName, yard, entry.shift, index + 1, photoCellText(url)]);
-        photoTargets.push(isData ? null : absolutePhotoUrl(url));
-      });
+      const urls = entryPhotoUrls(entry);
+      for (let index = 0; index < urls.length; index += 1) {
+        const url = urls[index];
+        const linkTarget = url.startsWith("data:") ? "" : absolutePhotoUrl(url);
+        photoRowIndex += 1;
+        const row = photoSheet.addRow([entry.date, employeeName, yard, entry.shift, index + 1, "", linkTarget || "Embedded photo"]);
+        row.height = 84;
+        if (linkTarget) {
+          const linkCell = photoSheet.getCell(photoRowIndex, 7);
+          linkCell.value = { text: linkTarget, hyperlink: linkTarget };
+          linkCell.font = { color: { argb: "FF1258A8" }, underline: true };
+        }
+        const image = await loadPhoto(url);
+        if (image) {
+          const imageId = workbook.addImage({ base64: image.dataUri, extension: image.extension });
+          // Column F (0-based index 5); anchor into this row with a small inset.
+          photoSheet.addImage(imageId, {
+            tl: { col: 5.05, row: photoRowIndex - 1 + 0.05 },
+            ext: { width: 150, height: 105 }
+          });
+        }
+      }
     }
-    const photoSheet = XLSX.utils.aoa_to_sheet(photoAoa);
-    photoSheet["!cols"] = [12, 20, 12, 7, 8, 72].map((wch) => ({ wch }));
-    photoTargets.forEach((target, rowIndex) => {
-      if (!target) return;
-      const ref = XLSX.utils.encode_cell({ r: rowIndex, c: 5 });
-      if (photoSheet[ref]) photoSheet[ref].l = { Target: target, Tooltip: "Open photo" };
-    });
-    XLSX.utils.book_append_sheet(workbook, photoSheet, "Photos");
 
-    XLSX.writeFile(workbook, `mgp-production-payroll-${today}.xlsx`);
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    const url = URL.createObjectURL(blob);
+    triggerDownload(url, `mgp-production-payroll-${today}.xlsx`);
+    URL.revokeObjectURL(url);
   }
 
   // Current repairer + station, shown as a second row inside the app header
