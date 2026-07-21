@@ -21,6 +21,7 @@ export const esDict: Record<string, string> = {
   "Daily Production Grid": "Cuadrícula de Producción Diaria",
   Ready: "Listo",
   "Saving…": "Guardando…",
+  "Saved!": "¡Guardado!",
   "Saved to the cloud": "Guardado en la nube",
   "Saved locally; sync pending": "Guardado localmente; sincronización pendiente",
   "Daily grid saved": "Cuadrícula diaria guardada",
