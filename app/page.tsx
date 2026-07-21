@@ -158,6 +158,32 @@ function phasePhotos(phase?: EntryPhase): string[] {
   return list.filter(Boolean);
 }
 
+// Every photo on an entry, across all phases (deduped). Used by the exports.
+function entryPhotoUrls(entry: DailyEntry): string[] {
+  const urls: string[] = [];
+  for (const phase of entry.phases ?? []) {
+    for (const photo of phasePhotos(phase)) {
+      if (photo && !urls.includes(photo)) urls.push(photo);
+    }
+  }
+  return urls;
+}
+
+// Make a stored photo path openable from a spreadsheet: absolute and data URLs
+// are left as-is; a site-relative "/uploads/..." path gets the current origin
+// so the link still works when opened outside the app.
+function absolutePhotoUrl(url: string): string {
+  if (!url || url.startsWith("http") || url.startsWith("data:")) return url;
+  if (typeof window !== "undefined") return `${window.location.origin}${url}`;
+  return url;
+}
+
+// Spreadsheet-friendly text for a photo: a clickable URL, or a short note for
+// the legacy embedded (base64) photos that can't be linked.
+function photoCellText(url: string): string {
+  return url.startsWith("data:") ? "Embedded photo (view in app)" : absolutePhotoUrl(url);
+}
+
 // Always return exactly PHASE_COUNT phases, filling any that are missing. The
 // legacy single photo is folded into the photo array so everything downstream
 // only has to look at `photoDataUrls`.
@@ -1799,12 +1825,16 @@ export default function Home() {
       "Make-up Pay",
       "Compliance Minimum Wage",
       "Daily OT Hours",
-      "Total Pay"
+      "Total Pay",
+      "Photos"
     ];
     const rows = filteredEntries.flatMap((entry) => {
       const employee = employeeList.find((item) => item.id === entry.employeeId)?.name ?? entry.employeeId;
       const location = locationList.find((item) => item.id === entry.locationId)?.name ?? entry.locationId;
       const calc = calculateEntry(entry, palletTypes, settings);
+      // The day's photo links, shown on every line of the entry so each date
+      // carries its count-sheet photos.
+      const photos = entryPhotoUrls(entry).map(photoCellText).join(" ; ");
 
       return entry.lines.map((line) => {
         const pallet = findPalletType(palletTypes, line.palletTypeId);
@@ -1823,7 +1853,8 @@ export default function Home() {
           calc.additionalOwed.toFixed(2),
           settings.minimumWage.toFixed(2),
           calc.overtimeHours.toFixed(2),
-          calc.totalPay.toFixed(2)
+          calc.totalPay.toFixed(2),
+          photos
         ];
       });
     });
@@ -1916,10 +1947,39 @@ export default function Home() {
         .sort((a, b) => Number(b[2]) - Number(a[2]))
     ], [14, 11, 13, 11, 11]);
 
+    // Photos per day, so the daily rollup shows how many count-sheet photos
+    // back up each day's numbers.
+    const photosByDate = new Map<string, number>();
+    for (const entry of filteredEntries) {
+      photosByDate.set(entry.date, (photosByDate.get(entry.date) ?? 0) + entryPhotoUrls(entry).length);
+    }
+
     addSheet("Daily Totals", [
-      ["Date", "Pallets", "Piece Pay", "Total Pay"],
-      ...report.byDay.map((row) => [row.label, row.quantity, money(row.piecePay), money(row.totalPay)])
-    ], [12, 10, 11, 11]);
+      ["Date", "Pallets", "Piece Pay", "Total Pay", "Photos"],
+      ...report.byDay.map((row) => [row.label, row.quantity, money(row.piecePay), money(row.totalPay), photosByDate.get(row.label) ?? 0])
+    ], [12, 10, 11, 11, 8]);
+
+    // Photos tab: one row per photo, listed by date, with a clickable link to
+    // open the image. Legacy embedded photos show a note instead of a link.
+    const photoAoa: (string | number)[][] = [["Date", "Employee", "Yard", "Shift", "Photo #", "Link"]];
+    const photoTargets: (string | null)[] = [null];
+    for (const entry of [...filteredEntries].sort((a, b) => a.date.localeCompare(b.date) || (a.createdAt ?? "").localeCompare(b.createdAt ?? ""))) {
+      const employeeName = employeeList.find((employee) => employee.id === entry.employeeId)?.name ?? entry.employeeId;
+      const yard = locName(entry.locationId);
+      entryPhotoUrls(entry).forEach((url, index) => {
+        const isData = url.startsWith("data:");
+        photoAoa.push([entry.date, employeeName, yard, entry.shift, index + 1, photoCellText(url)]);
+        photoTargets.push(isData ? null : absolutePhotoUrl(url));
+      });
+    }
+    const photoSheet = XLSX.utils.aoa_to_sheet(photoAoa);
+    photoSheet["!cols"] = [12, 20, 12, 7, 8, 72].map((wch) => ({ wch }));
+    photoTargets.forEach((target, rowIndex) => {
+      if (!target) return;
+      const ref = XLSX.utils.encode_cell({ r: rowIndex, c: 5 });
+      if (photoSheet[ref]) photoSheet[ref].l = { Target: target, Tooltip: "Open photo" };
+    });
+    XLSX.utils.book_append_sheet(workbook, photoSheet, "Photos");
 
     XLSX.writeFile(workbook, `mgp-production-payroll-${today}.xlsx`);
   }
