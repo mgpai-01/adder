@@ -2315,12 +2315,31 @@ function PhaseTracker({
     });
   }
 
-  // Add one or more photos to a phase, keeping any already there.
+  // Add one or more photos to a phase, keeping any already there. Photos are
+  // uploaded to storage and only their (small) URLs are kept on the phase, so
+  // the entry JSON stays small enough for the cloud to save. If the upload
+  // fails, fall back to embedding the image so the photo is never lost on screen.
   async function handlePhasePhoto(index: number, files: File[]) {
     if (!files.length) return;
-    const added = await Promise.all(files.map(async (file) => readAsDataUrl(await compressImage(file))));
+    const compressed = await Promise.all(files.map((file) => compressImage(file)));
+    let urls: string[] = [];
+    try {
+      const body = new FormData();
+      compressed.forEach((file) => body.append("photos", file));
+      body.append("scope", activeId || "phase");
+      const response = await fetch("/api/entry-photos", { method: "POST", body });
+      const result = (await response.json()) as { urls?: string[] };
+      if (Array.isArray(result.urls) && result.urls.length === compressed.length) {
+        urls = result.urls;
+      }
+    } catch {
+      // Network/storage failure — handled by the fallback below.
+    }
+    if (urls.length !== compressed.length) {
+      urls = await Promise.all(compressed.map((file) => readAsDataUrl(file)));
+    }
     const existing = phasePhotos(phases[index]);
-    updatePhase(index, { photoDataUrl: undefined, photoDataUrls: [...existing, ...added] });
+    updatePhase(index, { photoDataUrl: undefined, photoDataUrls: [...existing, ...urls] });
   }
 
   function removePhasePhoto(index: number, photo: string) {
