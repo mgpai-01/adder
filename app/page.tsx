@@ -4334,7 +4334,9 @@ function EntryHistory({
       if (sortKey === "employee") return (employees.find((item) => item.id === a.employeeId)?.name ?? "").localeCompare(employees.find((item) => item.id === b.employeeId)?.name ?? "");
       if (sortKey === "location") return (locations.find((item) => item.id === a.locationId)?.name ?? "").localeCompare(locations.find((item) => item.id === b.locationId)?.name ?? "");
       if (sortKey === "shift") return a.shift.localeCompare(b.shift);
-      return b.date.localeCompare(a.date);
+      // Dates in chronological order — earliest at the top (Mon→Fri, top to
+      // bottom) — with same-day entries ordered by when they were entered.
+      return a.date.localeCompare(b.date) || (a.createdAt ?? "").localeCompare(b.createdAt ?? "");
     });
 
   return (
