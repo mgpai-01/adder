@@ -4082,6 +4082,15 @@ function formatDayHeader(dateValue: string) {
   return new Intl.DateTimeFormat("en-US", { weekday: "short", month: "numeric", day: "numeric" }).format(date);
 }
 
+// A saved entry's date shown in full — month name, day, and year (e.g.
+// "July 22, 2026") — instead of the raw YYYY-MM-DD. Falls back to the raw
+// value if it can't be parsed.
+function formatEntryDate(dateValue: string) {
+  const date = new Date(`${dateValue}T12:00:00`);
+  if (Number.isNaN(date.getTime())) return dateValue;
+  return new Intl.DateTimeFormat("en-US", { month: "long", day: "numeric", year: "numeric" }).format(date);
+}
+
 function ProductionGrid({
   entries,
   countSheets,
@@ -4387,7 +4396,7 @@ function EntryHistory({
                 return (
                   <tr key={entry.id} className="border-t border-steel-100 even:bg-steel-50">
                     <td className="p-3 font-bold">
-                      <span className="block">{entry.date}</span>
+                      <span className="block">{formatEntryDate(entry.date)}</span>
                       {entry.updatedAt && <span className="block text-xs font-bold text-steel-500">Modified {new Date(entry.updatedAt).toLocaleString()}</span>}
                     </td>
                     <td className="p-3">
