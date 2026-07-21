@@ -1986,12 +1986,12 @@ export default function Home() {
     );
 
     // Photos tab: one row per count-sheet photo, listed by date, with the actual
-    // image embedded. Each image is fetched and dropped into the Photo column; if
-    // it can't be loaded (e.g. blocked), the row still carries a clickable link
-    // so the photo is never lost.
+    // image embedded in the Photo column. No separate link column — the photo is
+    // the content. Only if an image can't be loaded does that one cell fall back
+    // to a clickable link, so a photo is never lost.
     const photoSheet = workbook.addWorksheet("Photos");
-    photoSheet.columns = [{ width: 12 }, { width: 12 }, { width: 7 }, { width: 18 }, { width: 8 }, { width: 24 }, { width: 60 }];
-    photoSheet.addRow(["Date", "Yard", "Shift", "Uploaded By", "Photo #", "Photo", "Link"]);
+    photoSheet.columns = [{ width: 12 }, { width: 12 }, { width: 7 }, { width: 18 }, { width: 8 }, { width: 30 }];
+    photoSheet.addRow(["Date", "Yard", "Shift", "Uploaded By", "Photo #", "Photo"]);
     photoSheet.getRow(1).font = { bold: true };
 
     const loadPhoto = async (url: string): Promise<{ dataUri: string; extension: "jpeg" | "png" | "gif" } | null> => {
@@ -2021,23 +2021,24 @@ export default function Home() {
       const yard = locName(sheet.locationId);
       for (let index = 0; index < sheet.photos.length; index += 1) {
         const url = sheet.photos[index].url;
-        const linkTarget = url.startsWith("data:") ? "" : absolutePhotoUrl(url);
         photoRowIndex += 1;
-        const row = photoSheet.addRow([sheet.date, yard, sheet.shift, sheet.uploadedBy ?? "", index + 1, "", linkTarget || "Embedded photo"]);
-        row.height = 84;
-        if (linkTarget) {
-          const linkCell = photoSheet.getCell(photoRowIndex, 7);
-          linkCell.value = { text: linkTarget, hyperlink: linkTarget };
-          linkCell.font = { color: { argb: "FF1258A8" }, underline: true };
-        }
+        const row = photoSheet.addRow([sheet.date, yard, sheet.shift, sheet.uploadedBy ?? "", index + 1, ""]);
+        row.height = 120;
         const image = await loadPhoto(url);
         if (image) {
           const imageId = workbook.addImage({ base64: image.dataUri, extension: image.extension });
           // Column F (0-based index 5); anchor into this row with a small inset.
           photoSheet.addImage(imageId, {
             tl: { col: 5.05, row: photoRowIndex - 1 + 0.05 },
-            ext: { width: 150, height: 105 }
+            ext: { width: 190, height: 135 }
           });
+        } else {
+          // Couldn't load the image — fall back to a clickable link in the same
+          // Photo cell so it's still reachable.
+          const linkTarget = url.startsWith("data:") ? "" : absolutePhotoUrl(url);
+          const photoCell = photoSheet.getCell(photoRowIndex, 6);
+          photoCell.value = linkTarget ? { text: "Open photo", hyperlink: linkTarget } : "Embedded photo (view in app)";
+          if (linkTarget) photoCell.font = { color: { argb: "FF1258A8" }, underline: true };
         }
       }
     }
