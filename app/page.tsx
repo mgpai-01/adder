@@ -158,17 +158,6 @@ function phasePhotos(phase?: EntryPhase): string[] {
   return list.filter(Boolean);
 }
 
-// Every photo on an entry, across all phases (deduped). Used by the exports.
-function entryPhotoUrls(entry: DailyEntry): string[] {
-  const urls: string[] = [];
-  for (const phase of entry.phases ?? []) {
-    for (const photo of phasePhotos(phase)) {
-      if (photo && !urls.includes(photo)) urls.push(photo);
-    }
-  }
-  return urls;
-}
-
 // Make a stored photo path openable from a spreadsheet: absolute and data URLs
 // are left as-is; a site-relative "/uploads/..." path gets the current origin
 // so the link still works when opened outside the app.
@@ -1832,9 +1821,11 @@ export default function Home() {
       const employee = employeeList.find((item) => item.id === entry.employeeId)?.name ?? entry.employeeId;
       const location = locationList.find((item) => item.id === entry.locationId)?.name ?? entry.locationId;
       const calc = calculateEntry(entry, palletTypes, settings);
-      // The day's photo links, shown on every line of the entry so each date
-      // carries its count-sheet photos.
-      const photos = entryPhotoUrls(entry).map(photoCellText).join(" ; ");
+      // The day's count-sheet photo links (matched by date/yard/shift), shown on
+      // every line of the entry so each date carries its count-sheet photos.
+      const photos = getLinkedCountSheets(countSheets, entry)
+        .flatMap((sheet) => sheet.photos.map((photo) => photoCellText(photo.url)))
+        .join(" ; ");
 
       return entry.lines.map((line) => {
         const pallet = findPalletType(palletTypes, line.palletTypeId);
@@ -1970,11 +1961,22 @@ export default function Home() {
       [14, 11, 13, 11, 11]
     );
 
-    // Photos per day, so the daily rollup shows how many count-sheet photos
+    // The count sheets backing the exported days, matched to the entries by
+    // date/yard/shift and de-duplicated (several repairers share one day's
+    // sheet). This is the source for the per-day photo count and the Photos tab.
+    const sheetById = new Map<string, CountSheet>();
+    for (const entry of filteredEntries) {
+      for (const sheet of getLinkedCountSheets(countSheets, entry)) sheetById.set(sheet.id, sheet);
+    }
+    const exportSheets = [...sheetById.values()].sort(
+      (a, b) => a.date.localeCompare(b.date) || (a.uploadTime ?? "").localeCompare(b.uploadTime ?? "")
+    );
+
+    // Count-sheet photos per day, so the daily rollup shows how many photos
     // back up each day's numbers.
     const photosByDate = new Map<string, number>();
-    for (const entry of filteredEntries) {
-      photosByDate.set(entry.date, (photosByDate.get(entry.date) ?? 0) + entryPhotoUrls(entry).length);
+    for (const sheet of exportSheets) {
+      photosByDate.set(sheet.date, (photosByDate.get(sheet.date) ?? 0) + sheet.photos.length);
     }
     addSheet(
       "Daily Totals",
@@ -1983,13 +1985,13 @@ export default function Home() {
       [12, 10, 11, 11, 8]
     );
 
-    // Photos tab: one row per photo, listed by date, with the actual image
-    // embedded. Each image is fetched and dropped into the Photo column; if it
-    // can't be loaded (e.g. blocked), the row still carries a clickable link so
-    // the photo is never lost.
+    // Photos tab: one row per count-sheet photo, listed by date, with the actual
+    // image embedded. Each image is fetched and dropped into the Photo column; if
+    // it can't be loaded (e.g. blocked), the row still carries a clickable link
+    // so the photo is never lost.
     const photoSheet = workbook.addWorksheet("Photos");
-    photoSheet.columns = [{ width: 12 }, { width: 20 }, { width: 12 }, { width: 7 }, { width: 8 }, { width: 24 }, { width: 60 }];
-    photoSheet.addRow(["Date", "Employee", "Yard", "Shift", "Photo #", "Photo", "Link"]);
+    photoSheet.columns = [{ width: 12 }, { width: 12 }, { width: 7 }, { width: 18 }, { width: 8 }, { width: 24 }, { width: 60 }];
+    photoSheet.addRow(["Date", "Yard", "Shift", "Uploaded By", "Photo #", "Photo", "Link"]);
     photoSheet.getRow(1).font = { bold: true };
 
     const loadPhoto = async (url: string): Promise<{ dataUri: string; extension: "jpeg" | "png" | "gif" } | null> => {
@@ -2015,15 +2017,13 @@ export default function Home() {
     };
 
     let photoRowIndex = 1;
-    for (const entry of [...filteredEntries].sort((a, b) => a.date.localeCompare(b.date) || (a.createdAt ?? "").localeCompare(b.createdAt ?? ""))) {
-      const employeeName = employeeList.find((employee) => employee.id === entry.employeeId)?.name ?? entry.employeeId;
-      const yard = locName(entry.locationId);
-      const urls = entryPhotoUrls(entry);
-      for (let index = 0; index < urls.length; index += 1) {
-        const url = urls[index];
+    for (const sheet of exportSheets) {
+      const yard = locName(sheet.locationId);
+      for (let index = 0; index < sheet.photos.length; index += 1) {
+        const url = sheet.photos[index].url;
         const linkTarget = url.startsWith("data:") ? "" : absolutePhotoUrl(url);
         photoRowIndex += 1;
-        const row = photoSheet.addRow([entry.date, employeeName, yard, entry.shift, index + 1, "", linkTarget || "Embedded photo"]);
+        const row = photoSheet.addRow([sheet.date, yard, sheet.shift, sheet.uploadedBy ?? "", index + 1, "", linkTarget || "Embedded photo"]);
         row.height = 84;
         if (linkTarget) {
           const linkCell = photoSheet.getCell(photoRowIndex, 7);
