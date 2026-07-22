@@ -936,14 +936,15 @@ export default function Home() {
 
   // One-time rebuild of the full roster to match the official per-yard list
   // (from the managers' PDF). Matches existing people by name to keep their
-  // photos/ids, moves them to the right yard/role, adds anyone missing, and
-  // deactivates anyone no longer on the list. Saved to the cloud for everyone.
+  // photos/ids, moves the ones on the list to the right yard/role, and adds
+  // anyone missing. It never deactivates anyone — repairers stay Active unless
+  // an admin manually toggles them off. Saved to the cloud for everyone.
   useEffect(() => {
     if (!rosterLoaded) return;
     // Bump this key whenever the official per-yard roster (lib/data.ts) changes
     // so every device re-applies it once and overwrites stale saved assignments.
-    if (window.localStorage.getItem("mgp-roster-pdf-v3")) return;
-    window.localStorage.setItem("mgp-roster-pdf-v3", "1");
+    if (window.localStorage.getItem("mgp-roster-pdf-v4")) return;
+    window.localStorage.setItem("mgp-roster-pdf-v4", "1");
 
     const norm = (name: string) => name.toLowerCase().replace(/\./g, "").replace(/\s+/g, " ").trim();
     const targetByName = new Map(defaultEmployees.map((employee) => [norm(employee.name), employee]));
@@ -955,9 +956,9 @@ export default function Home() {
         matched.add(norm(employee.name));
         return { ...employee, locationId: target.locationId, role: target.role, active: true };
       }
-      // Not on the official list anymore — hide from the dropdowns but keep the
-      // record (and any history) by deactivating rather than deleting.
-      return { ...employee, active: false };
+      // Not on the official list — keep the person exactly as-is and Active.
+      // Only an admin toggling them off makes a repairer inactive.
+      return { ...employee, active: true };
     });
 
     for (const target of defaultEmployees) {
