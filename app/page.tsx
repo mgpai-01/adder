@@ -4422,6 +4422,13 @@ function ProductionGrid({
                     const weeklyQty = dayCells.reduce((total, cell) => total + cell.quantity, 0);
                     const weeklyAmount = dayCells.reduce((total, cell) => total + cell.amount, 0);
 
+                    // Only show pallet types the repairer actually made this week.
+                    // If they made none of a pallet, skip the row entirely rather
+                    // than filling it with zeros.
+                    if (weeklyQty === 0 && dayCells.every((cell) => cell.quantity === 0)) {
+                      return null;
+                    }
+
                     return (
                       <tr key={pallet.id} className="border-t border-steel-100 even:bg-steel-50">
                         <td className="p-2">
@@ -4430,8 +4437,9 @@ function ProductionGrid({
                         </td>
                         {dayCells.map((cell) => (
                           <td key={cell.day} className="p-2 text-center">
-                            <span className="block font-black">{wholeNumber(cell.quantity)}</span>
-                            <span className={classNames("block", cell.amount < 0 ? "text-red-700" : "text-steel-500")}>{currency(cell.amount)}</span>
+                            {/* Blank out days with no production so only real pallets show. */}
+                            <span className="block font-black">{cell.quantity !== 0 ? wholeNumber(cell.quantity) : ""}</span>
+                            <span className={classNames("block", cell.amount < 0 ? "text-red-700" : "text-steel-500")}>{cell.quantity !== 0 ? currency(cell.amount) : ""}</span>
                           </td>
                         ))}
                         <td className="bg-workshop-100 p-2 text-center font-black">{wholeNumber(weeklyQty)}</td>
