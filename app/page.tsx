@@ -4464,7 +4464,16 @@ function ProductionGrid({
   exportExcel: (entries: DailyEntry[]) => void;
 }) {
   const weekDays = getWeekDays(selectedWeek);
-  const weekEntries = entries.filter((entry) => weekDays.includes(entry.date));
+  const weekEntriesAll = entries.filter((entry) => weekDays.includes(entry.date));
+
+  // Yard filter: which yards the grid shows. `null` means every yard. Kept as
+  // null (rather than the full id list) so newly-added yards are included by
+  // default and the choice survives week changes.
+  const [yardFilter, setYardFilter] = useState<string[] | null>(null);
+  const yardOptions = locations.filter((location) => location.active || weekEntriesAll.some((entry) => entry.locationId === location.id));
+  const selectedYardIds = yardFilter ?? yardOptions.map((location) => location.id);
+  const weekEntries = weekEntriesAll.filter((entry) => selectedYardIds.includes(entry.locationId));
+
   const activePallets = palletTypes.filter((pallet) => pallet.active || weekEntries.some((entry) => entry.lines.some((line) => line.palletTypeId === pallet.id)));
   const weekReport = buildReport(weekEntries, palletTypes, employees, locations, settings);
 
@@ -4473,6 +4482,13 @@ function ProductionGrid({
   const [photoFrom, setPhotoFrom] = useState(weekStart);
   const [photoTo, setPhotoTo] = useState(weekEnd);
   const [exportOpen, setExportOpen] = useState(false);
+
+  const toggleYard = (id: string) => {
+    const base = yardFilter ?? yardOptions.map((location) => location.id);
+    const next = base.includes(id) ? base.filter((value) => value !== id) : [...base, id];
+    // Toggling the last yard back on returns to the "all yards" default.
+    setYardFilter(next.length === yardOptions.length ? null : next);
+  };
   useEffect(() => {
     setPhotoFrom(weekStart);
     setPhotoTo(weekEnd);
@@ -4533,6 +4549,30 @@ function ProductionGrid({
           onExportExcel={exportExcel}
           onClose={() => setExportOpen(false)}
         />
+      )}
+
+      {yardOptions.length > 1 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="flex items-center gap-1.5 text-sm font-black text-steel-700"><MapPin size={16} /> Yards</span>
+          {yardOptions.map((location) => {
+            const on = selectedYardIds.includes(location.id);
+            return (
+              <button
+                key={location.id}
+                type="button"
+                onClick={() => toggleYard(location.id)}
+                className={classNames("rounded border px-3 py-1.5 text-sm font-black", on ? "border-workshop-500 bg-workshop-100 text-workshop-700" : "border-steel-300 bg-white text-steel-500")}
+              >
+                {location.name}
+              </button>
+            );
+          })}
+          {yardFilter !== null && (
+            <button type="button" className="rounded bg-steel-100 px-3 py-1.5 text-xs font-black text-steel-700" onClick={() => setYardFilter(null)}>
+              All yards
+            </button>
+          )}
+        </div>
       )}
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
