@@ -943,22 +943,25 @@ export default function Home() {
     if (!rosterLoaded) return;
     // Bump this key whenever the official per-yard roster (lib/data.ts) changes
     // so every device re-applies it once and overwrites stale saved assignments.
-    if (window.localStorage.getItem("mgp-roster-pdf-v4")) return;
-    window.localStorage.setItem("mgp-roster-pdf-v4", "1");
+    if (window.localStorage.getItem("mgp-roster-pdf-v5")) return;
+    window.localStorage.setItem("mgp-roster-pdf-v5", "1");
 
     const norm = (name: string) => name.toLowerCase().replace(/\./g, "").replace(/\s+/g, " ").trim();
     const targetByName = new Map(defaultEmployees.map((employee) => [norm(employee.name), employee]));
     const matched = new Set<string>();
 
     const reconciled: Employee[] = employeeList.map((employee) => {
+      // Active is derived purely from the manual flag: a repairer is Inactive
+      // only if an admin turned them off (deactivatedByAdmin). Everyone else is
+      // Active. This is the same on every device, so it never resurrects a
+      // manual Inactive and never leaves an auto-deactivated person turned off.
+      const active = !employee.deactivatedByAdmin;
       const target = targetByName.get(norm(employee.name));
       if (target) {
         matched.add(norm(employee.name));
-        return { ...employee, locationId: target.locationId, role: target.role, active: true };
+        return { ...employee, locationId: target.locationId, role: target.role, active };
       }
-      // Not on the official list — keep the person exactly as-is and Active.
-      // Only an admin toggling them off makes a repairer inactive.
-      return { ...employee, active: true };
+      return { ...employee, active };
     });
 
     for (const target of defaultEmployees) {
@@ -1783,10 +1786,13 @@ export default function Home() {
 
   function updateEmployee(id: string, patch: Partial<Employee>) {
     const before = employeeList.find((employee) => employee.id === id);
-    setEmployeeList((current) => current.map((employee) => (employee.id === id ? { ...employee, ...patch } : employee)));
+    // When an admin flips Active/Inactive, record that it was a manual choice so
+    // the automatic roster sync never overrides it (on any device, ever).
+    const fullPatch = patch.active !== undefined ? { ...patch, deactivatedByAdmin: !patch.active } : patch;
+    setEmployeeList((current) => current.map((employee) => (employee.id === id ? { ...employee, ...fullPatch } : employee)));
     setAdminStatus("Repairer updated in the cloud.");
     if (before) {
-      const updated = { ...before, ...patch };
+      const updated = { ...before, ...fullPatch };
       saveEmployeeToCloud(updated);
       logChange("updated", updated.name, describeEmployeeChanges(before, patch, locationList));
     }
