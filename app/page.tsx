@@ -21,9 +21,11 @@ import {
   LayoutGrid,
   Loader2,
   LogOut,
+  Mail,
   MapPin,
   Maximize2,
   Moon,
+  Phone,
   Plus,
   RotateCcw,
   RotateCw,
@@ -110,6 +112,8 @@ const emptyEmployee: Omit<Employee, "id"> = {
   active: true,
   role: "employee",
   notes: "",
+  phone: "",
+  email: "",
   photoDataUrl: ""
 };
 
@@ -5323,6 +5327,14 @@ function EmployeeAdmin({
           Active
         </label>
       </div>
+      <div className="grid gap-3 md:grid-cols-2">
+        <Label title="Phone" icon={<Phone size={17} />}>
+          <input className="field" type="tel" value={draft.phone ?? ""} onChange={(event) => setDraft((current) => ({ ...current, phone: event.target.value }))} placeholder="(555) 123-4567" />
+        </Label>
+        <Label title="Email" icon={<Mail size={17} />}>
+          <input className="field" type="email" value={draft.email ?? ""} onChange={(event) => setDraft((current) => ({ ...current, email: event.target.value }))} placeholder="name@example.com" />
+        </Label>
+      </div>
       <div className="grid gap-3 md:grid-cols-[220px_1fr]">
         <div className="grid gap-2">
           <span className="flex items-center gap-1.5 text-sm font-black">
@@ -5393,6 +5405,22 @@ function EmployeeAdmin({
                       )}
                     </div>
                     <p className="text-sm text-steel-500">{yardName(employee.locationId)} · {employee.shift}</p>
+                    {(employee.phone || employee.email) && (
+                      <div className="mt-1 grid gap-0.5 text-sm text-steel-600">
+                        {employee.phone && (
+                          <a href={`tel:${employee.phone}`} className="flex items-center gap-1.5 font-bold hover:text-workshop-700">
+                            <Phone size={14} className="shrink-0" />
+                            <span className="truncate">{employee.phone}</span>
+                          </a>
+                        )}
+                        {employee.email && (
+                          <a href={`mailto:${employee.email}`} className="flex items-center gap-1.5 font-bold hover:text-workshop-700">
+                            <Mail size={14} className="shrink-0" />
+                            <span className="truncate">{employee.email}</span>
+                          </a>
+                        )}
+                      </div>
+                    )}
                     <p className="mt-1 text-sm text-steel-500">{employee.notes || "No notes"}</p>
                   </div>
                 </div>
@@ -5456,6 +5484,14 @@ function EmployeeAdmin({
               </div>
               <Label title="Notes" icon={<FileSpreadsheet size={17} />}>
                 <textarea className="field min-h-32 resize-none" value={editDraft.notes ?? ""} onChange={(event) => setEditDraft((current) => current ? { ...current, notes: event.target.value } : current)} />
+              </Label>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Label title="Phone" icon={<Phone size={17} />}>
+                <input className="field" type="tel" value={editDraft.phone ?? ""} onChange={(event) => setEditDraft((current) => current ? { ...current, phone: event.target.value } : current)} placeholder="(555) 123-4567" />
+              </Label>
+              <Label title="Email" icon={<Mail size={17} />}>
+                <input className="field" type="email" value={editDraft.email ?? ""} onChange={(event) => setEditDraft((current) => current ? { ...current, email: event.target.value } : current)} placeholder="name@example.com" />
               </Label>
             </div>
             <label className="flex items-center gap-2 font-black text-steel-900">

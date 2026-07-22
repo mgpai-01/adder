@@ -20,6 +20,9 @@ export type Employee = {
   deactivatedByAdmin?: boolean;
   role?: Role;
   notes?: string;
+  // Contact details for the repairer, optional and free-form.
+  phone?: string;
+  email?: string;
   photoDataUrl?: string;
   photoPath?: string;
   // Station assignment, remembered per repairer until changed: which station
