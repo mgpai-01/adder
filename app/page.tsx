@@ -4387,6 +4387,12 @@ function ProductionGrid({
           return null;
         }
 
+        // Count sheet photos for the days/yard/shift this repairer actually
+        // worked this week, so the source sheets sit right under their totals.
+        const employeeSheetPhotos = countSheets
+          .filter((sheet) => employeeEntries.some((entry) => entry.date === sheet.date && entry.locationId === sheet.locationId && entry.shift === sheet.shift))
+          .flatMap((sheet) => sheet.photos.map((photo) => ({ photo, sheet })));
+
         return (
           <div key={employee.id} className="overflow-hidden rounded border border-steel-100 bg-white text-steel-900">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-steel-100 bg-steel-50 p-3">
@@ -4469,6 +4475,24 @@ function ProductionGrid({
                 </tbody>
               </table>
             </div>
+            {employeeSheetPhotos.length > 0 && (
+              <div className="border-t border-steel-100 p-3">
+                <h4 className="flex items-center gap-1.5 text-sm font-black text-steel-900">
+                  <Camera size={16} />
+                  Count Sheet Photos
+                  <span className="font-bold text-steel-500">· {employeeSheetPhotos.length}</span>
+                </h4>
+                <div className="mt-2 grid grid-cols-3 gap-2 sm:grid-cols-4 xl:grid-cols-6">
+                  {employeeSheetPhotos.map(({ photo, sheet }) => (
+                    <a key={photo.id} href={photo.url} target="_blank" rel="noreferrer" className="block overflow-hidden rounded border border-steel-100">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={photo.url} alt={photo.fileName} className="h-24 w-full bg-steel-50 object-cover" />
+                      <span className="block truncate bg-steel-50 px-2 py-1 text-xs font-bold">{photoLocationName(sheet.locationId)} · {sheet.shift} · {sheet.date}</span>
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
             <div className="border-t border-steel-100 p-3">
               <EntryHistory
                 compact
