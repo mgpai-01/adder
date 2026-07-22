@@ -4291,6 +4291,146 @@ function formatEntryDate(dateValue: string) {
   return new Intl.DateTimeFormat("en-US", { month: "long", day: "numeric", year: "numeric" }).format(date);
 }
 
+// Export options dialog: pick which people, how many days (a date range), and
+// which yards to include, then download just that slice as CSV or Excel. Reuses
+// the existing exporters — it only narrows the entries handed to them.
+function ExportOptionsModal({
+  entries,
+  employees,
+  locations,
+  defaultStart,
+  defaultEnd,
+  onExportCsv,
+  onExportExcel,
+  onClose
+}: {
+  entries: DailyEntry[];
+  employees: Employee[];
+  locations: Location[];
+  defaultStart: string;
+  defaultEnd: string;
+  onExportCsv: (entries: DailyEntry[]) => void;
+  onExportExcel: (entries: DailyEntry[]) => void;
+  onClose: () => void;
+}) {
+  const [start, setStart] = useState(defaultStart);
+  const [end, setEnd] = useState(defaultEnd);
+  const [yardIds, setYardIds] = useState<string[]>(locations.map((location) => location.id));
+  const [employeeIds, setEmployeeIds] = useState<string[]>(employees.map((employee) => employee.id));
+
+  // Keep the from/to the right way round even if the user picks them backwards.
+  const rangeStart = start <= end ? start : end;
+  const rangeEnd = start <= end ? end : start;
+
+  // People are shown for the yards currently chosen, so the list stays relevant.
+  const visibleEmployees = employees
+    .filter((employee) => yardIds.includes(employee.locationId))
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  const filtered = entries.filter(
+    (entry) => entry.date >= rangeStart && entry.date <= rangeEnd && yardIds.includes(entry.locationId) && employeeIds.includes(entry.employeeId)
+  );
+  const dayCount = new Set(filtered.map((entry) => entry.date)).size;
+  const peopleCount = new Set(filtered.map((entry) => entry.employeeId)).size;
+
+  const toggle = (list: string[], setList: (next: string[]) => void, id: string) =>
+    setList(list.includes(id) ? list.filter((value) => value !== id) : [...list, id]);
+
+  const download = (kind: "csv" | "excel") => {
+    if (filtered.length === 0) return;
+    (kind === "csv" ? onExportCsv : onExportExcel)(filtered);
+    onClose();
+  };
+
+  return (
+    <Modal title="Custom Export" onClose={onClose}>
+      <div className="grid gap-4">
+        <p className="text-sm font-bold text-steel-500">Choose who to include, how many days, and which yards. Only the matching entries are exported.</p>
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Label title="From" icon={<CalendarDays size={17} />}>
+            <input className="field" type="date" value={start} onChange={(event) => setStart(event.target.value)} />
+          </Label>
+          <Label title="To" icon={<CalendarDays size={17} />}>
+            <input className="field" type="date" value={end} onChange={(event) => setEnd(event.target.value)} />
+          </Label>
+        </div>
+
+        <div className="grid gap-2">
+          <div className="flex items-center justify-between gap-2">
+            <span className="flex items-center gap-1.5 text-sm font-black"><MapPin size={17} /> Yards</span>
+            <div className="flex gap-2 text-xs font-black">
+              <button type="button" className="rounded bg-steel-100 px-2 py-1" onClick={() => setYardIds(locations.map((location) => location.id))}>All</button>
+              <button type="button" className="rounded bg-steel-100 px-2 py-1" onClick={() => setYardIds([])}>Clear</button>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {locations.map((location) => (
+              <button
+                key={location.id}
+                type="button"
+                onClick={() => toggle(yardIds, setYardIds, location.id)}
+                className={classNames("rounded border px-3 py-2 text-sm font-black", yardIds.includes(location.id) ? "border-workshop-500 bg-workshop-100 text-workshop-700" : "border-steel-300 bg-white text-steel-500")}
+              >
+                {location.name}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="grid gap-2">
+          <div className="flex items-center justify-between gap-2">
+            <span className="flex items-center gap-1.5 text-sm font-black"><UserRound size={17} /> People</span>
+            <div className="flex gap-2 text-xs font-black">
+              <button type="button" className="rounded bg-steel-100 px-2 py-1" onClick={() => setEmployeeIds((current) => Array.from(new Set([...current, ...visibleEmployees.map((employee) => employee.id)])))}>All</button>
+              <button type="button" className="rounded bg-steel-100 px-2 py-1" onClick={() => setEmployeeIds((current) => current.filter((id) => !visibleEmployees.some((employee) => employee.id === id)))}>Clear</button>
+            </div>
+          </div>
+          {visibleEmployees.length === 0 ? (
+            <p className="text-sm font-bold text-steel-500">Pick a yard to choose people.</p>
+          ) : (
+            <div className="grid max-h-52 gap-1 overflow-y-auto rounded border border-steel-100 p-2 sm:grid-cols-2">
+              {visibleEmployees.map((employee) => (
+                <label key={employee.id} className="flex items-center gap-2 rounded px-2 py-1 text-sm font-bold hover:bg-steel-50">
+                  <input className="h-4 w-4" type="checkbox" checked={employeeIds.includes(employee.id)} onChange={() => toggle(employeeIds, setEmployeeIds, employee.id)} />
+                  <span className="truncate">{employee.name}</span>
+                </label>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="rounded bg-steel-50 px-3 py-2 text-sm font-black text-steel-700">
+          {filtered.length === 0
+            ? "No entries match these options."
+            : `${wholeNumber(filtered.length)} entries · ${peopleCount} ${peopleCount === 1 ? "person" : "people"} · ${dayCount} ${dayCount === 1 ? "day" : "days"}`}
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={filtered.length === 0}
+            className="touch-target flex items-center gap-2 rounded border border-steel-300 bg-white px-4 py-2 font-black text-steel-900 disabled:cursor-not-allowed disabled:opacity-50"
+            onClick={() => download("csv")}
+          >
+            <Download size={19} />
+            Download CSV
+          </button>
+          <button
+            type="button"
+            disabled={filtered.length === 0}
+            className="touch-target flex items-center gap-2 rounded bg-[#1f7a4d] px-4 py-2 font-black text-white disabled:cursor-not-allowed disabled:opacity-50"
+            onClick={() => download("excel")}
+          >
+            <Download size={19} />
+            Download Excel
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 function ProductionGrid({
   entries,
   countSheets,
@@ -4332,6 +4472,7 @@ function ProductionGrid({
   const weekEnd = weekDays[weekDays.length - 1];
   const [photoFrom, setPhotoFrom] = useState(weekStart);
   const [photoTo, setPhotoTo] = useState(weekEnd);
+  const [exportOpen, setExportOpen] = useState(false);
   useEffect(() => {
     setPhotoFrom(weekStart);
     setPhotoTo(weekEnd);
@@ -4368,9 +4509,31 @@ function ProductionGrid({
             <Download size={19} />
             Export Excel
           </button>
+          {/* Custom export: pick people, day range, and yards before downloading. */}
+          <button
+            type="button"
+            className="touch-target flex items-center gap-2 rounded border border-steel-300 bg-white px-4 py-2 font-black text-steel-900"
+            onClick={() => setExportOpen(true)}
+          >
+            <Filter size={19} />
+            Custom Export
+          </button>
           <WeekControls selectedWeek={selectedWeek} onWeekChange={onWeekChange} />
         </div>
       </div>
+
+      {exportOpen && (
+        <ExportOptionsModal
+          entries={entries}
+          employees={employees}
+          locations={locations}
+          defaultStart={weekStart}
+          defaultEnd={weekEnd}
+          onExportCsv={exportCsv}
+          onExportExcel={exportExcel}
+          onClose={() => setExportOpen(false)}
+        />
+      )}
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <Metric label="Week Quantity" value={wholeNumber(weekReport.summary.quantity)} />
