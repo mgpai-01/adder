@@ -5061,10 +5061,21 @@ function PalletAdmin({
         </Label>
       </div>
       <div className="flex flex-wrap gap-2">
+        {/* New Item button (replaces the old "Add Pallet Type" custom pallet button). */}
         <button type="button" disabled={isSaving} className="touch-target flex items-center gap-2 rounded bg-workshop-500 px-4 py-2 font-black text-white disabled:cursor-not-allowed disabled:bg-steel-500" onClick={save}>
           <Check size={19} />
-          {isSaving ? "Saving..." : "Add Pallet Type"}
+          {isSaving ? "Saving..." : "Create New Item"}
         </button>
+        {/*
+          SAVED FOR LATER — original "Add Pallet Type" custom pallet button.
+          To bring it back, delete the "Create New Item" button above and
+          uncomment this one.
+
+          <button type="button" disabled={isSaving} className="touch-target flex items-center gap-2 rounded bg-workshop-500 px-4 py-2 font-black text-white disabled:cursor-not-allowed disabled:bg-steel-500" onClick={save}>
+            <Check size={19} />
+            {isSaving ? "Saving..." : "Add Pallet Type"}
+          </button>
+        */}
       </div>
       <div className="grid gap-3 md:grid-cols-[1fr_220px]">
         <Label title="Search" icon={<Search size={17} />}>
