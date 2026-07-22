@@ -81,7 +81,9 @@ function palletLabel(palletTypeId: string, palletTypes: PalletType[]) {
 
 // The pallet types a yard can make, as board columns — the same per-yard menu
 // the entry grid uses (Fontana makes them all; Citrus/Mesa their list), plus
-// any active custom pallets. QC deductions and inactive pallets are left out.
+// any active custom pallets. Inactive pallets are left out. QC deductions are
+// kept out of the always-on menu (so no empty deduction column shows), but
+// still appear as their own column whenever a repairer actually has one.
 // Used so the board shows every product a yard makes, even at 0.
 function yardPalletMenu(yardId: string, palletTypes: PalletType[]) {
   const allowed = yardPalletIds[yardId];
@@ -312,14 +314,16 @@ export default function LiveBoardPage() {
         palletMap: new Map<string, { id: string; name: string; label: string; quantity: number }>()
       };
       row.quantity += quantityForEntry(entry, palletTypeList);
-      // Tally the specific pallet types this repairer produced (QC deductions
-      // aren't pallets they "made", so they're left out of the breakdown).
+      // Tally the pallet types this repairer produced. QC deductions are folded
+      // in as negative quantities so they show as their own column and net
+      // correctly against the row and yard totals.
       for (const line of entry.lines ?? []) {
         const pallet = findPalletType(palletTypeList, line.palletTypeId);
-        // Skip QC deductions and any pallet with no name (orphaned customs).
-        if (!pallet || pallet.category === "QC Deductions") continue;
-        const quantity = Number(line.quantity || 0);
-        if (!quantity) continue;
+        // Skip any pallet with no name (orphaned customs).
+        if (!pallet) continue;
+        const rawQuantity = Number(line.quantity || 0);
+        if (!rawQuantity) continue;
+        const quantity = pallet.category === "QC Deductions" ? -rawQuantity : rawQuantity;
         const key = pallet?.id ?? line.palletTypeId;
         const existing = row.palletMap.get(key) ?? { id: key, name: palletName(line.palletTypeId, palletTypeList), label: palletLabel(line.palletTypeId, palletTypeList), quantity: 0 };
         existing.quantity += quantity;
@@ -890,7 +894,7 @@ function MatrixTable({
                 const quantity = lookup.get(column.id) ?? 0;
                 return (
                   <td key={column.id} className={`whitespace-nowrap text-center tabular-nums ${s.num}`}>
-                    {quantity ? <span className="text-white/85">{wholeNumber(quantity)}</span> : <span className="text-white/15">·</span>}
+                    {quantity ? <span className={quantity < 0 ? "text-[#f5a8a8]" : "text-white/85"}>{wholeNumber(quantity)}</span> : <span className="text-white/15">·</span>}
                   </td>
                 );
               })}
@@ -903,7 +907,7 @@ function MatrixTable({
         <tr className="border-t-2 border-white/15">
           <td className={`text-left font-black uppercase tracking-wide text-white/60 ${s.footLabel}`}>{t("Total")}</td>
           {columns.map((column) => (
-            <td key={column.id} className={`whitespace-nowrap text-center font-black tabular-nums text-[#aef2bc] ${s.footNum}`}>{wholeNumber(column.total)}</td>
+            <td key={column.id} className={`whitespace-nowrap text-center font-black tabular-nums ${column.total < 0 ? "text-[#f5a8a8]" : "text-[#aef2bc]"} ${s.footNum}`}>{wholeNumber(column.total)}</td>
           ))}
           <td className={`whitespace-nowrap text-right font-black tabular-nums text-[#aef2bc] ${s.footTotal}`}>{wholeNumber(producedTotal)}</td>
         </tr>
