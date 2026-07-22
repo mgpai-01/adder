@@ -59,7 +59,7 @@ export default function LoginScreen() {
   }
 
   return (
-    <main className="relative flex min-h-screen items-center justify-center overflow-hidden px-4 py-10">
+    <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-steel-900 px-4 py-10">
       {/* Brand-tinted scrim over the page's warehouse photo so the card pops */}
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-steel-900/85 via-workshop-700/70 to-steel-900/90" />
 
