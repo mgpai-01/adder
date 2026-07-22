@@ -14,6 +14,10 @@ export type Employee = {
   locationId: string;
   shift: Shift;
   active: boolean;
+  // True only when an admin manually turned this repairer off. The automatic
+  // roster sync never sets it, and never reactivates anyone who has it set —
+  // so a manual Inactive choice sticks on every device, forever.
+  deactivatedByAdmin?: boolean;
   role?: Role;
   notes?: string;
   photoDataUrl?: string;
