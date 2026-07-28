@@ -866,6 +866,11 @@ export default function Home() {
   // toggle; the choice is remembered.
   const [language, setLanguage] = useState<Language>("en");
   const [entries, setEntries] = useState<DailyEntry[]>([]);
+  // Always mirrors the latest entries so a background refresh can merge against
+  // what's currently on screen (including saves that haven't synced yet) instead
+  // of reading a stale closure. Assigned during render — safe for a ref.
+  const entriesRef = useRef<DailyEntry[]>([]);
+  entriesRef.current = entries;
   const [countSheets, setCountSheets] = useState<CountSheet[]>([]);
   const [palletTypes, setPalletTypes] = useState<PalletType[]>(defaultPalletTypes);
   const [employeeList, setEmployeeList] = useState<Employee[]>(defaultEmployees);
@@ -1122,7 +1127,36 @@ export default function Home() {
       fetch("/api/entries", { cache: "no-store" })
         .then((response) => response.json())
         .then((result: { entries: DailyEntry[] }) => {
-          setEntries(result.entries.map(migrateEntry).sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt)));
+          // Merge the cloud pull with what's already on screen instead of
+          // replacing it outright. A background refresh (10s poll, 180s timer,
+          // or window focus) must NEVER erase an entry the user just saved but
+          // that hasn't finished syncing to the cloud yet — that was the "I
+          // entered it but it disappeared / didn't show" bug. Rules: keep the
+          // newer copy per id (a fresh local edit beats a stale cloud row),
+          // keep any local-only entry the cloud doesn't have yet, and re-push
+          // those local-only ones so a failed save still reaches the cloud.
+          const cloudEntries = result.entries.map(migrateEntry);
+          const cloudById = new Map(cloudEntries.map((entry) => [entry.id, entry]));
+          const recency = (entry: DailyEntry) => entry.updatedAt ?? entry.createdAt ?? "";
+          const merged = new Map(cloudById);
+          const localOnly: DailyEntry[] = [];
+          for (const local of entriesRef.current) {
+            const cloud = cloudById.get(local.id);
+            if (!cloud) {
+              merged.set(local.id, local);
+              localOnly.push(local);
+            } else if (recency(local) > recency(cloud)) {
+              merged.set(local.id, local);
+            }
+          }
+          setEntries(Array.from(merged.values()).sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt)));
+          localOnly.forEach((entry) => {
+            fetch("/api/entries?syncSheets=false", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(entry)
+            }).catch(() => undefined);
+          });
         })
         .catch(() => undefined);
     };
