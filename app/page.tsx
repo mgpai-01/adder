@@ -2412,6 +2412,13 @@ function PhaseTracker({
 }) {
   const { t } = useT();
   const lastDone = lastPhaseDone(phases);
+  // Always points at the latest phases prop. A photo upload is async (compress +
+  // network), and while it runs the user can keep typing quantities. Reading this
+  // ref when the upload finishes — instead of the `phases` captured in the async
+  // closure — means the photo is merged into the CURRENT phases, so quantities
+  // entered during the upload are preserved instead of being overwritten.
+  const phasesRef = useRef(phases);
+  phasesRef.current = phases;
   // Full-screen view of a phase photo so count sheets can be read.
   const [zoomPhoto, setZoomPhoto] = useState<string | null>(null);
   // Rotation (degrees) applied to the zoomed photo so a sideways count sheet can
@@ -2475,8 +2482,10 @@ function PhaseTracker({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [zoomPhoto]);
 
+  // Merge a patch into the LATEST phases (via phasesRef), never a stale snapshot,
+  // so an async photo upload finishing can't clobber quantities typed meanwhile.
   function updatePhase(index: number, patch: Partial<EntryPhase>) {
-    onChange(phases.map((phase, current) => (current === index ? { ...phase, ...patch } : phase)));
+    onChange(phasesRef.current.map((phase, current) => (current === index ? { ...phase, ...patch } : phase)));
   }
 
   function readAsDataUrl(file: File): Promise<string> {
@@ -2510,12 +2519,15 @@ function PhaseTracker({
     if (urls.length !== compressed.length) {
       urls = await Promise.all(compressed.map((file) => readAsDataUrl(file)));
     }
-    const existing = phasePhotos(phases[index]);
+    // Read the current photos off the latest phases, not the stale closure, then
+    // updatePhase merges into the latest phases too — so nothing typed during the
+    // upload is lost.
+    const existing = phasePhotos(phasesRef.current[index]);
     updatePhase(index, { photoDataUrl: undefined, photoDataUrls: [...existing, ...urls] });
   }
 
   function removePhasePhoto(index: number, photo: string) {
-    updatePhase(index, { photoDataUrl: undefined, photoDataUrls: phasePhotos(phases[index]).filter((item) => item !== photo) });
+    updatePhase(index, { photoDataUrl: undefined, photoDataUrls: phasePhotos(phasesRef.current[index]).filter((item) => item !== photo) });
   }
 
   const active = phases[selected];
