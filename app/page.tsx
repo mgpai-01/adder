@@ -1642,15 +1642,26 @@ export default function Home() {
       }
       return result;
     };
-    const affected = entries.filter((entry) => touches(entry.lines) || (entry.phases ?? []).some((phase) => touches(phase.lines)));
-    for (const entry of affected) {
+    const affectedIds = entries
+      .filter((entry) => touches(entry.lines) || (entry.phases ?? []).some((phase) => touches(phase.lines)))
+      .map((entry) => entry.id);
+    let remapped = 0;
+    for (const id of affectedIds) {
+      // Re-read the freshest copy each pass (not the snapshot taken at the start),
+      // so if someone saves a new production number for this entry mid-remap we
+      // just re-point the pallet id on their latest numbers instead of overwriting
+      // them with the pre-remap values.
+      const entry = entriesRef.current.find((item) => item.id === id);
+      if (!entry) continue;
+      if (!(touches(entry.lines) || (entry.phases ?? []).some((phase) => touches(phase.lines)))) continue;
       await updateSavedEntry({
         ...entry,
         lines: remapLines(entry.lines),
         phases: entry.phases?.map((phase) => ({ ...phase, lines: remapLines(phase.lines) }))
       });
+      remapped++;
     }
-    return affected.length;
+    return remapped;
   }
 
   async function deleteSavedEntry(id: string) {
@@ -4980,12 +4991,17 @@ function PalletAdmin({
   async function save() {
     const clean = { ...draft, code: draft.code.trim(), description: draft.description.trim(), rate: Number(draft.rate) };
     if (!clean.code) return;
+    // Snapshot the draft object we're saving. If the admin starts typing the next
+    // pallet during the save round-trip, the draft becomes a different object, so
+    // we leave their typing alone instead of clearing it.
+    const savedDraft = draft;
     setIsSaving(true);
     setError("");
     try {
       await Promise.resolve(onCreate(clean));
       setMessage(`${clean.code} added.`);
-      reset();
+      setDraft((current) => (current === savedDraft ? emptyPallet : current));
+      setEditingId(null);
     } catch {
       setError("Could not save pallet type. Try again.");
     } finally {
@@ -5263,12 +5279,16 @@ function EmployeeAdmin({
   async function save() {
     const clean = { ...draft, name: draft.name.trim() };
     if (!clean.name) return;
+    // Snapshot the draft; if the admin types the next repairer during the save,
+    // the draft becomes a new object and we leave their typing intact.
+    const savedDraft = draft;
     setIsSaving(true);
     setError("");
     try {
       await Promise.resolve(onCreate(clean));
       setMessage(`${clean.name} added.`);
-      reset();
+      setDraft((current) => (current === savedDraft ? { ...emptyEmployee, locationId: locations[0]?.id ?? "fontana", shift: shifts[0] ?? "AM" } : current));
+      setEditingId(null);
     } catch {
       setError("Could not save repairer. Try again.");
     } finally {
@@ -6588,6 +6608,9 @@ function UsersAdmin({ onLogChange }: { onLogChange: (targetName: string, summary
     try {
       const justSetName = form.fullName || form.login;
       const justSetValue = form.password;
+      // Snapshot the form we're submitting; if the admin starts entering the next
+      // user during the request, the form object changes and we keep their input.
+      const savedForm = form;
       const response = await authedFetch("/api/admin/users", { method: "POST", body: JSON.stringify(form) });
       const data = await response.json();
       if (!data.ok) {
@@ -6596,7 +6619,7 @@ function UsersAdmin({ onLogChange }: { onLogChange: (targetName: string, summary
       }
       setMessage(`Added ${justSetName}.`);
       setSetPassword({ name: justSetName, value: justSetValue });
-      setForm({ fullName: "", login: "", password: "", role: "employee", allowedYards: [] });
+      setForm((current) => (current === savedForm ? { fullName: "", login: "", password: "", role: "employee", allowedYards: [] } : current));
       load();
     } catch (caught) {
       setError((caught as Error)?.name === "AbortError" ? "Request timed out — try again." : "Could not add user.");
