@@ -3405,10 +3405,15 @@ function CountSheetsModule({
     }
 
     setIsSaving(true);
-    const message = await onCreate({ date, locationId, shift, uploadedBy, notes, files });
+    // Snapshot what we're saving. The photo input and notes stay editable during
+    // the (multi-second) upload, so afterward clear ONLY what we sent — a photo
+    // added or notes typed mid-upload are kept instead of being wiped.
+    const filesToSave = files;
+    const notesToSave = notes;
+    const message = await onCreate({ date, locationId, shift, uploadedBy, notes: notesToSave, files: filesToSave });
     setStatusMessage(message);
-    setFiles([]);
-    setNotes("");
+    setFiles((current) => current.filter((file) => !filesToSave.includes(file)));
+    setNotes((current) => (current === notesToSave ? "" : current));
     setIsSaving(false);
   }
 
