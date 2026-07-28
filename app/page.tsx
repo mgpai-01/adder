@@ -116,7 +116,12 @@ const emptyEmployee: Omit<Employee, "id"> = {
 const emptyPallet: Omit<PalletType, "id"> = {
   code: "",
   description: "",
-  category: "Stacker",
+  // New items default to "Custom" so they show up in EVERY yard's entry grid.
+  // Yards with a fixed menu (Citrus/Mesa) only show their fixed pallets plus
+  // "Custom" ones, so a new item saved under any other category would appear in
+  // Fontana but silently never in Citrus/Mesa. (Pick a specific category in the
+  // form only when adding a standard, yard-specific pallet.)
+  category: "Custom",
   rate: 0,
   active: true,
   photoUrl: "",
