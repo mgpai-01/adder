@@ -4412,6 +4412,26 @@ function ProductionGrid({
   // How the repairer cards are ordered. Default: grouped by yard (Fontana, Mesa,
   // Citrus), then A–Z by last name within each yard.
   const [sortMode, setSortMode] = useState<"yard-name" | "yard-qty" | "name" | "qty">("yard-name");
+  // Restore the last-chosen sort on load, and remember it whenever it changes.
+  // Read after mount (not in the initializer) so it can't cause a hydration
+  // mismatch. Persists per browser via localStorage.
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem("mgp-production-grid-sort-v1");
+      if (saved === "yard-name" || saved === "yard-qty" || saved === "name" || saved === "qty") {
+        setSortMode(saved);
+      }
+    } catch {
+      // ignore storage access issues
+    }
+  }, []);
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("mgp-production-grid-sort-v1", sortMode);
+    } catch {
+      // ignore storage access issues
+    }
+  }, [sortMode]);
   useEffect(() => {
     setPhotoFrom(weekStart);
     setPhotoTo(weekEnd);
