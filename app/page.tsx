@@ -4402,8 +4402,12 @@ function ProductionGrid({
 }) {
   const weekDays = getWeekDays(selectedWeek);
   const weekEntries = entries.filter((entry) => weekDays.includes(entry.date));
-  const activePallets = palletTypes.filter((pallet) => pallet.active || weekEntries.some((entry) => entry.lines.some((line) => line.palletTypeId === pallet.id)));
-  const weekReport = buildReport(weekEntries, palletTypes, employees, locations, settings);
+  // Optional single-yard view. "all" shows every yard. When a yard is picked,
+  // the whole grid — cards, week totals, and exports — scopes to that yard.
+  const [yardFilter, setYardFilter] = useState("all");
+  const gridEntries = yardFilter === "all" ? weekEntries : weekEntries.filter((entry) => entry.locationId === yardFilter);
+  const activePallets = palletTypes.filter((pallet) => pallet.active || gridEntries.some((entry) => entry.lines.some((line) => line.palletTypeId === pallet.id)));
+  const weekReport = buildReport(gridEntries, palletTypes, employees, locations, settings);
 
   const weekStart = weekDays[0];
   const weekEnd = weekDays[weekDays.length - 1];
@@ -4445,8 +4449,8 @@ function ProductionGrid({
   // ordered by the chosen sort. Last name = the last word of the full name.
   const lastNameKey = (name: string) => (name.trim().split(/\s+/).slice(-1)[0] ?? "").toLowerCase();
   const sortedCrew = employees
-    .filter((employee) => employee.active || weekEntries.some((entry) => entry.employeeId === employee.id))
-    .map((employee) => ({ employee, employeeEntries: weekEntries.filter((entry) => entry.employeeId === employee.id) }))
+    .filter((employee) => employee.active || gridEntries.some((entry) => entry.employeeId === employee.id))
+    .map((employee) => ({ employee, employeeEntries: gridEntries.filter((entry) => entry.employeeId === employee.id) }))
     .filter((row) => row.employeeEntries.length > 0)
     .map((row) => ({ ...row, employeeReport: buildReport(row.employeeEntries, palletTypes, employees, locations, settings) }))
     .sort((a, b) => {
@@ -4470,22 +4474,33 @@ function ProductionGrid({
           {/* Export the week currently shown. Disabled when the week is empty. */}
           <button
             type="button"
-            disabled={weekEntries.length === 0}
+            disabled={gridEntries.length === 0}
             className="touch-target flex items-center gap-2 rounded border border-steel-300 bg-white px-4 py-2 font-black text-steel-900 disabled:cursor-not-allowed disabled:opacity-50"
-            onClick={() => exportCsv(weekEntries)}
+            onClick={() => exportCsv(gridEntries)}
           >
             <Download size={19} />
             Export CSV
           </button>
           <button
             type="button"
-            disabled={weekEntries.length === 0}
+            disabled={gridEntries.length === 0}
             className="touch-target flex items-center gap-2 rounded bg-[#1f7a4d] px-4 py-2 font-black text-white disabled:cursor-not-allowed disabled:opacity-50"
-            onClick={() => exportExcel(weekEntries)}
+            onClick={() => exportExcel(gridEntries)}
           >
             <Download size={19} />
             Export Excel
           </button>
+          <select
+            aria-label="Filter by yard"
+            className="touch-target rounded border border-steel-300 bg-white px-3 py-2 font-black text-steel-900"
+            value={yardFilter}
+            onChange={(event) => setYardFilter(event.target.value)}
+          >
+            <option value="all">All Yards</option>
+            {[...locations].sort((a, b) => yardRank(a.id) - yardRank(b.id)).map((location) => (
+              <option key={location.id} value={location.id}>{location.name}</option>
+            ))}
+          </select>
           <select
             aria-label="Sort repairers"
             className="touch-target rounded border border-steel-300 bg-white px-3 py-2 font-black text-steel-900"
@@ -4609,7 +4624,7 @@ function ProductionGrid({
         );
       })}
 
-      {weekEntries.length === 0 && (
+      {gridEntries.length === 0 && (
         <div className="rounded border border-steel-100 bg-white p-5 text-center font-bold text-steel-500">
           No production entries found for this week.
         </div>
