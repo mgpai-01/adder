@@ -2693,21 +2693,24 @@ function PhaseTracker({
         {(() => {
           // A phase counts as complete only once it has a photo (a bypassed
           // phase needs no photo, so it's complete too). Classify each repairer:
-          //   completed  -> every phase is complete
-          //   incomplete -> started, but at least one phase still needs a photo
+          //   completed  -> Phase 3 (the last, end-of-day phase) is complete
+          //   incomplete -> started, but Phase 3 still needs a photo
           //   not started -> nothing entered at all
           const phaseComplete = (phase: EntryPhase | undefined) => phasePhotos(phase).length > 0 || Boolean(phase?.bypassed);
           const phaseActive = (phase: EntryPhase | undefined) =>
             (phase?.amount ?? 0) > 0 || Boolean(phase?.bypassed) || phasePhotos(phase).length > 0;
           const hasActivity = (member: typeof crew[number]) => (member.phases ?? []).some((phase) => phaseActive(phase ?? undefined));
-          const allComplete = (member: typeof crew[number]) => phases.every((_p, i) => phaseComplete(member.phases?.[i] ?? undefined));
+          // Phase 3 is the last phase of the shift, so completing it means the
+          // repairer is done for the day — even if Phases 1 and 2 were never
+          // entered. Finishing only an earlier phase does NOT count as done.
+          const dayComplete = (member: typeof crew[number]) => phaseComplete(member.phases?.[PHASE_COUNT - 1] ?? undefined);
           const byFirstName = (a: typeof crew[number], b: typeof crew[number]) => {
             const first = (name: string) => name.trim().split(/\s+/)[0].toLowerCase();
             return first(a.name).localeCompare(first(b.name)) || a.name.localeCompare(b.name);
           };
 
-          const completed = crew.filter((m) => hasActivity(m) && allComplete(m)).sort(byFirstName);
-          const incomplete = crew.filter((m) => hasActivity(m) && !allComplete(m)).sort(byFirstName);
+          const completed = crew.filter((m) => hasActivity(m) && dayComplete(m)).sort(byFirstName);
+          const incomplete = crew.filter((m) => hasActivity(m) && !dayComplete(m)).sort(byFirstName);
           const notStarted = crew.filter((m) => !hasActivity(m)).sort(byFirstName);
 
           const groups = [
