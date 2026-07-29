@@ -4436,6 +4436,26 @@ function ProductionGrid({
       // ignore storage access issues
     }
   }, [sortMode]);
+  // Remember the chosen yard the same way (only restore it if it's still a real
+  // yard, so a removed yard can't leave the grid stuck on an empty view).
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem("mgp-production-grid-yard-v1");
+      if (saved && (saved === "all" || locations.some((location) => location.id === saved))) {
+        setYardFilter(saved);
+      }
+    } catch {
+      // ignore storage access issues
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("mgp-production-grid-yard-v1", yardFilter);
+    } catch {
+      // ignore storage access issues
+    }
+  }, [yardFilter]);
   useEffect(() => {
     setPhotoFrom(weekStart);
     setPhotoTo(weekEnd);
