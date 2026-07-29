@@ -4545,6 +4545,24 @@ function ProductionGrid({
       </div>
 
       {sortedCrew.map(({ employee, employeeEntries, employeeReport }) => {
+        // Count sheets linked to this repairer's entries this week, bucketed into
+        // Phase 1/2/3 by upload time (before 9 = P1, 9–12:30 = P2, 12:30+ = P3).
+        // A phase is complete if it has a count sheet (or its entry phase was
+        // bypassed); finishing Phase 3 also marks Phases 1 & 2 complete.
+        const weekPhases = combinePhases(employeeEntries, palletTypes);
+        const weekSheets = Array.from(
+          new Map(employeeEntries.flatMap((entry) => getLinkedCountSheets(countSheets, entry)).map((sheet) => [sheet.id, sheet])).values()
+        );
+        const phaseSheetPhotos: string[][] = [[], [], []];
+        weekSheets.forEach((sheet) => {
+          const uploaded = new Date(sheet.uploadTime);
+          const minutes = uploaded.getHours() * 60 + uploaded.getMinutes();
+          const phaseIndex = Number.isNaN(minutes) ? PHASE_COUNT - 1 : minutes < 9 * 60 ? 0 : minutes < 12 * 60 + 30 ? 1 : 2;
+          sheet.photos.forEach((photo) => phaseSheetPhotos[phaseIndex].push(photo.url));
+        });
+        const phaseHasSheet = (index: number) => phaseSheetPhotos[index].length > 0 || Boolean(weekPhases[index]?.bypassed);
+        const phase3Done = phaseHasSheet(PHASE_COUNT - 1);
+        const phaseDone = (index: number) => phase3Done || phaseHasSheet(index);
         return (
           <div key={employee.id} className="overflow-hidden rounded border border-steel-100 bg-white text-steel-900">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-steel-100 bg-steel-50 p-3">
@@ -4618,6 +4636,37 @@ function ProductionGrid({
                   </tr>
                 </tbody>
               </table>
+            </div>
+            <div className="border-t border-steel-100 p-3">
+              <p className="mb-2 text-xs font-black uppercase tracking-wide text-steel-500">Phase check sheets</p>
+              <div className="grid gap-2 sm:grid-cols-3">
+                {phaseSheetPhotos.map((photos, index) => {
+                  const done = phaseDone(index);
+                  return (
+                    <div key={index} className={classNames("rounded border p-2", done ? "border-workshop-200 bg-workshop-50" : "border-steel-200 bg-steel-50")}>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-sm font-black text-steel-900">Phase {index + 1}</span>
+                        <span className={classNames("flex items-center gap-1 text-xs font-black", done ? "text-workshop-700" : "text-steel-400")}>
+                          {done ? (<><CheckCircle2 size={14} /> Complete</>) : "Pending"}
+                        </span>
+                      </div>
+                      <span className="block text-[11px] font-bold text-steel-500">{PHASE_TIMES[index]}</span>
+                      {photos.length > 0 ? (
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {photos.map((url, photoIndex) => (
+                            <a key={photoIndex} href={url} target="_blank" rel="noopener noreferrer" className="block">
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src={url} alt={`Phase ${index + 1} count sheet`} className="h-14 w-14 rounded border border-steel-200 object-cover" />
+                            </a>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="mt-2 block text-xs font-bold text-steel-400">{done ? "Covered by Phase 3" : "No count sheet"}</span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
             {/*
               Per-entry "Entry History" table removed from the Production Grid per request.
