@@ -4524,21 +4524,27 @@ function ProductionGrid({
                 </tbody>
               </table>
             </div>
-            <div className="border-t border-steel-100 p-3">
-              <EntryHistory
-                compact
-                entries={employeeEntries}
-                countSheets={countSheets}
-                employees={employees}
-                locations={locations}
-                palletTypes={palletTypes}
-                settings={settings}
-                onEditEntry={onEditEntry}
-                onViewEntry={onViewEntry}
-                onDeleteEntry={onDeleteEntry}
-                onSelectEmployee={onSelectEmployee}
-              />
-            </div>
+            {/*
+              Per-entry "Entry History" table removed from the Production Grid per request.
+              (The full Entry History — with view/edit/delete — still lives in its own section.)
+              To bring it back here, uncomment this block:
+
+              <div className="border-t border-steel-100 p-3">
+                <EntryHistory
+                  compact
+                  entries={employeeEntries}
+                  countSheets={countSheets}
+                  employees={employees}
+                  locations={locations}
+                  palletTypes={palletTypes}
+                  settings={settings}
+                  onEditEntry={onEditEntry}
+                  onViewEntry={onViewEntry}
+                  onDeleteEntry={onDeleteEntry}
+                  onSelectEmployee={onSelectEmployee}
+                />
+              </div>
+            */}
           </div>
         );
       })}
