@@ -87,6 +87,26 @@ function formatLocalDate(date: Date) {
 }
 const today = formatLocalDate(new Date());
 
+// Entries saved before the date-rollover fix defaulted "today" to the UTC date,
+// which flips to tomorrow at 5 PM Pacific — so evening entries were stamped with
+// the next day (and Sunday-evening ones fell into the next week). The signature
+// is exact: the saved date equals the UTC date of createdAt while the local
+// date of createdAt is earlier. Entries a supervisor deliberately back-dated
+// don't match the signature and are left alone.
+function correctedEntryDate(entry: Pick<DailyEntry, "date" | "createdAt">): string | null {
+  if (!entry.createdAt) return null;
+  const created = new Date(entry.createdAt);
+  if (Number.isNaN(created.getTime())) return null;
+  const utcDate = entry.createdAt.slice(0, 10);
+  const localDate = formatLocalDate(created);
+  return entry.date === utcDate && utcDate !== localDate ? localDate : null;
+}
+function findMisdatedEntries(entries: DailyEntry[]) {
+  return entries
+    .map((entry) => ({ entry, correctedDate: correctedEntryDate(entry) }))
+    .filter((item): item is { entry: DailyEntry; correctedDate: string } => item.correctedDate !== null);
+}
+
 // Photos shipped with the app keyed by employee id. Used to fill in a face for
 // rosters loaded from the cloud/local storage that predate the photos, without
 // overwriting a photo an admin has set themselves.
@@ -1675,6 +1695,25 @@ export default function Home() {
     return remapped;
   }
 
+  // Re-stamp every misdated entry (UTC-rollover bug) with the real local date
+  // of when it was created. Goes through the normal save path so the change is
+  // stamped, synced, and reflected everywhere.
+  async function fixMisdatedEntries(): Promise<number> {
+    const misdated = findMisdatedEntries(entriesRef.current);
+    let fixed = 0;
+    for (const { entry } of misdated) {
+      // Re-read the freshest copy each pass so a save landing mid-repair isn't
+      // overwritten with stale numbers — only the date is re-stamped.
+      const fresh = entriesRef.current.find((item) => item.id === entry.id);
+      if (!fresh) continue;
+      const correctedDate = correctedEntryDate(fresh);
+      if (!correctedDate) continue;
+      await updateSavedEntry({ ...fresh, date: correctedDate });
+      fixed++;
+    }
+    return fixed;
+  }
+
   async function deleteSavedEntry(id: string) {
     const entry = entries.find((item) => item.id === id);
     const employee = employeeList.find((item) => item.id === entry?.employeeId);
@@ -2322,6 +2361,7 @@ export default function Home() {
               onUpdatePallet={updatePalletType}
               onDeletePallet={deletePalletType}
               onRemapPallet={remapPalletInEntries}
+              onFixMisdatedEntries={fixMisdatedEntries}
               onCreateEmployee={createEmployee}
               onUpdateEmployee={updateEmployee}
               onDeleteEmployee={deleteEmployee}
@@ -4929,6 +4969,7 @@ function Settings({
   onUpdatePallet,
   onDeletePallet,
   onRemapPallet,
+  onFixMisdatedEntries,
   onCreateEmployee,
   onUpdateEmployee,
   onDeleteEmployee,
@@ -4950,6 +4991,7 @@ function Settings({
   onUpdatePallet: (id: string, patch: Partial<PalletType>) => void | Promise<void>;
   onDeletePallet: (id: string) => void | Promise<void>;
   onRemapPallet: (fromId: string, toId: string) => Promise<number>;
+  onFixMisdatedEntries: () => Promise<number>;
   onCreateEmployee: (employee: Omit<Employee, "id">) => void | Promise<void>;
   onUpdateEmployee: (id: string, patch: Partial<Employee>) => void | Promise<void>;
   onDeleteEmployee: (id: string) => void | Promise<void>;
@@ -4969,10 +5011,97 @@ function Settings({
         <AdminTabButton label="Repairers" active={activeTab === "employees"} onClick={() => setActiveTab("employees")} />
         <AdminTabButton label="Locations / Shifts" active={activeTab === "locations"} onClick={() => setActiveTab("locations")} />
       </div>
-      {activeTab === "settings" && <PayrollSettingsAdmin settings={settings} onSettingsChange={onSettingsChange} />}
+      {activeTab === "settings" && (
+        <>
+          <PayrollSettingsAdmin settings={settings} onSettingsChange={onSettingsChange} />
+          <MisdatedEntriesRepair entries={entries} employees={employees} palletTypes={palletTypes} onFix={onFixMisdatedEntries} />
+        </>
+      )}
       {activeTab === "pallets" && <PalletAdmin palletTypes={palletTypes} entries={entries} onCreate={onCreatePallet} onUpdate={onUpdatePallet} onDelete={onDeletePallet} onRemapPallet={onRemapPallet} />}
       {activeTab === "employees" && <EmployeeAdmin employees={employees} locations={locations} shifts={shifts} onCreate={onCreateEmployee} onUpdate={onUpdateEmployee} onDelete={onDeleteEmployee} />}
       {activeTab === "locations" && <LocationShiftAdmin locations={locations} shifts={shifts} onLocationsChange={onLocationsChange} onShiftsChange={onShiftsChange} />}
+    </div>
+  );
+}
+
+// Admin repair for the date-rollover bug: lists entries whose saved date is the
+// UTC (next-day) date of when they were keyed and re-stamps them onto the real
+// local date. Preview first — nothing changes until the button is confirmed.
+function MisdatedEntriesRepair({
+  entries,
+  employees,
+  palletTypes,
+  onFix
+}: {
+  entries: DailyEntry[];
+  employees: Employee[];
+  palletTypes: PalletType[];
+  onFix: () => Promise<number>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const misdated = findMisdatedEntries(entries);
+  const employeeName = (id: string) => employees.find((employee) => employee.id === id)?.name ?? id;
+  const netQuantity = (entry: DailyEntry) =>
+    (entry.lines ?? []).reduce((total, line) => {
+      const palletType = findPalletType(palletTypes, line.palletTypeId);
+      if (palletType?.category === "QC Deductions") return total - Number(line.quantity || 0);
+      return total + Number(line.quantity || 0);
+    }, 0);
+
+  async function runFix() {
+    if (!window.confirm(`Re-date ${misdated.length} entr${misdated.length === 1 ? "y" : "ies"} to the day they were actually keyed?`)) return;
+    setBusy(true);
+    try {
+      const fixed = await onFix();
+      setMessage(`${fixed} entr${fixed === 1 ? "y" : "ies"} moved to the correct day.`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="rounded-lg border border-steel-200 bg-white p-4">
+      <h3 className="text-lg font-black text-steel-900">Fix Misdated Entries</h3>
+      <p className="text-sm font-bold text-steel-500">
+        Entries keyed after 5 PM before the July 29 date fix were stamped with the next day&apos;s date, so daily and weekly totals didn&apos;t match the paper count sheets. This moves them back to the day they were actually keyed. Deliberately back-dated entries are not touched.
+      </p>
+      {message && <p className="mt-2 text-sm font-black text-workshop-700">{message}</p>}
+      {misdated.length === 0 ? (
+        !message && <p className="mt-2 text-sm font-black text-workshop-700">No misdated entries detected.</p>
+      ) : (
+        <>
+          <div className="mt-3 overflow-x-auto">
+            <table className="w-full min-w-[560px] text-left text-sm">
+              <thead>
+                <tr className="border-b border-steel-200 text-xs font-black uppercase text-steel-500">
+                  <th className="py-1 pr-3">Repairer</th>
+                  <th className="py-1 pr-3">Saved date</th>
+                  <th className="py-1 pr-3">Correct date</th>
+                  <th className="py-1 pr-3">Pallets</th>
+                  <th className="py-1">Impact</th>
+                </tr>
+              </thead>
+              <tbody>
+                {misdated.map(({ entry, correctedDate }) => (
+                  <tr key={entry.id} className="border-b border-steel-100 font-bold text-steel-900">
+                    <td className="py-1.5 pr-3">{employeeName(entry.employeeId)}</td>
+                    <td className="py-1.5 pr-3">{entry.date}</td>
+                    <td className="py-1.5 pr-3 text-workshop-700">{correctedDate}</td>
+                    <td className="py-1.5 pr-3 tabular-nums">{wholeNumber(netQuantity(entry))}</td>
+                    <td className="py-1.5 text-xs text-steel-500">
+                      {getWeekKey(entry.date) !== getWeekKey(correctedDate) ? "Moves to the earlier week" : "Same week, wrong day"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <button type="button" disabled={busy} className="touch-target mt-3 rounded bg-workshop-500 px-4 py-2 font-black text-white disabled:opacity-50" onClick={runFix}>
+            {busy ? "Fixing…" : `Fix ${misdated.length} entr${misdated.length === 1 ? "y" : "ies"}`}
+          </button>
+        </>
+      )}
     </div>
   );
 }
