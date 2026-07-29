@@ -56,7 +56,8 @@ import {
   payrollSettings,
   shifts as defaultShifts,
   timeOptions,
-  yardPalletIds
+  yardPalletIds,
+  yardRank
 } from "@/lib/data";
 import { calculateEntry, currency, getWeekKey, wholeNumber } from "@/lib/payroll";
 import { getAccessToken, roleLabels, roleViews, useAuth } from "@/lib/auth";
@@ -4456,7 +4457,12 @@ function ProductionGrid({
         <Metric label="Weekly Total" value={currency(weekReport.summary.totalPay)} />
       </div>
 
-      {employees.filter((employee) => employee.active || weekEntries.some((entry) => entry.employeeId === employee.id)).map((employee) => {
+      {employees
+        .filter((employee) => employee.active || weekEntries.some((entry) => entry.employeeId === employee.id))
+        // Group repairers by yard in the fixed order (Fontana, then Mesa, then
+        // Citrus). Sort is stable, so each yard keeps its existing internal order.
+        .sort((a, b) => yardRank(a.locationId) - yardRank(b.locationId))
+        .map((employee) => {
         const employeeEntries = weekEntries.filter((entry) => entry.employeeId === employee.id);
         const employeeReport = buildReport(employeeEntries, palletTypes, employees, locations, settings);
         if (employeeEntries.length === 0) {
