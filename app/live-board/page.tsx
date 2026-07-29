@@ -3,7 +3,7 @@
 import { Crown, Expand, LogIn, Maximize2, MapPin, RefreshCw, Target, Trophy, X } from "lucide-react";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { employees, locations, palletTypes, payrollSettings, shifts, yardPalletIds } from "@/lib/data";
+import { employees, locations, palletTypes, payrollSettings, shifts, yardPalletIds, yardRank } from "@/lib/data";
 import { findPalletType } from "@/lib/payroll";
 import { getWeekKey, wholeNumber } from "@/lib/payroll";
 import { LanguageProvider, translate, useT, type Language } from "@/lib/i18n";
@@ -352,7 +352,9 @@ export default function LiveBoardPage() {
         .map((location) => {
           const rows = repairerRows.filter((row) => row.locationId === location.id);
           return { id: location.id, name: location.name, total: rows.reduce((sum, row) => sum + row.quantity, 0), rows };
-        }),
+        })
+        // Fixed yard order: Fontana, then Mesa, then Citrus.
+        .sort((a, b) => yardRank(a.id) - yardRank(b.id)),
     [repairerRows, locationFilter]
   );
 

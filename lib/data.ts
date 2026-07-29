@@ -9,9 +9,19 @@ export const payrollSettings: PayrollSettings = {
 
 export const locations: Location[] = [
   { id: "fontana", name: "Fontana", active: true },
-  { id: "citrus", name: "Citrus", active: true },
-  { id: "mesa", name: "Mesa", active: true }
+  { id: "mesa", name: "Mesa", active: true },
+  { id: "citrus", name: "Citrus", active: true }
 ];
+
+// The fixed display order for yards: Fontana (main), then Mesa, then Citrus.
+// Used by the Production Grid and the Live Pallet Tracker so yards always appear
+// in this order regardless of how the roster/locations happen to be stored.
+// Any yard not listed here sorts to the end.
+export const yardOrder = ["fontana", "mesa", "citrus"];
+export function yardRank(locationId: string): number {
+  const index = yardOrder.indexOf(locationId);
+  return index === -1 ? yardOrder.length : index;
+}
 
 export const employees: Employee[] = [
   // Fontana (Fontana Main)
