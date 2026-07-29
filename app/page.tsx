@@ -74,7 +74,17 @@ const employeeStorageKey = "mgp-employees-v2";
 const locationStorageKey = "mgp-locations-v2";
 const shiftStorageKey = "mgp-shifts-v2";
 const payrollSettingsStorageKey = "mgp-payroll-settings-v1";
-const today = new Date().toISOString().slice(0, 10);
+// The calendar date in the LOCAL time zone. Using toISOString() here would give
+// the UTC date, which rolls over to tomorrow in the late afternoon on the West
+// Coast — so an entry started Saturday evening defaulted to Sunday and dropped
+// out of the Mon–Sat grid. getFullYear/getMonth/getDate read local time.
+function formatLocalDate(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+const today = formatLocalDate(new Date());
 
 // Photos shipped with the app keyed by employee id. Used to fill in a face for
 // rosters loaded from the cloud/local storage that predate the photos, without
@@ -4003,8 +4013,8 @@ function Dashboard({
     const start = new Date();
     if (preset === "month") start.setDate(1);
     else start.setDate(end.getDate() - (preset - 1));
-    setFrom(start.toISOString().slice(0, 10));
-    setTo(end.toISOString().slice(0, 10));
+    setFrom(formatLocalDate(start));
+    setTo(formatLocalDate(end));
   }
 
   const rangeLabel = from || to ? `${from || "start"} → ${to || "today"}` : "All time";
