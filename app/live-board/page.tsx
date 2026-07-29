@@ -5,7 +5,7 @@ import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { employees, locations, palletTypes, payrollSettings, shifts, yardPalletIds, yardRank } from "@/lib/data";
 import { findPalletType } from "@/lib/payroll";
-import { getWeekKey, wholeNumber } from "@/lib/payroll";
+import { getWeekKey, wholeNumber, withCorrectedDate } from "@/lib/payroll";
 import { LanguageProvider, translate, useT, type Language } from "@/lib/i18n";
 import type { DailyEntry, PalletType, PayrollSettings, Shift } from "@/lib/types";
 import CalendarField, { type DateSelection } from "@/components/CalendarField";
@@ -216,7 +216,9 @@ export default function LiveBoardPage() {
       rosterMap[employee.id] = { name: employee.name, photo: employee.photoDataUrl || undefined };
     }
     setRoster(rosterMap);
-    setEntries(entryResult.entries ?? []);
+    // Correct dates from the old UTC-rollover bug on read, so the board's day
+    // and week totals group by the day the work actually happened.
+    setEntries((entryResult.entries ?? []).map(withCorrectedDate));
     setSettings({ ...payrollSettings, ...settingsResult.settings });
     if (palletTypesResult.palletTypes && palletTypesResult.palletTypes.length > 0) setPalletTypeList(palletTypesResult.palletTypes);
     setLastUpdated(new Date());

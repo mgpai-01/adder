@@ -14,6 +14,43 @@ export function wholeNumber(value: number) {
   }).format(Number.isFinite(value) ? value : 0);
 }
 
+// The calendar date in the LOCAL time zone (not UTC).
+export function formatLocalDate(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+// Entries saved before the date-rollover fix defaulted "today" to the UTC date,
+// which flips to tomorrow at 5 PM Pacific — so evening entries were stamped with
+// the next day (and Sunday-evening ones fell into the next week). The signature
+// is exact: the saved date equals the UTC date of createdAt while the local date
+// of createdAt is earlier. Returns the corrected date, or null when the entry
+// isn't affected — so entries a supervisor deliberately back-dated are untouched.
+export function correctedEntryDate(entry: Pick<DailyEntry, "date" | "createdAt">): string | null {
+  if (!entry.createdAt) return null;
+  const created = new Date(entry.createdAt);
+  if (Number.isNaN(created.getTime())) return null;
+  const utcDate = entry.createdAt.slice(0, 10);
+  const localDate = formatLocalDate(created);
+  return entry.date === utcDate && utcDate !== localDate ? localDate : null;
+}
+
+// Re-stamps a misdated entry onto the day the work actually happened. Applied
+// wherever entries are loaded so every total groups by the real day without
+// needing a data migration.
+export function withCorrectedDate<T extends Pick<DailyEntry, "date" | "createdAt" | "dateCorrectedFrom">>(entry: T): T {
+  const corrected = correctedEntryDate(entry);
+  return corrected ? { ...entry, date: corrected, dateCorrectedFrom: entry.date } : entry;
+}
+
+// Entries whose date was corrected on load — i.e. the day shown is right but the
+// stored row still carries the wrong date until the correction is written back.
+export function findMisdatedEntries(entries: DailyEntry[]) {
+  return entries.filter((entry) => Boolean(entry.dateCorrectedFrom));
+}
+
 export function calculatePaidHours(entry: Pick<DailyEntry, "manualHours" | "breakProfile">) {
   if (entry.breakProfile === "paidLunch") {
     return entry.manualHours;

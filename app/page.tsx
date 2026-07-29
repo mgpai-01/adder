@@ -59,7 +59,7 @@ import {
   yardPalletIds,
   yardRank
 } from "@/lib/data";
-import { calculateEntry, currency, getWeekKey, wholeNumber } from "@/lib/payroll";
+import { calculateEntry, correctedEntryDate, currency, findMisdatedEntries, getWeekKey, wholeNumber } from "@/lib/payroll";
 import { getAccessToken, roleLabels, roleViews, useAuth } from "@/lib/auth";
 import { LanguageProvider, translate, useT, type Language } from "@/lib/i18n";
 import type { ChangeLogEntry } from "@/lib/cloudChangeLog";
@@ -86,26 +86,6 @@ function formatLocalDate(date: Date) {
   return `${year}-${month}-${day}`;
 }
 const today = formatLocalDate(new Date());
-
-// Entries saved before the date-rollover fix defaulted "today" to the UTC date,
-// which flips to tomorrow at 5 PM Pacific — so evening entries were stamped with
-// the next day (and Sunday-evening ones fell into the next week). The signature
-// is exact: the saved date equals the UTC date of createdAt while the local
-// date of createdAt is earlier. Entries a supervisor deliberately back-dated
-// don't match the signature and are left alone.
-function correctedEntryDate(entry: Pick<DailyEntry, "date" | "createdAt">): string | null {
-  if (!entry.createdAt) return null;
-  const created = new Date(entry.createdAt);
-  if (Number.isNaN(created.getTime())) return null;
-  const utcDate = entry.createdAt.slice(0, 10);
-  const localDate = formatLocalDate(created);
-  return entry.date === utcDate && utcDate !== localDate ? localDate : null;
-}
-function findMisdatedEntries(entries: DailyEntry[]) {
-  return entries
-    .map((entry) => ({ entry, correctedDate: correctedEntryDate(entry) }))
-    .filter((item): item is { entry: DailyEntry; correctedDate: string } => item.correctedDate !== null);
-}
 
 // Photos shipped with the app keyed by employee id. Used to fill in a face for
 // rosters loaded from the cloud/local storage that predate the photos, without
@@ -453,8 +433,17 @@ function migrateEntry(raw: DailyEntry | (Omit<DailyEntry, "lines"> & { lines?: P
     mergedLines.set(resolvedId, (mergedLines.get(resolvedId) ?? 0) + Number(line.quantity ?? 0));
   }
 
+  // Heal the UTC date-rollover bug on read: entries keyed after 5 PM Pacific
+  // before the fix were stamped with the next day's UTC date, so they landed on
+  // the wrong day (and Sunday evenings on the wrong week). Correcting the date
+  // here — the one funnel every loaded entry passes through — means every total,
+  // filter and export downstream groups by the day the work actually happened,
+  // with no data migration required.
+  const correctedDate = correctedEntryDate(legacy);
+
   return {
     ...legacy,
+    ...(correctedDate ? { date: correctedDate, dateCorrectedFrom: legacy.date } : {}),
     lines: Array.from(mergedLines, ([palletTypeId, quantity]) => ({ palletTypeId, quantity })),
     phases: normalizePhases(legacy.phases),
     ...(migratedLegacyId ? { updatedAt: new Date().toISOString(), updatedBy: "Legacy pallet type migration" } : {})
@@ -1701,14 +1690,14 @@ export default function Home() {
   async function fixMisdatedEntries(): Promise<number> {
     const misdated = findMisdatedEntries(entriesRef.current);
     let fixed = 0;
-    for (const { entry } of misdated) {
+    for (const entry of misdated) {
       // Re-read the freshest copy each pass so a save landing mid-repair isn't
-      // overwritten with stale numbers — only the date is re-stamped.
+      // overwritten with stale numbers — the date is already corrected in state,
+      // this just persists it and clears the marker.
       const fresh = entriesRef.current.find((item) => item.id === entry.id);
-      if (!fresh) continue;
-      const correctedDate = correctedEntryDate(fresh);
-      if (!correctedDate) continue;
-      await updateSavedEntry({ ...fresh, date: correctedDate });
+      if (!fresh?.dateCorrectedFrom) continue;
+      const { dateCorrectedFrom: _wrongDate, ...cleaned } = fresh;
+      await updateSavedEntry(cleaned);
       fixed++;
     }
     return fixed;
@@ -5050,11 +5039,11 @@ function MisdatedEntriesRepair({
     }, 0);
 
   async function runFix() {
-    if (!window.confirm(`Re-date ${misdated.length} entr${misdated.length === 1 ? "y" : "ies"} to the day they were actually keyed?`)) return;
+    if (!window.confirm(`Write the corrected date into storage for ${misdated.length} entr${misdated.length === 1 ? "y" : "ies"}?`)) return;
     setBusy(true);
     try {
       const fixed = await onFix();
-      setMessage(`${fixed} entr${fixed === 1 ? "y" : "ies"} moved to the correct day.`);
+      setMessage(`${fixed} entr${fixed === 1 ? "y" : "ies"} saved with the correct date.`);
     } finally {
       setBusy(false);
     }
@@ -5062,9 +5051,9 @@ function MisdatedEntriesRepair({
 
   return (
     <div className="rounded-lg border border-steel-200 bg-white p-4">
-      <h3 className="text-lg font-black text-steel-900">Fix Misdated Entries</h3>
+      <h3 className="text-lg font-black text-steel-900">Misdated Entries</h3>
       <p className="text-sm font-bold text-steel-500">
-        Entries keyed after 5 PM before the July 29 date fix were stamped with the next day&apos;s date, so daily and weekly totals didn&apos;t match the paper count sheets. This moves them back to the day they were actually keyed. Deliberately back-dated entries are not touched.
+        Entries keyed after 5 PM before the July 29 date fix were stored with the next day&apos;s date. <span className="font-black text-workshop-700">Every total in the app already counts these on the correct day</span> — the list below is only to write the fix back into storage so exports and other tools see it too. Deliberately back-dated entries are not touched.
       </p>
       {message && <p className="mt-2 text-sm font-black text-workshop-700">{message}</p>}
       {misdated.length === 0 ? (
@@ -5076,21 +5065,21 @@ function MisdatedEntriesRepair({
               <thead>
                 <tr className="border-b border-steel-200 text-xs font-black uppercase text-steel-500">
                   <th className="py-1 pr-3">Repairer</th>
-                  <th className="py-1 pr-3">Saved date</th>
-                  <th className="py-1 pr-3">Correct date</th>
+                  <th className="py-1 pr-3">Stored as</th>
+                  <th className="py-1 pr-3">Counted on</th>
                   <th className="py-1 pr-3">Pallets</th>
                   <th className="py-1">Impact</th>
                 </tr>
               </thead>
               <tbody>
-                {misdated.map(({ entry, correctedDate }) => (
+                {misdated.map((entry) => (
                   <tr key={entry.id} className="border-b border-steel-100 font-bold text-steel-900">
                     <td className="py-1.5 pr-3">{employeeName(entry.employeeId)}</td>
-                    <td className="py-1.5 pr-3">{entry.date}</td>
-                    <td className="py-1.5 pr-3 text-workshop-700">{correctedDate}</td>
+                    <td className="py-1.5 pr-3">{entry.dateCorrectedFrom}</td>
+                    <td className="py-1.5 pr-3 text-workshop-700">{entry.date}</td>
                     <td className="py-1.5 pr-3 tabular-nums">{wholeNumber(netQuantity(entry))}</td>
                     <td className="py-1.5 text-xs text-steel-500">
-                      {getWeekKey(entry.date) !== getWeekKey(correctedDate) ? "Moves to the earlier week" : "Same week, wrong day"}
+                      {getWeekKey(entry.dateCorrectedFrom!) !== getWeekKey(entry.date) ? "Was falling in the next week" : "Was falling on the next day"}
                     </td>
                   </tr>
                 ))}

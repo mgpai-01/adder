@@ -85,6 +85,10 @@ export type DailyEntry = {
   breakProfile: BreakProfile;
   notes?: string;
   createdAt: string;
+  // Set on load when the UTC date-rollover bug was corrected for this entry:
+  // the (wrong) date that was stored. Lets the admin panel offer to persist the
+  // correction, and records what was changed once it is.
+  dateCorrectedFrom?: string;
   updatedAt?: string;
   updatedBy?: string;
   submittedBy?: string;
