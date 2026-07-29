@@ -4409,6 +4409,9 @@ function ProductionGrid({
   const weekEnd = weekDays[weekDays.length - 1];
   const [photoFrom, setPhotoFrom] = useState(weekStart);
   const [photoTo, setPhotoTo] = useState(weekEnd);
+  // How the repairer cards are ordered. Default: grouped by yard (Fontana, Mesa,
+  // Citrus), then A–Z by last name within each yard.
+  const [sortMode, setSortMode] = useState<"yard-name" | "yard-qty" | "name" | "qty">("yard-name");
   useEffect(() => {
     setPhotoFrom(weekStart);
     setPhotoTo(weekEnd);
@@ -4417,6 +4420,24 @@ function ProductionGrid({
   const photoLocationName = (id: string) => locations.find((location) => location.id === id)?.name ?? id;
   const rangeSheets = countSheets.filter((sheet) => (!photoFrom || sheet.date >= photoFrom) && (!photoTo || sheet.date <= photoTo));
   const rangePhotos = rangeSheets.flatMap((sheet) => sheet.photos.map((photo) => ({ photo, sheet })));
+
+  // Repairers shown this week (those with entries), with their week report, then
+  // ordered by the chosen sort. Last name = the last word of the full name.
+  const lastNameKey = (name: string) => (name.trim().split(/\s+/).slice(-1)[0] ?? "").toLowerCase();
+  const sortedCrew = employees
+    .filter((employee) => employee.active || weekEntries.some((entry) => entry.employeeId === employee.id))
+    .map((employee) => ({ employee, employeeEntries: weekEntries.filter((entry) => entry.employeeId === employee.id) }))
+    .filter((row) => row.employeeEntries.length > 0)
+    .map((row) => ({ ...row, employeeReport: buildReport(row.employeeEntries, palletTypes, employees, locations, settings) }))
+    .sort((a, b) => {
+      const byYard = yardRank(a.employee.locationId) - yardRank(b.employee.locationId);
+      const byName = lastNameKey(a.employee.name).localeCompare(lastNameKey(b.employee.name)) || a.employee.name.localeCompare(b.employee.name);
+      const byQty = b.employeeReport.summary.quantity - a.employeeReport.summary.quantity;
+      if (sortMode === "name") return byName;
+      if (sortMode === "qty") return byQty || byName;
+      if (sortMode === "yard-qty") return byYard || byQty || byName;
+      return byYard || byName; // "yard-name" (default)
+    });
 
   return (
     <div className="grid gap-5">
@@ -4445,6 +4466,17 @@ function ProductionGrid({
             <Download size={19} />
             Export Excel
           </button>
+          <select
+            aria-label="Sort repairers"
+            className="touch-target rounded border border-steel-300 bg-white px-3 py-2 font-black text-steel-900"
+            value={sortMode}
+            onChange={(event) => setSortMode(event.target.value as "yard-name" | "yard-qty" | "name" | "qty")}
+          >
+            <option value="yard-name">Sort: Yard, then last name</option>
+            <option value="yard-qty">Sort: Yard, then most pallets</option>
+            <option value="name">Sort: Last name (A–Z)</option>
+            <option value="qty">Sort: Most pallets</option>
+          </select>
           <WeekControls selectedWeek={selectedWeek} onWeekChange={onWeekChange} />
         </div>
       </div>
@@ -4457,18 +4489,7 @@ function ProductionGrid({
         <Metric label="Weekly Total" value={currency(weekReport.summary.totalPay)} />
       </div>
 
-      {employees
-        .filter((employee) => employee.active || weekEntries.some((entry) => entry.employeeId === employee.id))
-        // Group repairers by yard in the fixed order (Fontana, then Mesa, then
-        // Citrus). Sort is stable, so each yard keeps its existing internal order.
-        .sort((a, b) => yardRank(a.locationId) - yardRank(b.locationId))
-        .map((employee) => {
-        const employeeEntries = weekEntries.filter((entry) => entry.employeeId === employee.id);
-        const employeeReport = buildReport(employeeEntries, palletTypes, employees, locations, settings);
-        if (employeeEntries.length === 0) {
-          return null;
-        }
-
+      {sortedCrew.map(({ employee, employeeEntries, employeeReport }) => {
         return (
           <div key={employee.id} className="overflow-hidden rounded border border-steel-100 bg-white text-steel-900">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-steel-100 bg-steel-50 p-3">
