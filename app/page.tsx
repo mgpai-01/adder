@@ -4545,6 +4545,13 @@ function ProductionGrid({
       </div>
 
       {sortedCrew.map(({ employee, employeeEntries, employeeReport }) => {
+        // Phases 1–3 for the week with their count-sheet attachments merged. A
+        // phase counts as complete if it has an attachment or was bypassed;
+        // finishing Phase 3 (the end-of-day wrap-up) also marks 1 & 2 complete.
+        const weekPhases = combinePhases(employeeEntries, palletTypes);
+        const phaseHasAttachment = (phase?: EntryPhase) => phasePhotos(phase).length > 0 || Boolean(phase?.bypassed);
+        const phase3Done = phaseHasAttachment(weekPhases[PHASE_COUNT - 1]);
+        const phaseDone = (index: number) => phase3Done || phaseHasAttachment(weekPhases[index]);
         return (
           <div key={employee.id} className="overflow-hidden rounded border border-steel-100 bg-white text-steel-900">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-steel-100 bg-steel-50 p-3">
@@ -4618,6 +4625,38 @@ function ProductionGrid({
                   </tr>
                 </tbody>
               </table>
+            </div>
+            <div className="border-t border-steel-100 p-3">
+              <p className="mb-2 text-xs font-black uppercase tracking-wide text-steel-500">Phase check sheets</p>
+              <div className="grid gap-2 sm:grid-cols-3">
+                {weekPhases.map((phase, index) => {
+                  const photos = phasePhotos(phase);
+                  const done = phaseDone(index);
+                  return (
+                    <div key={index} className={classNames("rounded border p-2", done ? "border-workshop-200 bg-workshop-50" : "border-steel-200 bg-steel-50")}>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-sm font-black text-steel-900">Phase {index + 1}</span>
+                        <span className={classNames("flex items-center gap-1 text-xs font-black", done ? "text-workshop-700" : "text-steel-400")}>
+                          {done ? (<><CheckCircle2 size={14} /> Complete</>) : "Pending"}
+                        </span>
+                      </div>
+                      <span className="block text-[11px] font-bold text-steel-500">{PHASE_TIMES[index]}</span>
+                      {photos.length > 0 ? (
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {photos.map((url, photoIndex) => (
+                            <a key={photoIndex} href={url} target="_blank" rel="noopener noreferrer" className="block">
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src={url} alt={`Phase ${index + 1} attachment`} className="h-14 w-14 rounded border border-steel-200 object-cover" />
+                            </a>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="mt-2 block text-xs font-bold text-steel-400">{done ? "Covered by Phase 3" : "No attachment"}</span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
             {/*
               Per-entry "Entry History" table removed from the Production Grid per request.
