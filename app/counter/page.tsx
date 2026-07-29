@@ -1,7 +1,7 @@
 "use client";
 
 import { Camera, CheckCircle2, CloudOff, Factory, ImagePlus, RefreshCw, Save, Search, UserRound } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import AuthGate from "@/components/AuthGate";
 import DropZone from "@/components/DropZone";
 import { defaultPalletTypes, employees as defaultEmployees, shifts } from "@/lib/data";
@@ -110,6 +110,11 @@ export default function CounterPage() {
   const [palletTypes, setPalletTypes] = useState<PalletType[]>(defaultPalletTypes);
   const [palletSource, setPalletSource] = useState("Default pallet list");
   const [entries, setEntries] = useState<DailyEntry[]>([]);
+  // Always mirrors the latest entries so saves and the 15s refresh can build on
+  // what's actually on screen (including counts not yet synced) instead of a
+  // stale snapshot.
+  const entriesRef = useRef<DailyEntry[]>([]);
+  entriesRef.current = entries;
   const [today, setToday] = useState("");
   const [search, setSearch] = useState("");
   const [locationFilter, setLocationFilter] = useState("all");
@@ -139,7 +144,6 @@ export default function CounterPage() {
     return todayEntries.filter((entry) => entry.employeeId === selectedEmployee.id && entry.locationId === selectedLocationId && entry.shift === selectedShift);
   }, [selectedEmployee, selectedLocationId, selectedShift, todayEntries]);
 
-  const selectedPrimaryEntry = selectedEntries[0];
   const selectedBreakdown = useMemo(() => {
     const totals: Record<string, number> = {};
     for (const pallet of counterPalletTypes) totals[pallet.id] = 0;
@@ -225,10 +229,30 @@ export default function CounterPage() {
     }
   }, [counterPalletTypes, selectedPalletId]);
 
+  // Merge a fresh cloud pull with what's on screen instead of replacing it, so a
+  // background refresh never wipes a count that hasn't reached the server yet.
+  // Keep a local entry the cloud lacks only while it's still queued to sync (so
+  // we don't resurrect entries an admin deleted), and keep the newer copy per id.
+  function mergeCloudEntries(cloudEntries: DailyEntry[]) {
+    const cloudById = new Map(cloudEntries.map((entry) => [entry.id, entry]));
+    const pendingIds = new Set(readPendingSaves().map((item) => item.entry.id));
+    const recency = (entry: DailyEntry) => entry.updatedAt ?? entry.createdAt ?? "";
+    const merged = new Map(cloudById);
+    for (const local of entriesRef.current) {
+      const cloud = cloudById.get(local.id);
+      if (!cloud) {
+        if (pendingIds.has(local.id)) merged.set(local.id, local);
+      } else if (recency(local) > recency(cloud)) {
+        merged.set(local.id, local);
+      }
+    }
+    return Array.from(merged.values());
+  }
+
   async function loadEntries() {
     const response = await fetch("/api/entries", { cache: "no-store" });
     const result = (await response.json()) as { entries: DailyEntry[] };
-    setEntries(result.entries ?? []);
+    setEntries(mergeCloudEntries(result.entries ?? []));
   }
 
   useEffect(() => {
@@ -237,9 +261,11 @@ export default function CounterPage() {
     return () => window.clearInterval(timer);
   }, []);
 
+  // Seed the "Edit Today" boxes from the current totals — but NOT while the
+  // worker is mid-edit, or a 15s refresh would silently revert what they typed.
   useEffect(() => {
-    setEditQuantities(selectedBreakdown);
-  }, [selectedBreakdown]);
+    if (!editMode) setEditQuantities(selectedBreakdown);
+  }, [selectedBreakdown, editMode]);
 
   async function syncPending() {
     const pending = readPendingSaves();
@@ -248,14 +274,20 @@ export default function CounterPage() {
       return;
     }
 
-    const remaining: PendingSave[] = [];
+    const synced: PendingSave[] = [];
     for (const item of pending) {
       try {
         await persistEntry(item.entry, item.method ?? "POST");
+        synced.push(item);
       } catch {
-        remaining.push(item);
+        // Leave it queued.
       }
     }
+    // Re-read the queue so any count queued WHILE we were syncing is preserved,
+    // and drop only the exact versions we just synced (match id + queuedAt) so a
+    // newer re-queued update for the same entry isn't thrown away.
+    const syncedKeys = new Set(synced.map((item) => `${item.entry.id}|${item.queuedAt}`));
+    const remaining = readPendingSaves().filter((item) => !syncedKeys.has(`${item.entry.id}|${item.queuedAt}`));
     writePendingSaves(remaining);
     setPendingCount(remaining.length);
     if (remaining.length === 0) {
@@ -286,7 +318,8 @@ export default function CounterPage() {
     const verifyResult = (await verifyResponse.json()) as { entries: DailyEntry[] };
     const savedEntry = verifyResult.entries.find((item) => item.id === entry.id);
     if (!savedEntry) throw new Error("Saved count was not found in shared production entries");
-    setEntries(verifyResult.entries ?? []);
+    // Merge (don't replace) so other still-unsynced counts aren't wiped.
+    setEntries(mergeCloudEntries(verifyResult.entries ?? []));
   }
 
   function queueEntry(entry: DailyEntry, method: "POST" | "PATCH") {
@@ -298,17 +331,27 @@ export default function CounterPage() {
   async function saveQuantity(quantity: number) {
     if (!selectedEmployee || !selectedPalletId || !today || quantity <= 0) return;
     setIsSaving(true);
-    const method = selectedPrimaryEntry ? "PATCH" : "POST";
-    const baseEntry = selectedPrimaryEntry
+    // Find the day's entry in the freshest list (entriesRef), not a render
+    // snapshot, and advance the ref synchronously — so a rapid second tap adds
+    // onto the first (100) instead of both reading 0 and one overwriting the
+    // other (50 lost).
+    const employeeId = selectedEmployee.id;
+    const primary = entriesRef.current.find(
+      (entry) => entry.date === today && entry.employeeId === employeeId && entry.locationId === selectedLocationId && entry.shift === selectedShift
+    );
+    const method = primary ? "PATCH" : "POST";
+    const baseEntry = primary
       ? {
-          ...selectedPrimaryEntry,
-          lines: mergeLines(selectedPrimaryEntry.lines, selectedPalletId, quantity),
+          ...primary,
+          lines: mergeLines(primary.lines, selectedPalletId, quantity),
           updatedAt: new Date().toISOString(),
           updatedBy: "Counter"
         }
       : createCounterEntry(selectedEmployee, selectedLocationId, selectedShift, selectedPalletId, quantity, today);
 
-    setEntries((current) => upsertEntry(current, baseEntry));
+    const nextEntries = upsertEntry(entriesRef.current, baseEntry);
+    entriesRef.current = nextEntries;
+    setEntries(nextEntries);
     setStatus(`Saved +${quantity}`);
 
     try {
@@ -327,11 +370,17 @@ export default function CounterPage() {
     if (!selectedEmployee || !today) return;
     setIsSaving(true);
     const blankEntry = createCounterEntry(selectedEmployee, selectedLocationId, selectedShift, counterPalletTypes[0]?.id ?? "unknown", 0, today);
-    const method = selectedPrimaryEntry ? "PATCH" : "POST";
-    const adjustedEntry: DailyEntry = selectedPrimaryEntry
+    // Use the freshest copy of the day's entry so a concurrent +N or refresh
+    // isn't overwritten by a stale snapshot.
+    const employeeId = selectedEmployee.id;
+    const primary = entriesRef.current.find(
+      (entry) => entry.date === today && entry.employeeId === employeeId && entry.locationId === selectedLocationId && entry.shift === selectedShift
+    );
+    const method = primary ? "PATCH" : "POST";
+    const adjustedEntry: DailyEntry = primary
       ? {
-          ...selectedPrimaryEntry,
-          lines: replaceCounterLines(selectedPrimaryEntry, editQuantities, counterPalletTypes),
+          ...primary,
+          lines: replaceCounterLines(primary, editQuantities, counterPalletTypes),
           updatedAt: new Date().toISOString(),
           updatedBy: "Counter"
         }
@@ -342,7 +391,9 @@ export default function CounterPage() {
           updatedBy: "Counter"
         };
 
-    setEntries((current) => upsertEntry(current, adjustedEntry));
+    const nextEntries = upsertEntry(entriesRef.current, adjustedEntry);
+    entriesRef.current = nextEntries;
+    setEntries(nextEntries);
     setEditMode(false);
 
     try {
@@ -381,22 +432,27 @@ export default function CounterPage() {
     }
 
     setIsUploadingPhotos(true);
+    // Snapshot exactly what we're uploading. Photos/notes stay editable during
+    // the upload, so after it we clear ONLY what we sent — anything added
+    // meanwhile is kept, not wiped.
+    const filesToUpload = photoFiles;
+    const notesToUpload = photoNotes;
     const formData = new FormData();
     formData.set("date", today);
     formData.set("locationId", selectedLocationId);
     formData.set("shift", selectedShift);
     formData.set("uploadedBy", uploadedBy.trim() || "Counter");
-    formData.set("notes", photoNotes);
-    for (const file of photoFiles) {
+    formData.set("notes", notesToUpload);
+    for (const file of filesToUpload) {
       formData.append("photos", file);
     }
 
     try {
       const response = await fetch("/api/count-sheets", { method: "POST", body: formData });
       if (!response.ok) throw new Error("Unable to upload photos");
-      setPhotoStatus(`${photoFiles.length} photo${photoFiles.length === 1 ? "" : "s"} uploaded to Count Sheets`);
-      setPhotoFiles([]);
-      setPhotoNotes("");
+      setPhotoStatus(`${filesToUpload.length} photo${filesToUpload.length === 1 ? "" : "s"} uploaded to Count Sheets`);
+      setPhotoFiles((current) => current.filter((file) => !filesToUpload.includes(file)));
+      setPhotoNotes((current) => (current === notesToUpload ? "" : current));
     } catch {
       setPhotoStatus("Photo upload failed. Try again when connected.");
     } finally {

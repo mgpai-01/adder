@@ -116,7 +116,12 @@ const emptyEmployee: Omit<Employee, "id"> = {
 const emptyPallet: Omit<PalletType, "id"> = {
   code: "",
   description: "",
-  category: "Stacker",
+  // New items default to "Custom" so they show up in EVERY yard's entry grid.
+  // Yards with a fixed menu (Citrus/Mesa) only show their fixed pallets plus
+  // "Custom" ones, so a new item saved under any other category would appear in
+  // Fontana but silently never in Citrus/Mesa. (Pick a specific category in the
+  // form only when adding a standard, yard-specific pallet.)
+  category: "Custom",
   rate: 0,
   active: true,
   photoUrl: "",
@@ -861,6 +866,11 @@ export default function Home() {
   // toggle; the choice is remembered.
   const [language, setLanguage] = useState<Language>("en");
   const [entries, setEntries] = useState<DailyEntry[]>([]);
+  // Always mirrors the latest entries so a background refresh can merge against
+  // what's currently on screen (including saves that haven't synced yet) instead
+  // of reading a stale closure. Assigned during render — safe for a ref.
+  const entriesRef = useRef<DailyEntry[]>([]);
+  entriesRef.current = entries;
   const [countSheets, setCountSheets] = useState<CountSheet[]>([]);
   const [palletTypes, setPalletTypes] = useState<PalletType[]>(defaultPalletTypes);
   const [employeeList, setEmployeeList] = useState<Employee[]>(defaultEmployees);
@@ -1117,7 +1127,36 @@ export default function Home() {
       fetch("/api/entries", { cache: "no-store" })
         .then((response) => response.json())
         .then((result: { entries: DailyEntry[] }) => {
-          setEntries(result.entries.map(migrateEntry).sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt)));
+          // Merge the cloud pull with what's already on screen instead of
+          // replacing it outright. A background refresh (10s poll, 180s timer,
+          // or window focus) must NEVER erase an entry the user just saved but
+          // that hasn't finished syncing to the cloud yet — that was the "I
+          // entered it but it disappeared / didn't show" bug. Rules: keep the
+          // newer copy per id (a fresh local edit beats a stale cloud row),
+          // keep any local-only entry the cloud doesn't have yet, and re-push
+          // those local-only ones so a failed save still reaches the cloud.
+          const cloudEntries = result.entries.map(migrateEntry);
+          const cloudById = new Map(cloudEntries.map((entry) => [entry.id, entry]));
+          const recency = (entry: DailyEntry) => entry.updatedAt ?? entry.createdAt ?? "";
+          const merged = new Map(cloudById);
+          const localOnly: DailyEntry[] = [];
+          for (const local of entriesRef.current) {
+            const cloud = cloudById.get(local.id);
+            if (!cloud) {
+              merged.set(local.id, local);
+              localOnly.push(local);
+            } else if (recency(local) > recency(cloud)) {
+              merged.set(local.id, local);
+            }
+          }
+          setEntries(Array.from(merged.values()).sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt)));
+          localOnly.forEach((entry) => {
+            fetch("/api/entries?syncSheets=false", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(entry)
+            }).catch(() => undefined);
+          });
         })
         .catch(() => undefined);
     };
@@ -1603,15 +1642,26 @@ export default function Home() {
       }
       return result;
     };
-    const affected = entries.filter((entry) => touches(entry.lines) || (entry.phases ?? []).some((phase) => touches(phase.lines)));
-    for (const entry of affected) {
+    const affectedIds = entries
+      .filter((entry) => touches(entry.lines) || (entry.phases ?? []).some((phase) => touches(phase.lines)))
+      .map((entry) => entry.id);
+    let remapped = 0;
+    for (const id of affectedIds) {
+      // Re-read the freshest copy each pass (not the snapshot taken at the start),
+      // so if someone saves a new production number for this entry mid-remap we
+      // just re-point the pallet id on their latest numbers instead of overwriting
+      // them with the pre-remap values.
+      const entry = entriesRef.current.find((item) => item.id === id);
+      if (!entry) continue;
+      if (!(touches(entry.lines) || (entry.phases ?? []).some((phase) => touches(phase.lines)))) continue;
       await updateSavedEntry({
         ...entry,
         lines: remapLines(entry.lines),
         phases: entry.phases?.map((phase) => ({ ...phase, lines: remapLines(phase.lines) }))
       });
+      remapped++;
     }
-    return affected.length;
+    return remapped;
   }
 
   async function deleteSavedEntry(id: string) {
@@ -2373,6 +2423,13 @@ function PhaseTracker({
 }) {
   const { t } = useT();
   const lastDone = lastPhaseDone(phases);
+  // Always points at the latest phases prop. A photo upload is async (compress +
+  // network), and while it runs the user can keep typing quantities. Reading this
+  // ref when the upload finishes — instead of the `phases` captured in the async
+  // closure — means the photo is merged into the CURRENT phases, so quantities
+  // entered during the upload are preserved instead of being overwritten.
+  const phasesRef = useRef(phases);
+  phasesRef.current = phases;
   // Full-screen view of a phase photo so count sheets can be read.
   const [zoomPhoto, setZoomPhoto] = useState<string | null>(null);
   // Rotation (degrees) applied to the zoomed photo so a sideways count sheet can
@@ -2436,8 +2493,10 @@ function PhaseTracker({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [zoomPhoto]);
 
+  // Merge a patch into the LATEST phases (via phasesRef), never a stale snapshot,
+  // so an async photo upload finishing can't clobber quantities typed meanwhile.
   function updatePhase(index: number, patch: Partial<EntryPhase>) {
-    onChange(phases.map((phase, current) => (current === index ? { ...phase, ...patch } : phase)));
+    onChange(phasesRef.current.map((phase, current) => (current === index ? { ...phase, ...patch } : phase)));
   }
 
   function readAsDataUrl(file: File): Promise<string> {
@@ -2471,12 +2530,15 @@ function PhaseTracker({
     if (urls.length !== compressed.length) {
       urls = await Promise.all(compressed.map((file) => readAsDataUrl(file)));
     }
-    const existing = phasePhotos(phases[index]);
+    // Read the current photos off the latest phases, not the stale closure, then
+    // updatePhase merges into the latest phases too — so nothing typed during the
+    // upload is lost.
+    const existing = phasePhotos(phasesRef.current[index]);
     updatePhase(index, { photoDataUrl: undefined, photoDataUrls: [...existing, ...urls] });
   }
 
   function removePhasePhoto(index: number, photo: string) {
-    updatePhase(index, { photoDataUrl: undefined, photoDataUrls: phasePhotos(phases[index]).filter((item) => item !== photo) });
+    updatePhase(index, { photoDataUrl: undefined, photoDataUrls: phasePhotos(phasesRef.current[index]).filter((item) => item !== photo) });
   }
 
   const active = phases[selected];
@@ -3354,10 +3416,15 @@ function CountSheetsModule({
     }
 
     setIsSaving(true);
-    const message = await onCreate({ date, locationId, shift, uploadedBy, notes, files });
+    // Snapshot what we're saving. The photo input and notes stay editable during
+    // the (multi-second) upload, so afterward clear ONLY what we sent — a photo
+    // added or notes typed mid-upload are kept instead of being wiped.
+    const filesToSave = files;
+    const notesToSave = notes;
+    const message = await onCreate({ date, locationId, shift, uploadedBy, notes: notesToSave, files: filesToSave });
     setStatusMessage(message);
-    setFiles([]);
-    setNotes("");
+    setFiles((current) => current.filter((file) => !filesToSave.includes(file)));
+    setNotes((current) => (current === notesToSave ? "" : current));
     setIsSaving(false);
   }
 
@@ -4924,12 +4991,17 @@ function PalletAdmin({
   async function save() {
     const clean = { ...draft, code: draft.code.trim(), description: draft.description.trim(), rate: Number(draft.rate) };
     if (!clean.code) return;
+    // Snapshot the draft object we're saving. If the admin starts typing the next
+    // pallet during the save round-trip, the draft becomes a different object, so
+    // we leave their typing alone instead of clearing it.
+    const savedDraft = draft;
     setIsSaving(true);
     setError("");
     try {
       await Promise.resolve(onCreate(clean));
       setMessage(`${clean.code} added.`);
-      reset();
+      setDraft((current) => (current === savedDraft ? emptyPallet : current));
+      setEditingId(null);
     } catch {
       setError("Could not save pallet type. Try again.");
     } finally {
@@ -5061,10 +5133,21 @@ function PalletAdmin({
         </Label>
       </div>
       <div className="flex flex-wrap gap-2">
+        {/* New Item button (replaces the old "Add Pallet Type" custom pallet button). */}
         <button type="button" disabled={isSaving} className="touch-target flex items-center gap-2 rounded bg-workshop-500 px-4 py-2 font-black text-white disabled:cursor-not-allowed disabled:bg-steel-500" onClick={save}>
           <Check size={19} />
-          {isSaving ? "Saving..." : "Add Pallet Type"}
+          {isSaving ? "Saving..." : "Create New Item"}
         </button>
+        {/*
+          SAVED FOR LATER — original "Add Pallet Type" custom pallet button.
+          To bring it back, delete the "Create New Item" button above and
+          uncomment this one.
+
+          <button type="button" disabled={isSaving} className="touch-target flex items-center gap-2 rounded bg-workshop-500 px-4 py-2 font-black text-white disabled:cursor-not-allowed disabled:bg-steel-500" onClick={save}>
+            <Check size={19} />
+            {isSaving ? "Saving..." : "Add Pallet Type"}
+          </button>
+        */}
       </div>
       <div className="grid gap-3 md:grid-cols-[1fr_220px]">
         <Label title="Search" icon={<Search size={17} />}>
@@ -5196,12 +5279,16 @@ function EmployeeAdmin({
   async function save() {
     const clean = { ...draft, name: draft.name.trim() };
     if (!clean.name) return;
+    // Snapshot the draft; if the admin types the next repairer during the save,
+    // the draft becomes a new object and we leave their typing intact.
+    const savedDraft = draft;
     setIsSaving(true);
     setError("");
     try {
       await Promise.resolve(onCreate(clean));
       setMessage(`${clean.name} added.`);
-      reset();
+      setDraft((current) => (current === savedDraft ? { ...emptyEmployee, locationId: locations[0]?.id ?? "fontana", shift: shifts[0] ?? "AM" } : current));
+      setEditingId(null);
     } catch {
       setError("Could not save repairer. Try again.");
     } finally {
@@ -6521,6 +6608,9 @@ function UsersAdmin({ onLogChange }: { onLogChange: (targetName: string, summary
     try {
       const justSetName = form.fullName || form.login;
       const justSetValue = form.password;
+      // Snapshot the form we're submitting; if the admin starts entering the next
+      // user during the request, the form object changes and we keep their input.
+      const savedForm = form;
       const response = await authedFetch("/api/admin/users", { method: "POST", body: JSON.stringify(form) });
       const data = await response.json();
       if (!data.ok) {
@@ -6529,7 +6619,7 @@ function UsersAdmin({ onLogChange }: { onLogChange: (targetName: string, summary
       }
       setMessage(`Added ${justSetName}.`);
       setSetPassword({ name: justSetName, value: justSetValue });
-      setForm({ fullName: "", login: "", password: "", role: "employee", allowedYards: [] });
+      setForm((current) => (current === savedForm ? { fullName: "", login: "", password: "", role: "employee", allowedYards: [] } : current));
       load();
     } catch (caught) {
       setError((caught as Error)?.name === "AbortError" ? "Request timed out — try again." : "Could not add user.");
