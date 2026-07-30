@@ -4611,17 +4611,6 @@ function ProductionGrid({
             Export Excel
           </button>
           <select
-            aria-label="Filter by yard"
-            className="touch-target rounded border border-steel-300 bg-white px-3 py-2 font-black text-steel-900"
-            value={yardFilter}
-            onChange={(event) => setYardFilter(event.target.value)}
-          >
-            <option value="all">All Yards</option>
-            {[...locations].sort((a, b) => yardRank(a.id) - yardRank(b.id)).map((location) => (
-              <option key={location.id} value={location.id}>{location.name}</option>
-            ))}
-          </select>
-          <select
             aria-label="Sort repairers"
             className="touch-target rounded border border-steel-300 bg-white px-3 py-2 font-black text-steel-900"
             value={sortMode}
@@ -4632,6 +4621,20 @@ function ProductionGrid({
           </select>
           <WeekControls selectedWeek={selectedWeek} onWeekChange={onWeekChange} />
         </div>
+      </div>
+
+      {/* Which yard to show. Buttons rather than a dropdown so the choice is
+          visible at a glance and matches the yard picker on the other screens.
+          The selection is remembered per browser. */}
+      <div className="no-scrollbar flex gap-2 overflow-x-auto">
+        <YardToggle active={yardFilter === "all"} darkMode={false} onClick={() => setYardFilter("all")}>All Yards</YardToggle>
+        {[...locations]
+          .sort((a, b) => yardRank(a.id) - yardRank(b.id))
+          .map((location) => (
+            <YardToggle key={location.id} active={yardFilter === location.id} darkMode={false} onClick={() => setYardFilter(location.id)}>
+              {location.name}
+            </YardToggle>
+          ))}
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
