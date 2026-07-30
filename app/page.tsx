@@ -4725,8 +4725,10 @@ function ProductionGrid({
                     })
                     // Only the pallets this repairer actually made this week. A
                     // row of zeros for every product the yard offers buries the
-                    // few lines that carry real numbers.
-                    .filter((row) => row.weeklyQty !== 0)
+                    // few lines that carry real numbers. QC Deductions always
+                    // stays, so a clean week reads as an explicit zero rather
+                    // than a missing row.
+                    .filter((row) => row.weeklyQty !== 0 || row.pallet.category === "QC Deductions")
                     .map(({ pallet, dayCells, weeklyQty, weeklyAmount }) => {
                     return (
                       <tr key={pallet.id} className="border-t border-steel-100 even:bg-steel-50">
