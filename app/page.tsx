@@ -98,6 +98,40 @@ function withSeedPhotos(list: Employee[]): Employee[] {
     employee.photoDataUrl ? employee : { ...employee, photoDataUrl: seedPhotoById.get(employee.id) }
   );
 }
+
+// The roster used to gain a second copy of a person under a fresh "mgp-…" id
+// whenever the one-time reconcile ran before the cloud roster had loaded, so
+// the same name shows up twice (the duplicate having no seed photo, since
+// photos are keyed by the original id). Collapse same-name records to one.
+const rosterNameKey = (name: string) => name.toLowerCase().replace(/\./g, "").replace(/\s+/g, " ").trim();
+const defaultEmployeeIds = new Set(defaultEmployees.map((employee) => employee.id));
+// Which of two records for the same person to keep: the one the rest of the app
+// already knows about (original id / seed photo), then whichever carries more
+// detail, so nothing an admin filled in is lost by collapsing.
+function preferredEmployee(a: Employee, b: Employee): Employee {
+  const score = (employee: Employee) =>
+    (defaultEmployeeIds.has(employee.id) ? 4 : 0) +
+    (employee.photoDataUrl ? 2 : 0) +
+    (employee.station ? 1 : 0);
+  return score(b) > score(a) ? b : a;
+}
+// Returns the collapsed roster plus a map from each dropped duplicate id to the
+// id that was kept, so production saved against a duplicate still resolves to
+// the right person instead of showing a raw id.
+function dedupeEmployees(list: Employee[]): { employees: Employee[]; aliasById: Map<string, string> } {
+  const keptByName = new Map<string, Employee>();
+  for (const employee of list) {
+    const key = rosterNameKey(employee.name);
+    const existing = keptByName.get(key);
+    keptByName.set(key, existing ? preferredEmployee(existing, employee) : employee);
+  }
+  const aliasById = new Map<string, string>();
+  for (const employee of list) {
+    const kept = keptByName.get(rosterNameKey(employee.name))!;
+    if (kept.id !== employee.id) aliasById.set(employee.id, kept.id);
+  }
+  return { employees: Array.from(keptByName.values()), aliasById };
+}
 // Maps an old/default pallet id to the slug of its code+description, so entries
 // saved under a built-in default id (e.g. "stacker-grade-a-1") still resolve to
 // the current pallet with that code+description after pallets were re-created
@@ -894,6 +928,33 @@ export default function Home() {
   const [countSheets, setCountSheets] = useState<CountSheet[]>([]);
   const [palletTypes, setPalletTypes] = useState<PalletType[]>(defaultPalletTypes);
   const [employeeList, setEmployeeList] = useState<Employee[]>(defaultEmployees);
+  const [employeeAliases, setEmployeeAliases] = useState<Map<string, string>>(new Map());
+  // Sets the roster with same-name duplicates collapsed to one person, and
+  // re-points any production saved against a dropped duplicate at the record
+  // that was kept, so a repairer's numbers stay whole instead of splitting
+  // across two copies of them. Nothing is deleted from the cloud here — the
+  // duplicate row simply stops being shown.
+  function applyRoster(list: Employee[]) {
+    const { employees, aliasById } = dedupeEmployees(list);
+    setEmployeeList(employees);
+    setEmployeeAliases(aliasById);
+  }
+  // Entries can arrive before or after the roster, so re-point them whenever
+  // either changes. Returning the same array when nothing matched keeps this
+  // from re-rendering in a loop.
+  useEffect(() => {
+    if (employeeAliases.size === 0) return;
+    setEntries((current) => {
+      let changed = false;
+      const next = current.map((entry) => {
+        const kept = employeeAliases.get(entry.employeeId);
+        if (!kept) return entry;
+        changed = true;
+        return { ...entry, employeeId: kept };
+      });
+      return changed ? next : current;
+    });
+  }, [employeeAliases, entries]);
   const [locationList, setLocationList] = useState<Location[]>(defaultLocations);
   const [shiftList, setShiftList] = useState<Shift[]>(defaultShifts);
   const [settings, setSettings] = useState<PayrollSettings>(payrollSettings);
@@ -996,7 +1057,11 @@ export default function Home() {
 
     for (const target of defaultEmployees) {
       if (matched.has(norm(target.name))) continue;
-      reconciled.push({ ...target, id: `mgp-${norm(target.name).replace(/\s+/g, "-")}` });
+      // Keep the built-in id. Minting a fresh "mgp-…" id here is what created a
+      // second record for people the roster already had (their seed photo is
+      // keyed to the original id), so reuse it and let the dedupe collapse any
+      // same-name record that already exists.
+      reconciled.push({ ...target });
     }
 
     const changed = reconciled.filter((employee, index) => {
@@ -1004,7 +1069,7 @@ export default function Home() {
       return !before || before.id !== employee.id || before.locationId !== employee.locationId || before.role !== employee.role || before.active !== employee.active;
     });
 
-    setEmployeeList(reconciled);
+    applyRoster(reconciled);
     changed.forEach(saveEmployeeToCloud);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rosterLoaded]);
@@ -1072,7 +1137,7 @@ export default function Home() {
       savedEmployees ? (JSON.parse(savedEmployees) as Employee[]) : defaultEmployees,
       effectiveLocations
     );
-    setEmployeeList(withSeedPhotos(localRoster));
+    applyRoster(withSeedPhotos(localRoster));
 
     // Pull the shared roster from the cloud; if the cloud is empty, seed it from
     // this device so existing repairers move up.
@@ -1081,7 +1146,7 @@ export default function Home() {
       .then(async (result: { employees: Employee[]; storage?: string }) => {
         if (result.storage !== "cloud") return;
         if (result.employees.length > 0) {
-          setEmployeeList(withSeedPhotos(ensureYardManagers(result.employees, effectiveLocations)));
+          applyRoster(withSeedPhotos(ensureYardManagers(result.employees, effectiveLocations)));
         } else {
           await Promise.all(
             localRoster.map((employee) =>
