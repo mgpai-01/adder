@@ -4708,16 +4708,26 @@ function ProductionGrid({
                   </tr>
                 </thead>
                 <tbody>
-                  {activePallets.map((pallet) => {
-                    const dayCells = weekDays.map((day) => {
-                      const quantity = employeeEntries
-                        .filter((entry) => entry.date === day)
-                        .reduce((total, entry) => total + entry.lines.reduce((lineTotal, line) => lineTotal + (getResolvedPalletTypeId(palletTypes, line.palletTypeId) === pallet.id ? line.quantity : 0), 0), 0);
-                      return { day, quantity, amount: quantity * pallet.rate };
-                    });
-                    const weeklyQty = dayCells.reduce((total, cell) => total + cell.quantity, 0);
-                    const weeklyAmount = dayCells.reduce((total, cell) => total + cell.amount, 0);
-
+                  {activePallets
+                    .map((pallet) => {
+                      const dayCells = weekDays.map((day) => {
+                        const quantity = employeeEntries
+                          .filter((entry) => entry.date === day)
+                          .reduce((total, entry) => total + entry.lines.reduce((lineTotal, line) => lineTotal + (getResolvedPalletTypeId(palletTypes, line.palletTypeId) === pallet.id ? line.quantity : 0), 0), 0);
+                        return { day, quantity, amount: quantity * pallet.rate };
+                      });
+                      return {
+                        pallet,
+                        dayCells,
+                        weeklyQty: dayCells.reduce((total, cell) => total + cell.quantity, 0),
+                        weeklyAmount: dayCells.reduce((total, cell) => total + cell.amount, 0)
+                      };
+                    })
+                    // Only the pallets this repairer actually made this week. A
+                    // row of zeros for every product the yard offers buries the
+                    // few lines that carry real numbers.
+                    .filter((row) => row.weeklyQty !== 0)
+                    .map(({ pallet, dayCells, weeklyQty, weeklyAmount }) => {
                     return (
                       <tr key={pallet.id} className="border-t border-steel-100 even:bg-steel-50">
                         <td className="p-2">
@@ -4726,8 +4736,17 @@ function ProductionGrid({
                         </td>
                         {dayCells.map((cell) => (
                           <td key={cell.day} className="p-2 text-center">
-                            <span className="block font-black">{wholeNumber(cell.quantity)}</span>
-                            <span className={classNames("block", cell.amount < 0 ? "text-red-700" : "text-steel-500")}>{currency(cell.amount)}</span>
+                            {/* A day with none of this pallet is left blank —
+                                "0 / $0.00" in most cells makes the days they
+                                did make it harder to pick out. */}
+                            {cell.quantity === 0 ? (
+                              <span className="block text-steel-300">—</span>
+                            ) : (
+                              <>
+                                <span className="block font-black">{wholeNumber(cell.quantity)}</span>
+                                <span className={classNames("block", cell.amount < 0 ? "text-red-700" : "text-steel-500")}>{currency(cell.amount)}</span>
+                              </>
+                            )}
                           </td>
                         ))}
                         <td className="bg-workshop-100 p-2 text-center font-black">{wholeNumber(weeklyQty)}</td>
@@ -4740,10 +4759,19 @@ function ProductionGrid({
                     {weekDays.map((day) => {
                       const dayEntries = employeeEntries.filter((entry) => entry.date === day);
                       const dayReport = buildReport(dayEntries, palletTypes, employees, locations, settings);
+                      // A day with no production and no pay reads as blank, so
+                      // the days actually worked stand out.
+                      const worked = dayReport.summary.quantity !== 0 || dayReport.summary.totalPay !== 0;
                       return (
                         <td key={day} className="p-2 text-center">
-                          <span className="block">{wholeNumber(dayReport.summary.quantity)}</span>
-                          <span className="block">{currency(dayReport.summary.totalPay)}</span>
+                          {worked ? (
+                            <>
+                              <span className="block">{wholeNumber(dayReport.summary.quantity)}</span>
+                              <span className="block">{currency(dayReport.summary.totalPay)}</span>
+                            </>
+                          ) : (
+                            <span className="block font-normal text-steel-400">—</span>
+                          )}
                         </td>
                       );
                     })}
