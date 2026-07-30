@@ -1,13 +1,17 @@
 import { NextResponse } from "next/server";
 import { isCloudEntriesConfigured, readCloudEntriesSummary } from "@/lib/cloudEntries";
 import { readLocalEntries } from "@/lib/localEntries";
+import { denyUnless } from "@/lib/apiAuth";
 
 export const dynamic = "force-dynamic";
 
 // Photo-free entry list for read-only displays (the live board). Returns only
 // the fields needed to total pallets, so the heavy embedded photos are never
 // transferred — the main lever for keeping Supabase egress down.
-export async function GET() {
+export async function GET(request: Request) {
+  const denied = await denyUnless(request);
+  if (denied) return denied;
+
   if (isCloudEntriesConfigured()) {
     const entries = await readCloudEntriesSummary();
     return NextResponse.json({ entries, storage: "cloud" });

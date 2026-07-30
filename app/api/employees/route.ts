@@ -4,6 +4,9 @@ import type { Employee } from "@/lib/types";
 import { denyUnless } from "@/lib/apiAuth";
 
 export async function GET(request: Request) {
+  const denied = await denyUnless(request);
+  if (denied) return denied;
+
   if (!isCloudRosterConfigured()) {
     return NextResponse.json({ employees: [], storage: "local" });
   }
@@ -12,9 +15,6 @@ export async function GET(request: Request) {
   // photo) is all the public board may read; the full record — payroll id,
   // station, yard assignment — needs a session.
   const summary = new URL(request.url).searchParams.get("summary") === "1";
-  if (!summary && (await denyUnless(request))) {
-    return NextResponse.json({ error: "Not signed in" }, { status: 401 });
-  }
   const employees = summary ? await readCloudEmployeesSummary() : await readCloudEmployees();
   return NextResponse.json({ employees, storage: "cloud" });
 }

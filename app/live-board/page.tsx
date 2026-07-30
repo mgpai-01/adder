@@ -9,6 +9,8 @@ import { getWeekKey, wholeNumber, withCorrectedDate } from "@/lib/payroll";
 import { LanguageProvider, translate, useT, type Language } from "@/lib/i18n";
 import type { DailyEntry, PalletType, PayrollSettings, Shift } from "@/lib/types";
 import CalendarField, { type DateSelection } from "@/components/CalendarField";
+import { authedFetch } from "@/lib/auth";
+import AuthGate from "@/components/AuthGate";
 
 type PeriodMode = "today" | "date" | "current-week" | "previous-week" | "custom-week" | "custom-range";
 
@@ -141,7 +143,7 @@ function readUrlFilters() {
   };
 }
 
-export default function LiveBoardPage() {
+function LiveBoardScreen() {
   const initialFilters = useMemo(readUrlFilters, []);
   const [entries, setEntries] = useState<DailyEntry[]>([]);
   const [settings, setSettings] = useState<PayrollSettings>(payrollSettings);
@@ -202,10 +204,10 @@ export default function LiveBoardPage() {
     // pallet quantities, so pulling the embedded photos every refresh would
     // burn Supabase egress for nothing.
     const [entryResponse, settingsResponse, employeesResponse, palletTypesResponse] = await Promise.all([
-      fetch("/api/entries/summary", { cache: "no-store" }),
-      fetch("/api/settings", { cache: "no-store" }),
-      fetch("/api/employees?summary=1", { cache: "no-store" }),
-      fetch("/api/pallet-types", { cache: "no-store" })
+      authedFetch("/api/entries/summary", { cache: "no-store" }),
+      authedFetch("/api/settings", { cache: "no-store" }),
+      authedFetch("/api/employees?summary=1", { cache: "no-store" }),
+      authedFetch("/api/pallet-types", { cache: "no-store" })
     ]);
     const entryResult = (await entryResponse.json()) as { entries: DailyEntry[] };
     const settingsResult = (await settingsResponse.json()) as { settings: PayrollSettings };
@@ -1035,4 +1037,16 @@ function BoardAvatar({ name, photo, size = 56, ring = false }: { name: string; p
 function EmptyBoardMessage() {
   const { t } = useT();
   return <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-10 text-center text-2xl font-semibold text-white/40">{t("No production entries for this selection.")}</div>;
+}
+
+// The board reads production data, so it needs a session like every other
+// screen — the API no longer serves anything without one. A wall display signs
+// in once and the session persists across reloads, so it keeps running
+// unattended; only admin accounts are signed out for inactivity.
+export default function LiveBoardPage() {
+  return (
+    <AuthGate>
+      <LiveBoardScreen />
+    </AuthGate>
+  );
 }
