@@ -192,7 +192,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         // getSession reads local storage but may try to refresh a stored token;
         // a corrupted/locked session hangs here, so cap it.
-        const { data } = await withTimeout(supabase.auth.getSession(), 8000);
+        // Retry once: a paused free-tier database can take a while to cold-start,
+        // so the first read may be slow while the second succeeds.
+        const { data } = await withTimeoutRetry(() => supabase.auth.getSession(), 8000);
         if (!active) return;
         window.sessionStorage.removeItem("mgp-auth-reset");
         if (data.session) {
@@ -202,10 +204,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           await loadProfile(data.session);
         }
         if (active) setLoading(false);
-      } catch {
+      } catch (caught) {
         if (!active) return;
-        // The stored session is jammed. Clear it and reload once to recover.
-        if (!window.sessionStorage.getItem("mgp-auth-reset")) {
+        // A slow answer is not a broken session. Wiping the stored tokens here
+        // signed people out mid-shift whenever the database was cold or the
+        // yard's connection was weak — which read as the inactivity timeout
+        // firing early, even though that is a separate 15-minute timer. Keep
+        // the session on a timeout and let onAuthStateChange restore the
+        // profile once Supabase answers; only a genuinely jammed session
+        // (a real error, not a slow one) is cleared, and only once per tab.
+        const timedOut = (caught as Error)?.message === "timed out";
+        if (!timedOut && !window.sessionStorage.getItem("mgp-auth-reset")) {
           window.sessionStorage.setItem("mgp-auth-reset", "1");
           clearStoredSession();
           window.location.reload();
@@ -281,8 +290,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         void signOut();
       }, TIMEOUT_MS);
     };
-    const activityEvents = ["mousemove", "mousedown", "keydown", "touchstart", "scroll", "click", "wheel"];
-    activityEvents.forEach((event) => window.addEventListener(event, reset, { passive: true }));
+    // touchmove/pointermove matter on the yard tablets, where a long scroll is
+    // one touchstart followed by movement. Listening in the capture phase makes
+    // scrolling inside a pane count too — scroll events don't bubble, so a
+    // window-only listener missed every inner scroll container and the screen
+    // looked idle while someone was reading it.
+    const activityEvents = ["mousemove", "mousedown", "keydown", "touchstart", "touchmove", "pointerdown", "pointermove", "scroll", "click", "wheel"];
+    activityEvents.forEach((event) => window.addEventListener(event, reset, { passive: true, capture: true }));
     const onVisible = () => {
       if (document.visibilityState === "visible") reset();
     };
@@ -290,7 +304,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     reset();
     return () => {
       clearTimeout(timer);
-      activityEvents.forEach((event) => window.removeEventListener(event, reset));
+      activityEvents.forEach((event) => window.removeEventListener(event, reset, { capture: true }));
       document.removeEventListener("visibilitychange", onVisible);
     };
   }, [profile, signOut]);
