@@ -9,8 +9,6 @@ import { getWeekKey, wholeNumber, withCorrectedDate } from "@/lib/payroll";
 import { LanguageProvider, translate, useT, type Language } from "@/lib/i18n";
 import type { DailyEntry, PalletType, PayrollSettings, Shift } from "@/lib/types";
 import CalendarField, { type DateSelection } from "@/components/CalendarField";
-import { authedFetch } from "@/lib/auth";
-import AuthGate from "@/components/AuthGate";
 
 type PeriodMode = "today" | "date" | "current-week" | "previous-week" | "custom-week" | "custom-range";
 
@@ -203,16 +201,17 @@ function LiveBoardScreen() {
     // Use the photo-free summary endpoints: the board only needs names and
     // pallet quantities, so pulling the embedded photos every refresh would
     // burn Supabase egress for nothing.
-    const [entryResponse, settingsResponse, employeesResponse, palletTypesResponse] = await Promise.all([
-      authedFetch("/api/entries/summary", { cache: "no-store" }),
-      authedFetch("/api/settings", { cache: "no-store" }),
-      authedFetch("/api/employees?summary=1", { cache: "no-store" }),
-      authedFetch("/api/pallet-types", { cache: "no-store" })
-    ]);
-    const entryResult = (await entryResponse.json()) as { entries: DailyEntry[] };
-    const settingsResult = (await settingsResponse.json()) as { settings: PayrollSettings };
-    const employeesResult = (await employeesResponse.json()) as { employees?: Array<{ id: string; name: string; photoDataUrl?: string }> };
-    const palletTypesResult = (await palletTypesResponse.json()) as { palletTypes?: PalletType[] };
+    const boardResponse = await fetch("/api/board", { cache: "no-store" });
+    const board = (await boardResponse.json()) as {
+      entries: DailyEntry[];
+      employees?: Array<{ id: string; name: string; photoDataUrl?: string }>;
+      palletTypes?: PalletType[];
+      settings: Partial<PayrollSettings>;
+    };
+    const entryResult = { entries: board.entries };
+    const settingsResult = { settings: board.settings as PayrollSettings };
+    const employeesResult = { employees: board.employees };
+    const palletTypesResult = { palletTypes: board.palletTypes };
     const rosterMap: Record<string, { name: string; photo?: string }> = {};
     for (const employee of employeesResult.employees ?? []) {
       rosterMap[employee.id] = { name: employee.name, photo: employee.photoDataUrl || undefined };
@@ -1039,14 +1038,9 @@ function EmptyBoardMessage() {
   return <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-10 text-center text-2xl font-semibold text-white/40">{t("No production entries for this selection.")}</div>;
 }
 
-// The board reads production data, so it needs a session like every other
-// screen — the API no longer serves anything without one. A wall display signs
-// in once and the session persists across reloads, so it keeps running
-// unattended; only admin accounts are signed out for inactivity.
+// Public wall display: no login. It reads /api/board, which serves only what
+// the board draws (names, yards, pallet counts) — every endpoint carrying pay,
+// rates or hours still requires a session.
 export default function LiveBoardPage() {
-  return (
-    <AuthGate>
-      <LiveBoardScreen />
-    </AuthGate>
-  );
+  return <LiveBoardScreen />;
 }
