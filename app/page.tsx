@@ -1074,7 +1074,13 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rosterLoaded]);
 
+  // These loads hit endpoints that now require a session, and the session token
+  // is only available once Supabase has restored it. Running on mount alone
+  // meant the first fetch went out unauthenticated, came back 401, and left the
+  // app on whatever localStorage held — which is how zeroed pallet rates
+  // survived. Wait for auth to settle, then load.
   useEffect(() => {
+    if (configured && !profile) return;
     const savedEntries = window.localStorage.getItem(entryStorageKey) ?? window.localStorage.getItem("mgp-daily-entries");
     let localEntries: DailyEntry[] = [];
     if (savedEntries) {
@@ -1121,7 +1127,17 @@ export default function Home() {
 
     const savedPallets = window.localStorage.getItem(palletStorageKey);
     if (savedPallets) {
-      setPalletTypes(JSON.parse(savedPallets));
+      const cached = JSON.parse(savedPallets) as PalletType[];
+      // A cache where every rate is 0 can only have come from a response that
+      // withheld them, and it would silently price a whole week at $0.00.
+      // Discard it and fall back to the built-in rates until the server answers.
+      const ratesMissing = cached.length > 0 && cached.every((pallet) => !Number(pallet.rate));
+      if (ratesMissing) {
+        setPalletTypes(defaultPalletTypes);
+        safeSetItem(palletStorageKey, JSON.stringify(defaultPalletTypes));
+      } else {
+        setPalletTypes(cached);
+      }
     } else {
       safeSetItem(palletStorageKey, JSON.stringify(defaultPalletTypes));
     }
@@ -1204,7 +1220,7 @@ export default function Home() {
         }
       })
       .catch(() => undefined);
-  }, []);
+  }, [configured, profile]);
 
   useEffect(() => {
     if (!entriesLoaded) return;
@@ -4502,6 +4518,9 @@ function ProductionGrid({
   // Optional single-yard view. "all" shows every yard. When a yard is picked,
   // the whole grid — cards, week totals, and exports — scopes to that yard.
   const [yardFilter, setYardFilter] = useState("all");
+  // Count sheet opened over the grid, as a list plus which one is showing, so
+  // the viewer can page through a phase's sheets without closing.
+  const [lightbox, setLightbox] = useState<{ photos: { url: string; label: string }[]; index: number } | null>(null);
   const gridEntries = yardFilter === "all" ? weekEntries : weekEntries.filter((entry) => entry.locationId === yardFilter);
   const activePallets = palletTypes.filter((pallet) => pallet.active || gridEntries.some((entry) => entry.lines.some((line) => line.palletTypeId === pallet.id)));
   const weekReport = buildReport(gridEntries, palletTypes, employees, locations, settings);
@@ -4800,10 +4819,24 @@ function ProductionGrid({
                       {photos.length > 0 ? (
                         <div className="mt-2 flex flex-wrap gap-1.5">
                           {photos.map((url, photoIndex) => (
-                            <a key={photoIndex} href={url} target="_blank" rel="noopener noreferrer" className="block">
+                            <button
+                              key={photoIndex}
+                              type="button"
+                              className="block"
+                              aria-label={`Open Phase ${index + 1} count sheet for ${employee.name}`}
+                              onClick={() =>
+                                setLightbox({
+                                  photos: photos.map((photoUrl, i) => ({
+                                    url: photoUrl,
+                                    label: `${employee.name} · Phase ${index + 1} count sheet${photos.length > 1 ? ` (${i + 1})` : ""}`
+                                  })),
+                                  index: photoIndex
+                                })
+                              }
+                            >
                               {/* eslint-disable-next-line @next/next/no-img-element */}
                               <img src={url} alt={`Phase ${index + 1} count sheet`} className="h-14 w-14 rounded border border-steel-200 object-cover" />
-                            </a>
+                            </button>
                           ))}
                         </div>
                       ) : (
@@ -4875,16 +4908,108 @@ function ProductionGrid({
           <p className="mt-3 text-sm font-bold text-steel-500">No count sheet photos in this date range.</p>
         ) : (
           <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-6">
-            {rangePhotos.map(({ photo, sheet }) => (
-              <a key={photo.id} href={photo.url} target="_blank" rel="noreferrer" className="block overflow-hidden rounded border border-steel-100">
+            {rangePhotos.map(({ photo, sheet }, photoIndex) => (
+              <button
+                key={photo.id}
+                type="button"
+                className="block overflow-hidden rounded border border-steel-100 text-left"
+                onClick={() =>
+                  setLightbox({
+                    photos: rangePhotos.map((item) => ({
+                      url: item.photo.url,
+                      label: `${photoLocationName(item.sheet.locationId)} · ${item.sheet.shift} · ${item.sheet.date}`
+                    })),
+                    index: photoIndex
+                  })
+                }
+              >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={photo.url} alt={photo.fileName} className="h-28 w-full bg-steel-50 object-cover" />
                 <span className="block truncate bg-steel-50 px-2 py-1 text-xs font-bold">{photoLocationName(sheet.locationId)} · {sheet.shift} · {sheet.date}</span>
-              </a>
+              </button>
             ))}
           </div>
         )}
       </div>
+
+      {lightbox && (
+        <PhotoLightbox
+          photos={lightbox.photos}
+          index={lightbox.index}
+          onClose={() => setLightbox(null)}
+          onIndexChange={(index) => setLightbox((current) => (current ? { ...current, index } : current))}
+        />
+      )}
+    </div>
+  );
+}
+
+// Full-screen count-sheet viewer. Opens over the page instead of navigating to
+// a new tab, so a supervisor checking a sheet keeps their place in the grid.
+// Closes on Escape, the X, or a click on the backdrop.
+function PhotoLightbox({ photos, index, onClose, onIndexChange }: {
+  photos: { url: string; label: string }[];
+  index: number;
+  onClose: () => void;
+  onIndexChange: (index: number) => void;
+}) {
+  const photo = photos[index];
+
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") onClose();
+      if (event.key === "ArrowRight" && index < photos.length - 1) onIndexChange(index + 1);
+      if (event.key === "ArrowLeft" && index > 0) onIndexChange(index - 1);
+    }
+    window.addEventListener("keydown", onKey);
+    // Stop the page behind the overlay from scrolling while it is open.
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [index, photos.length, onClose, onIndexChange]);
+
+  if (!photo) return null;
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={photo.label}
+      className="fixed inset-0 z-[60] flex flex-col bg-steel-900/90 p-3 sm:p-6"
+      onClick={onClose}
+    >
+      <div className="flex shrink-0 items-center justify-between gap-3 pb-3 text-white">
+        <span className="min-w-0 truncate text-sm font-black sm:text-base">
+          {photo.label}
+          {photos.length > 1 && <span className="ml-2 font-bold text-white/60">{index + 1} of {photos.length}</span>}
+        </span>
+        <button
+          type="button"
+          aria-label="Close"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white/15 text-white transition-colors hover:bg-white/30"
+          onClick={onClose}
+        >
+          <X size={22} />
+        </button>
+      </div>
+      {/* Clicks on the sheet itself must not close it — only the backdrop. */}
+      <div className="flex min-h-0 flex-1 items-center justify-center" onClick={(event) => event.stopPropagation()}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={photo.url} alt={photo.label} className="max-h-full max-w-full rounded object-contain" />
+      </div>
+      {photos.length > 1 && (
+        <div className="flex shrink-0 items-center justify-center gap-3 pt-3" onClick={(event) => event.stopPropagation()}>
+          <button type="button" disabled={index === 0} className="touch-target rounded bg-white/15 px-4 py-2 font-black text-white disabled:opacity-30" onClick={() => onIndexChange(index - 1)}>
+            Previous
+          </button>
+          <button type="button" disabled={index === photos.length - 1} className="touch-target rounded bg-white/15 px-4 py-2 font-black text-white disabled:opacity-30" onClick={() => onIndexChange(index + 1)}>
+            Next
+          </button>
+        </div>
+      )}
     </div>
   );
 }
