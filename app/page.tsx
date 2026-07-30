@@ -4510,18 +4510,22 @@ function ProductionGrid({
   const weekEnd = weekDays[weekDays.length - 1];
   const [photoFrom, setPhotoFrom] = useState(weekStart);
   const [photoTo, setPhotoTo] = useState(weekEnd);
-  // How the repairer cards are ordered. Default: grouped by yard (Fontana, Mesa,
-  // Citrus), then A–Z by last name within each yard.
-  const [sortMode, setSortMode] = useState<"yard-name" | "yard-qty" | "name" | "qty">("yard-name");
+  // Repairer cards are always grouped by yard in the fixed order Fontana, Mesa,
+  // Citrus. This chooses the order *within* each yard. (The old ungrouped
+  // "name"/"qty" modes are migrated below — picking one used to drop the yard
+  // grouping entirely, and the choice stuck in this browser.)
+  const [sortMode, setSortMode] = useState<"name" | "qty">("name");
   // Restore the last-chosen sort on load, and remember it whenever it changes.
   // Read after mount (not in the initializer) so it can't cause a hydration
   // mismatch. Persists per browser via localStorage.
   useEffect(() => {
     try {
       const saved = window.localStorage.getItem("mgp-production-grid-sort-v1");
-      if (saved === "yard-name" || saved === "yard-qty" || saved === "name" || saved === "qty") {
-        setSortMode(saved);
-      }
+      // Map the retired modes onto their within-yard equivalent, so a browser
+      // that had "most pallets" saved keeps that preference but regains the
+      // yard grouping.
+      if (saved === "yard-qty" || saved === "qty") setSortMode("qty");
+      else if (saved === "yard-name" || saved === "name") setSortMode("name");
     } catch {
       // ignore storage access issues
     }
@@ -4570,13 +4574,13 @@ function ProductionGrid({
     .filter((row) => row.employeeEntries.length > 0)
     .map((row) => ({ ...row, employeeReport: buildReport(row.employeeEntries, palletTypes, employees, locations, settings) }))
     .sort((a, b) => {
+      // Yard always wins: Fontana, then Mesa, then Citrus. sortMode only orders
+      // the repairers inside each yard.
       const byYard = yardRank(a.employee.locationId) - yardRank(b.employee.locationId);
       const byName = compareByLastName(a.employee.name, b.employee.name);
       const byQty = b.employeeReport.summary.quantity - a.employeeReport.summary.quantity;
-      if (sortMode === "name") return byName;
-      if (sortMode === "qty") return byQty || byName;
-      if (sortMode === "yard-qty") return byYard || byQty || byName;
-      return byYard || byName; // "yard-name" (default)
+      if (sortMode === "qty") return byYard || byQty || byName;
+      return byYard || byName;
     });
 
   return (
@@ -4621,12 +4625,10 @@ function ProductionGrid({
             aria-label="Sort repairers"
             className="touch-target rounded border border-steel-300 bg-white px-3 py-2 font-black text-steel-900"
             value={sortMode}
-            onChange={(event) => setSortMode(event.target.value as "yard-name" | "yard-qty" | "name" | "qty")}
+            onChange={(event) => setSortMode(event.target.value as "name" | "qty")}
           >
-            <option value="yard-name">Sort: Yard, then last name</option>
-            <option value="yard-qty">Sort: Yard, then most pallets</option>
-            <option value="name">Sort: Last name (A–Z)</option>
-            <option value="qty">Sort: Most pallets</option>
+            <option value="name">Yard, then last name (A–Z)</option>
+            <option value="qty">Yard, then most pallets</option>
           </select>
           <WeekControls selectedWeek={selectedWeek} onWeekChange={onWeekChange} />
         </div>
