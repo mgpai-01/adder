@@ -319,6 +319,38 @@ function combinePhases(entries: DailyEntry[], palletTypes: PalletType[]): EntryP
   return phases.map((phase) => ({ ...phase, amount: phasePalletCount(phase, palletTypes) }));
 }
 
+// Everything attached to each phase across the given entries: photos taken on
+// the phase itself, plus any count sheet linked to those entries. Count sheets
+// carry no phase, so they are placed by upload time (before 9 = Phase 1,
+// 9–12:30 = Phase 2, 12:30 on = Phase 3). Shared by the week strip on each
+// repairer card and the single-day breakdown, so both agree on what is done.
+function buildPhaseView(entries: DailyEntry[], countSheets: CountSheet[], palletTypes: PalletType[]) {
+  const phases = combinePhases(entries, palletTypes);
+  const sheets = Array.from(
+    new Map(entries.flatMap((entry) => getLinkedCountSheets(countSheets, entry)).map((sheet) => [sheet.id, sheet])).values()
+  );
+  const photos: string[][] = Array.from({ length: PHASE_COUNT }, () => []);
+  phases.forEach((phase, index) => {
+    if (index < PHASE_COUNT) photos[index].push(...phasePhotos(phase));
+  });
+  sheets.forEach((sheet) => {
+    const uploaded = new Date(sheet.uploadTime);
+    const minutes = uploaded.getHours() * 60 + uploaded.getMinutes();
+    const index = Number.isNaN(minutes) ? PHASE_COUNT - 1 : minutes < 9 * 60 ? 0 : minutes < 12 * 60 + 30 ? 1 : 2;
+    sheet.photos.forEach((photo) => photos[index].push(photo.url));
+  });
+  // A sheet can be linked to the entry and also attached to the phase.
+  const deduped = photos.map((list) => Array.from(new Set(list)));
+  const hasPhoto = (index: number) => deduped[index].length > 0 || Boolean(phases[index]?.bypassed);
+  // Phase 3 is the end-of-day wrap-up, so completing it settles 1 and 2 too.
+  const phase3Done = hasPhoto(PHASE_COUNT - 1);
+  return {
+    phases,
+    photos: deduped,
+    isDone: (index: number) => phase3Done || hasPhoto(index)
+  };
+}
+
 // True once a phase has pallets entered, a photo, or has been bypassed.
 function isPhaseDone(phase: EntryPhase): boolean {
   return phase.bypassed || phase.amount > 0 || (phase.lines ?? []).length > 0 || phasePhotos(phase).length > 0;
@@ -4536,6 +4568,9 @@ function ProductionGrid({
   // Count sheet opened over the grid, as a list plus which one is showing, so
   // the viewer can page through a phase's sheets without closing.
   const [lightbox, setLightbox] = useState<{ photos: { url: string; label: string }[]; index: number } | null>(null);
+  // Which repairer/day the phase breakdown pop-up is showing, opened from a day
+  // in that repairer's Daily Totals row.
+  const [dayDetail, setDayDetail] = useState<{ employeeId: string; employeeName: string; date: string } | null>(null);
   const gridEntries = yardFilter === "all" ? weekEntries : weekEntries.filter((entry) => entry.locationId === yardFilter);
   const activePallets = palletTypes.filter((pallet) => pallet.active || gridEntries.some((entry) => entry.lines.some((line) => line.palletTypeId === pallet.id)));
   const weekReport = buildReport(gridEntries, palletTypes, employees, locations, settings);
@@ -4695,27 +4730,9 @@ function ProductionGrid({
         // had already been taken, and showing only phase photos hides the sheets
         // uploaded from the counter. A phase counts as done if it has either (or
         // was bypassed); finishing Phase 3 also marks Phases 1 & 2 complete.
-        const weekPhases = combinePhases(employeeEntries, palletTypes);
-        const weekSheets = Array.from(
-          new Map(employeeEntries.flatMap((entry) => getLinkedCountSheets(countSheets, entry)).map((sheet) => [sheet.id, sheet])).values()
-        );
-        const phaseSheetPhotos: string[][] = [[], [], []];
-        weekPhases.forEach((phase, phaseIndex) => {
-          if (phaseIndex < PHASE_COUNT) phaseSheetPhotos[phaseIndex].push(...phasePhotos(phase));
-        });
-        weekSheets.forEach((sheet) => {
-          const uploaded = new Date(sheet.uploadTime);
-          const minutes = uploaded.getHours() * 60 + uploaded.getMinutes();
-          const phaseIndex = Number.isNaN(minutes) ? PHASE_COUNT - 1 : minutes < 9 * 60 ? 0 : minutes < 12 * 60 + 30 ? 1 : 2;
-          sheet.photos.forEach((photo) => phaseSheetPhotos[phaseIndex].push(photo.url));
-        });
-        // A sheet can be linked to the entry and also attached to the phase.
-        phaseSheetPhotos.forEach((photos, phaseIndex) => {
-          phaseSheetPhotos[phaseIndex] = Array.from(new Set(photos));
-        });
-        const phaseHasSheet = (index: number) => phaseSheetPhotos[index].length > 0 || Boolean(weekPhases[index]?.bypassed);
-        const phase3Done = phaseHasSheet(PHASE_COUNT - 1);
-        const phaseDone = (index: number) => phase3Done || phaseHasSheet(index);
+        const weekView = buildPhaseView(employeeEntries, countSheets, palletTypes);
+        const phaseSheetPhotos = weekView.photos;
+        const phaseDone = weekView.isDone;
         return (
           <Fragment key={employee.id}>
             {startsYard && (
@@ -4811,14 +4828,20 @@ function ProductionGrid({
                       // the days actually worked stand out.
                       const worked = dayReport.summary.quantity !== 0 || dayReport.summary.totalPay !== 0;
                       return (
-                        <td key={day} className="p-2 text-center">
+                        <td key={day} className="p-0 text-center">
                           {worked ? (
-                            <>
+                            // Opens that day's phase breakdown with its photos.
+                            <button
+                              type="button"
+                              className="w-full cursor-pointer p-2 transition-colors hover:bg-workshop-200"
+                              title={`See ${formatDayHeader(day)} phases for ${employee.name}`}
+                              onClick={() => setDayDetail({ employeeId: employee.id, employeeName: employee.name, date: day })}
+                            >
                               <span className="block">{wholeNumber(dayReport.summary.quantity)}</span>
                               <span className="block">{currency(dayReport.summary.totalPay)}</span>
-                            </>
+                            </button>
                           ) : (
-                            <span className="block font-normal text-steel-400">—</span>
+                            <span className="block p-2 font-normal text-steel-400">—</span>
                           )}
                         </td>
                       );
@@ -4959,6 +4982,18 @@ function ProductionGrid({
         )}
       </div>
 
+      {dayDetail && (
+        <DayPhaseDetail
+          employeeName={dayDetail.employeeName}
+          date={dayDetail.date}
+          entries={weekEntries.filter((entry) => entry.employeeId === dayDetail.employeeId && entry.date === dayDetail.date)}
+          countSheets={countSheets}
+          palletTypes={palletTypes}
+          onClose={() => setDayDetail(null)}
+          onOpenPhoto={(photos, index) => setLightbox({ photos, index })}
+        />
+      )}
+
       {lightbox && (
         <PhotoLightbox
           photos={lightbox.photos}
@@ -4967,6 +5002,115 @@ function ProductionGrid({
           onIndexChange={(index) => setLightbox((current) => (current ? { ...current, index } : current))}
         />
       )}
+    </div>
+  );
+}
+
+// One day's phase breakdown for a repairer, opened from their Daily Totals row.
+// Shows each phase's status, pallets and photos for that day only — the strip on
+// the card covers the whole week, which is no help when checking whether a
+// particular morning was signed off.
+function DayPhaseDetail({ employeeName, date, entries, countSheets, palletTypes, onClose, onOpenPhoto }: {
+  employeeName: string;
+  date: string;
+  entries: DailyEntry[];
+  countSheets: CountSheet[];
+  palletTypes: PalletType[];
+  onClose: () => void;
+  onOpenPhoto: (photos: { url: string; label: string }[], index: number) => void;
+}) {
+  const view = buildPhaseView(entries, countSheets, palletTypes);
+
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const dayLabel = new Date(`${date}T12:00:00`).toLocaleDateString(undefined, {
+    weekday: "long",
+    month: "short",
+    day: "numeric"
+  });
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-end bg-steel-900/70 p-0 sm:place-items-center sm:p-4" onClick={onClose}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={`${employeeName} — ${dayLabel}`}
+        className="max-h-[92vh] w-full overflow-y-auto rounded-t bg-white p-4 text-steel-900 shadow-panel sm:max-w-2xl sm:rounded"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="mb-3 flex items-start justify-between gap-3 border-b border-steel-100 pb-3">
+          <div className="min-w-0">
+            <h3 className="truncate text-xl font-black">{employeeName}</h3>
+            <p className="text-sm font-bold text-steel-500">{dayLabel}</p>
+          </div>
+          <button
+            type="button"
+            aria-label="Close"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-steel-100 text-steel-900 transition-colors hover:bg-steel-200"
+            onClick={onClose}
+          >
+            <X size={22} />
+          </button>
+        </div>
+
+        {entries.length === 0 ? (
+          <p className="text-sm font-bold text-steel-500">Nothing was entered for this day.</p>
+        ) : (
+          <div className="grid gap-3">
+            {view.phases.slice(0, PHASE_COUNT).map((phase, index) => {
+              const photos = view.photos[index];
+              const done = view.isDone(index);
+              const lightboxPhotos = photos.map((url, photoIndex) => ({
+                url,
+                label: `${employeeName} · ${dayLabel} · Phase ${index + 1}${photos.length > 1 ? ` (${photoIndex + 1} of ${photos.length})` : ""}`
+              }));
+              return (
+                <div key={index} className={classNames("rounded border p-3", done ? "border-workshop-200 bg-workshop-50" : "border-steel-200 bg-steel-50")}>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <span className="text-base font-black">Phase {index + 1}</span>
+                      <span className="ml-2 text-xs font-bold text-steel-500">{PHASE_TIMES[index]}</span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="text-sm font-black text-steel-900">{wholeNumber(phase.amount ?? 0)} pallets</span>
+                      <span className={classNames("flex items-center gap-1 text-xs font-black", done ? "text-workshop-700" : "text-steel-400")}>
+                        {done ? (<><CheckCircle2 size={14} /> Complete</>) : "Pending"}
+                      </span>
+                    </div>
+                  </div>
+                  {phase.bypassed && <p className="mt-1 text-xs font-black text-steel-500">Marked bypassed</p>}
+                  {photos.length > 0 ? (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {photos.map((url, photoIndex) => (
+                        <button
+                          key={photoIndex}
+                          type="button"
+                          className="block"
+                          aria-label={`Open Phase ${index + 1} photo`}
+                          onClick={() => onOpenPhoto(lightboxPhotos, photoIndex)}
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={url} alt={`Phase ${index + 1} photo`} className="h-20 w-20 rounded border border-steel-200 object-cover" />
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="mt-2 text-xs font-bold text-steel-400">
+                      {done ? "Covered by Phase 3" : "No photo or count sheet for this phase"}
+                    </p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
