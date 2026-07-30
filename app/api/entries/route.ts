@@ -3,6 +3,7 @@ import { appendEntryToGoogleSheets } from "@/lib/googleSheets";
 import { isCloudEntriesConfigured, readCloudEntries, upsertCloudEntry } from "@/lib/cloudEntries";
 import { readLocalEntries, upsertLocalEntry } from "@/lib/localEntries";
 import type { DailyEntry } from "@/lib/types";
+import { denyUnless } from "@/lib/apiAuth";
 
 export async function GET() {
   if (isCloudEntriesConfigured()) {
@@ -15,6 +16,9 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  const denied = await denyUnless(request);
+  if (denied) return denied;
+
   const entry = (await request.json()) as DailyEntry;
 
   if (isCloudEntriesConfigured()) {

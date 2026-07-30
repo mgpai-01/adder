@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSupabaseServerClient } from "@/lib/supabase";
 import { saveLocalEntryPhotos } from "@/lib/localEntryPhotos";
+import { denyUnless } from "@/lib/apiAuth";
 
 // Uploads Daily Grid phase photos and returns small URLs, so the entry itself
 // stores only links instead of heavy base64 image data. Embedding photos in the
@@ -9,6 +10,9 @@ import { saveLocalEntryPhotos } from "@/lib/localEntryPhotos";
 // "count-sheets" storage bucket under an entry-photos/ prefix when Supabase is
 // configured, and falls back to local disk otherwise.
 export async function POST(request: Request) {
+  const denied = await denyUnless(request);
+  if (denied) return denied;
+
   const supabase = getSupabaseServerClient();
   const formData = await request.formData();
   const files = formData.getAll("photos").filter((value): value is File => value instanceof File);

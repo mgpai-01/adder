@@ -893,7 +893,7 @@ async function migrateLegacyCountSheets(countSheets: CountSheet[]) {
     });
 
     try {
-      const response = await fetch("/api/count-sheets", { method: "POST", body: formData });
+      const response = await authedFetch("/api/count-sheets", { method: "POST", body: formData });
       const result = (await response.json()) as { countSheet?: CountSheet };
       if (result.countSheet) migrated.push(result.countSheet);
     } catch {
@@ -1099,7 +1099,7 @@ export default function Home() {
         localEntries
           .filter((entry) => !cloudIds.has(entry.id))
           .forEach((entry) => {
-            fetch("/api/entries?syncSheets=false", {
+            authedFetch("/api/entries?syncSheets=false", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify(entry)
@@ -1236,7 +1236,7 @@ export default function Home() {
           }
           setEntries(Array.from(merged.values()).sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt)));
           localOnly.forEach((entry) => {
-            fetch("/api/entries?syncSheets=false", {
+            authedFetch("/api/entries?syncSheets=false", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify(entry)
@@ -1444,7 +1444,7 @@ export default function Home() {
     const mergedById = new Map(merged.map((entry) => [entry.id, entry]));
     setEntries((current) => current.filter((entry) => !deleteSet.has(entry.id)).map((entry) => mergedById.get(entry.id) ?? entry));
     merged.forEach((entry) => {
-      fetch("/api/entries", {
+      authedFetch("/api/entries", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(entry)
@@ -1670,7 +1670,7 @@ export default function Home() {
     showToast(t("Daily grid saved"));
 
     try {
-      const response = await fetch("/api/entries", {
+      const response = await authedFetch("/api/entries", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(cleanEntry)
@@ -1697,7 +1697,7 @@ export default function Home() {
     setEntries((current) => current.map((entry) => (entry.id === stampedEntry.id ? stampedEntry : entry)));
     setSaveStatus(`Updated entry for ${updatedEntry.date}`);
     try {
-      await fetch(`/api/entries/${stampedEntry.id}`, {
+      await authedFetch(`/api/entries/${stampedEntry.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(stampedEntry)
@@ -1801,7 +1801,7 @@ export default function Home() {
       formData.append("uploadedBy", input.uploadedBy || "Counter");
       formData.append("notes", input.notes);
       compressedFiles.forEach((file) => formData.append("photos", file));
-      const response = await fetch("/api/count-sheets", { method: "POST", body: formData });
+      const response = await authedFetch("/api/count-sheets", { method: "POST", body: formData });
       const result = (await response.json()) as { configured: boolean; storage?: "local"; countSheet?: CountSheet; error?: string };
       if (!response.ok || !result.countSheet) {
         throw new Error(result.error ?? "Count sheet upload failed.");
@@ -1821,7 +1821,7 @@ export default function Home() {
     setCountSheets((current) => current.map((sheet) => (sheet.id === id ? { ...sheet, ...stampedPatch } : sheet)));
 
     try {
-      await fetch(`/api/count-sheets/${id}`, {
+      await authedFetch(`/api/count-sheets/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1915,7 +1915,7 @@ export default function Home() {
       summary
     };
     setChangeLog((current) => [{ ...entry, at: new Date().toISOString() }, ...current]);
-    fetch("/api/change-log", {
+    authedFetch("/api/change-log", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(entry)
@@ -2624,7 +2624,7 @@ function PhaseTracker({
       const body = new FormData();
       compressed.forEach((file) => body.append("photos", file));
       body.append("scope", activeId || "phase");
-      const response = await fetch("/api/entry-photos", { method: "POST", body });
+      const response = await authedFetch("/api/entry-photos", { method: "POST", body });
       const result = (await response.json()) as { urls?: string[] };
       if (Array.isArray(result.urls) && result.urls.length === compressed.length) {
         urls = result.urls;

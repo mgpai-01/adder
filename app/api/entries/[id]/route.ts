@@ -5,6 +5,9 @@ import type { DailyEntry } from "@/lib/types";
 import { denyUnless } from "@/lib/apiAuth";
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const denied = await denyUnless(request);
+  if (denied) return denied;
+
   const { id } = await params;
   const entry = (await request.json()) as DailyEntry;
   const updatedEntry = { ...entry, id };

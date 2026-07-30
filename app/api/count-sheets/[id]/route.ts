@@ -12,6 +12,9 @@ type PatchBody = {
 };
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const denied = await denyUnless(request);
+  if (denied) return denied;
+
   const supabase = getSupabaseServerClient();
   const { id } = await params;
   const body = (await request.json()) as PatchBody;

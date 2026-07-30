@@ -6,6 +6,7 @@ import AuthGate from "@/components/AuthGate";
 import DropZone from "@/components/DropZone";
 import { defaultPalletTypes, employees as defaultEmployees, shifts } from "@/lib/data";
 import type { DailyEntry, Employee, Location, PalletType, ProductionLine, Shift } from "@/lib/types";
+import { authedFetch } from "@/lib/auth";
 
 type CounterLocation = Pick<Location, "id" | "name">;
 
@@ -305,7 +306,7 @@ export default function CounterPage() {
 
   async function persistEntry(entry: DailyEntry, method: "POST" | "PATCH") {
     const endpoint = method === "PATCH" ? `/api/entries/${entry.id}` : "/api/entries";
-    const response = await fetch(endpoint, {
+    const response = await authedFetch(endpoint, {
       method,
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(entry)
@@ -448,7 +449,7 @@ export default function CounterPage() {
     }
 
     try {
-      const response = await fetch("/api/count-sheets", { method: "POST", body: formData });
+      const response = await authedFetch("/api/count-sheets", { method: "POST", body: formData });
       if (!response.ok) throw new Error("Unable to upload photos");
       setPhotoStatus(`${filesToUpload.length} photo${filesToUpload.length === 1 ? "" : "s"} uploaded to Count Sheets`);
       setPhotoFiles((current) => current.filter((file) => !filesToUpload.includes(file)));

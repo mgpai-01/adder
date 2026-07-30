@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createLocalCountSheet, readLocalCountSheets } from "@/lib/localCountSheets";
 import { getSupabaseServerClient } from "@/lib/supabase";
 import type { CountSheet, CountSheetStatus, Shift } from "@/lib/types";
+import { denyUnless } from "@/lib/apiAuth";
 
 type CountSheetRow = {
   id: string;
@@ -83,6 +84,9 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  const denied = await denyUnless(request);
+  if (denied) return denied;
+
   const supabase = getSupabaseServerClient();
   const formData = await request.formData();
   const files = formData.getAll("photos").filter((value): value is File => value instanceof File);
