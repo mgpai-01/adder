@@ -38,7 +38,7 @@ import {
   ZoomOut
 } from "lucide-react";
 import type { ReactNode } from "react";
-import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, Fragment, useContext, useEffect, useMemo, useRef, useState } from "react";
 import {
   Bar,
   BarChart,
@@ -4642,7 +4642,13 @@ function ProductionGrid({
         <Metric label="Weekly Total" value={currency(weekReport.summary.totalPay)} />
       </div>
 
-      {sortedCrew.map(({ employee, employeeEntries, employeeReport }) => {
+      {sortedCrew.map(({ employee, employeeEntries, employeeReport }, crewIndex) => {
+        // The crew is already ordered Fontana, Mesa, Citrus, so a yard heading
+        // goes above the first card of each run.
+        const startsYard = crewIndex === 0 || sortedCrew[crewIndex - 1].employee.locationId !== employee.locationId;
+        const yardLabel = locations.find((location) => location.id === employee.locationId)?.name ?? employee.locationId;
+        const yardCrew = sortedCrew.filter((row) => row.employee.locationId === employee.locationId);
+        const yardQuantity = yardCrew.reduce((total, row) => total + row.employeeReport.summary.quantity, 0);
         // Count sheets linked to this repairer's entries this week, bucketed into
         // Phase 1/2/3 by upload time (before 9 = P1, 9–12:30 = P2, 12:30+ = P3).
         // A phase is complete if it has a count sheet (or its entry phase was
@@ -4662,7 +4668,16 @@ function ProductionGrid({
         const phase3Done = phaseHasSheet(PHASE_COUNT - 1);
         const phaseDone = (index: number) => phase3Done || phaseHasSheet(index);
         return (
-          <div key={employee.id} className="overflow-hidden rounded border border-steel-100 bg-white text-steel-900">
+          <Fragment key={employee.id}>
+            {startsYard && (
+              <div className="mt-2 flex flex-wrap items-baseline justify-between gap-2 border-b-2 border-workshop-500 pb-1 first:mt-0">
+                <h3 className="text-xl font-black uppercase tracking-wide text-steel-900">{yardLabel}</h3>
+                <span className="text-sm font-black text-steel-500">
+                  {yardCrew.length} {yardCrew.length === 1 ? "repairer" : "repairers"} · {wholeNumber(yardQuantity)} pallets
+                </span>
+              </div>
+            )}
+          <div className="overflow-hidden rounded border border-steel-100 bg-white text-steel-900">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-steel-100 bg-steel-50 p-3">
               <button type="button" className="flex items-center gap-3 text-left" onClick={() => onSelectEmployee(employee.id)}>
                 <Avatar employee={employee} size="lg" />
@@ -4788,6 +4803,7 @@ function ProductionGrid({
               </div>
             */}
           </div>
+          </Fragment>
         );
       })}
 
