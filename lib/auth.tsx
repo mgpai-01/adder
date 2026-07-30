@@ -367,6 +367,21 @@ export function getAccessToken(): string {
   return cachedAccessToken;
 }
 
+// fetch() with the caller's session attached. The API routes run with the
+// service-role key (which bypasses row level security), so they check the
+// session themselves — any call that changes rates, payroll settings, the
+// roster or deletes records has to go through this rather than plain fetch.
+export function authedFetch(url: string, options: RequestInit = {}): Promise<Response> {
+  const token = getAccessToken();
+  return fetch(url, {
+    ...options,
+    headers: {
+      ...(options.headers ?? {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {})
+    }
+  });
+}
+
 // Which app views each role may open. Admin sees everything; Manager runs
 // production and reports; Counter only handles count sheets.
 export const roleViews: Record<AppRole, string[]> = {

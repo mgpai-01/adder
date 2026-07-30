@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { deleteLocalPalletType, updateLocalPalletType } from "@/lib/localPalletTypes";
 import { getSupabaseServerClient } from "@/lib/supabase";
 import type { PalletType } from "@/lib/types";
+import { denyUnless } from "@/lib/apiAuth";
 
 type Params = {
   params: Promise<{
@@ -24,6 +25,9 @@ function toPatch(palletType: Partial<PalletType>) {
 }
 
 export async function PATCH(request: Request, { params }: Params) {
+  const denied = await denyUnless(request, ["admin"]);
+  if (denied) return denied;
+
   const { id } = await params;
   const supabase = getSupabaseServerClient();
   const patch = (await request.json()) as Partial<PalletType>;
@@ -42,7 +46,10 @@ export async function PATCH(request: Request, { params }: Params) {
   return NextResponse.json({ configured: true, id });
 }
 
-export async function DELETE(_request: Request, { params }: Params) {
+export async function DELETE(request: Request, { params }: Params) {
+  const denied = await denyUnless(request, ["admin"]);
+  if (denied) return denied;
+
   const { id } = await params;
   const supabase = getSupabaseServerClient();
 

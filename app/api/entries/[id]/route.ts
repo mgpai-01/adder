@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { deleteCloudEntry, isCloudEntriesConfigured, upsertCloudEntry } from "@/lib/cloudEntries";
 import { deleteLocalEntry, upsertLocalEntry } from "@/lib/localEntries";
 import type { DailyEntry } from "@/lib/types";
+import { denyUnless } from "@/lib/apiAuth";
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -17,7 +18,10 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   return NextResponse.json({ ok: true, entry: updatedEntry, storage: "local" });
 }
 
-export async function DELETE(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const denied = await denyUnless(request, ["admin"]);
+  if (denied) return denied;
+
   const { id } = await params;
 
   if (isCloudEntriesConfigured()) {

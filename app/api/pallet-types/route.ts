@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createLocalPalletType, readLocalPalletTypes } from "@/lib/localPalletTypes";
 import { getSupabaseServerClient } from "@/lib/supabase";
 import type { PalletType } from "@/lib/types";
+import { denyUnless } from "@/lib/apiAuth";
 
 type PalletTypeRow = {
   id: string;
@@ -67,6 +68,9 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  const denied = await denyUnless(request, ["admin"]);
+  if (denied) return denied;
+
   const supabase = getSupabaseServerClient();
   const palletType = (await request.json()) as Omit<PalletType, "id">;
 

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { isCloudRosterConfigured, readCloudEmployees, readCloudEmployeesSummary, upsertCloudEmployee } from "@/lib/cloudEmployees";
 import type { Employee } from "@/lib/types";
+import { denyUnless } from "@/lib/apiAuth";
 
 export async function GET(request: Request) {
   if (!isCloudRosterConfigured()) {
@@ -14,6 +15,9 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const denied = await denyUnless(request, ["admin"]);
+  if (denied) return denied;
+
   const employee = (await request.json()) as Employee;
   const result = await upsertCloudEmployee(employee);
   return NextResponse.json({ ok: result.ok, employee, error: result.error });

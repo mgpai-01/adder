@@ -60,7 +60,7 @@ import {
   yardRank
 } from "@/lib/data";
 import { calculateEntry, compareByLastName, correctedEntryDate, currency, findMisdatedEntries, getWeekKey, wholeNumber } from "@/lib/payroll";
-import { getAccessToken, roleLabels, roleViews, useAuth } from "@/lib/auth";
+import { authedFetch, getAccessToken, roleLabels, roleViews, useAuth } from "@/lib/auth";
 import { LanguageProvider, translate, useT, type Language } from "@/lib/i18n";
 import type { ChangeLogEntry } from "@/lib/cloudChangeLog";
 import AuthGate from "@/components/AuthGate";
@@ -1150,7 +1150,7 @@ export default function Home() {
         } else {
           await Promise.all(
             localRoster.map((employee) =>
-              fetch("/api/employees", {
+              authedFetch("/api/employees", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(employee)
@@ -1319,7 +1319,7 @@ export default function Home() {
   useEffect(() => {
     safeSetItem(payrollSettingsStorageKey, JSON.stringify(settings));
     if (settingsLoaded) {
-      fetch("/api/settings", {
+      authedFetch("/api/settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(settings)
@@ -1451,7 +1451,7 @@ export default function Home() {
       }).catch(() => undefined);
     });
     deleteIds.forEach((id) => {
-      fetch(`/api/entries/${id}`, { method: "DELETE" }).catch(() => undefined);
+      authedFetch(`/api/entries/${id}`, { method: "DELETE" }).catch(() => undefined);
     });
   }, [entriesLoaded, employeeList, entries]);
 
@@ -1778,7 +1778,7 @@ export default function Home() {
     setEntries((current) => current.filter((item) => item.id !== id));
     setSaveStatus("Entry deleted.");
     try {
-      await fetch(`/api/entries/${id}`, { method: "DELETE" });
+      await authedFetch(`/api/entries/${id}`, { method: "DELETE" });
     } catch {
       setSaveStatus("Entry deleted locally; shared sync pending.");
     }
@@ -1844,7 +1844,7 @@ export default function Home() {
 
     setCountSheets((current) => current.filter((item) => item.id !== id));
     try {
-      await fetch(`/api/count-sheets/${id}`, { method: "DELETE" });
+      await authedFetch(`/api/count-sheets/${id}`, { method: "DELETE" });
     } catch {
       // Local delete is still persisted in localStorage.
     }
@@ -1856,7 +1856,7 @@ export default function Home() {
     setAdminStatus("Pallet type saved locally.");
 
     try {
-      const response = await fetch("/api/pallet-types", {
+      const response = await authedFetch("/api/pallet-types", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(palletType)
@@ -1876,7 +1876,7 @@ export default function Home() {
     setAdminStatus("Pallet type updated locally.");
 
     try {
-      const response = await fetch(`/api/pallet-types/${id}`, {
+      const response = await authedFetch(`/api/pallet-types/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(patch)
@@ -1893,7 +1893,7 @@ export default function Home() {
     setAdminStatus("Pallet type deleted locally.");
 
     try {
-      await fetch(`/api/pallet-types/${id}`, { method: "DELETE" });
+      await authedFetch(`/api/pallet-types/${id}`, { method: "DELETE" });
     } catch {
       setAdminStatus("Pallet type deleted locally; sync pending.");
     }
@@ -1923,7 +1923,7 @@ export default function Home() {
   }
 
   function saveEmployeeToCloud(employee: Employee) {
-    fetch("/api/employees", {
+    authedFetch("/api/employees", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(employee)
@@ -1955,7 +1955,7 @@ export default function Home() {
   function deleteEmployee(id: string) {
     const before = employeeList.find((employee) => employee.id === id);
     setEmployeeList((current) => current.filter((item) => item.id !== id));
-    fetch(`/api/employees/${id}`, { method: "DELETE" }).catch(() => undefined);
+    authedFetch(`/api/employees/${id}`, { method: "DELETE" }).catch(() => undefined);
     if (before) logChange("deleted", before.name, `Removed ${before.name}`);
   }
 

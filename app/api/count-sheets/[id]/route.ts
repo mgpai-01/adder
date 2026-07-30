@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { deleteLocalCountSheet, normalizeStatus, updateLocalCountSheet } from "@/lib/localCountSheets";
 import { getSupabaseServerClient } from "@/lib/supabase";
 import type { CountSheetStatus } from "@/lib/types";
+import { denyUnless } from "@/lib/apiAuth";
 
 type PatchBody = {
   status?: CountSheetStatus;
@@ -59,7 +60,10 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   return NextResponse.json({ configured: true });
 }
 
-export async function DELETE(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const denied = await denyUnless(request, ["admin"]);
+  if (denied) return denied;
+
   const supabase = getSupabaseServerClient();
   const { id } = await params;
 
