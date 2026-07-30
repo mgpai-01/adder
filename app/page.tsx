@@ -4686,20 +4686,32 @@ function ProductionGrid({
         const yardLabel = locations.find((location) => location.id === employee.locationId)?.name ?? employee.locationId;
         const yardCrew = sortedCrew.filter((row) => row.employee.locationId === employee.locationId);
         const yardQuantity = yardCrew.reduce((total, row) => total + row.employeeReport.summary.quantity, 0);
-        // Count sheets linked to this repairer's entries this week, bucketed into
-        // Phase 1/2/3 by upload time (before 9 = P1, 9–12:30 = P2, 12:30+ = P3).
-        // A phase is complete if it has a count sheet (or its entry phase was
-        // bypassed); finishing Phase 3 also marks Phases 1 & 2 complete.
+        // Everything attached to each phase this week: the photos taken on the
+        // phase itself in the Daily Grid, plus any count sheets linked to the
+        // repairer's entries. Count sheets carry no phase, so they are placed by
+        // upload time (before 9 = P1, 9–12:30 = P2, 12:30+ = P3).
+        //
+        // Both sources matter: showing only count sheets hid phase photos that
+        // had already been taken, and showing only phase photos hides the sheets
+        // uploaded from the counter. A phase counts as done if it has either (or
+        // was bypassed); finishing Phase 3 also marks Phases 1 & 2 complete.
         const weekPhases = combinePhases(employeeEntries, palletTypes);
         const weekSheets = Array.from(
           new Map(employeeEntries.flatMap((entry) => getLinkedCountSheets(countSheets, entry)).map((sheet) => [sheet.id, sheet])).values()
         );
         const phaseSheetPhotos: string[][] = [[], [], []];
+        weekPhases.forEach((phase, phaseIndex) => {
+          if (phaseIndex < PHASE_COUNT) phaseSheetPhotos[phaseIndex].push(...phasePhotos(phase));
+        });
         weekSheets.forEach((sheet) => {
           const uploaded = new Date(sheet.uploadTime);
           const minutes = uploaded.getHours() * 60 + uploaded.getMinutes();
           const phaseIndex = Number.isNaN(minutes) ? PHASE_COUNT - 1 : minutes < 9 * 60 ? 0 : minutes < 12 * 60 + 30 ? 1 : 2;
           sheet.photos.forEach((photo) => phaseSheetPhotos[phaseIndex].push(photo.url));
+        });
+        // A sheet can be linked to the entry and also attached to the phase.
+        phaseSheetPhotos.forEach((photos, phaseIndex) => {
+          phaseSheetPhotos[phaseIndex] = Array.from(new Set(photos));
         });
         const phaseHasSheet = (index: number) => phaseSheetPhotos[index].length > 0 || Boolean(weekPhases[index]?.bypassed);
         const phase3Done = phaseHasSheet(PHASE_COUNT - 1);
@@ -4838,24 +4850,24 @@ function ProductionGrid({
                               key={photoIndex}
                               type="button"
                               className="block"
-                              aria-label={`Open Phase ${index + 1} count sheet for ${employee.name}`}
+                              aria-label={`Open Phase ${index + 1} photo for ${employee.name}`}
                               onClick={() =>
                                 setLightbox({
                                   photos: photos.map((photoUrl, i) => ({
                                     url: photoUrl,
-                                    label: `${employee.name} · Phase ${index + 1} count sheet${photos.length > 1 ? ` (${i + 1})` : ""}`
+                                    label: `${employee.name} · Phase ${index + 1}${photos.length > 1 ? ` (${i + 1} of ${photos.length})` : ""}`
                                   })),
                                   index: photoIndex
                                 })
                               }
                             >
                               {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img src={url} alt={`Phase ${index + 1} count sheet`} className="h-14 w-14 rounded border border-steel-200 object-cover" />
+                              <img src={url} alt={`Phase ${index + 1} photo`} className="h-14 w-14 rounded border border-steel-200 object-cover" />
                             </button>
                           ))}
                         </div>
                       ) : (
-                        <span className="mt-2 block text-xs font-bold text-steel-400">{done ? "Covered by Phase 3" : "No count sheet"}</span>
+                        <span className="mt-2 block text-xs font-bold text-steel-400">{done ? "Covered by Phase 3" : "No photo or count sheet"}</span>
                       )}
                     </div>
                   );
