@@ -13,6 +13,17 @@ export async function GET() {
     return NextResponse.json({ entries, storage: "cloud" });
   }
 
-  const entries = await readLocalEntries();
+  // This endpoint is readable by the public board, so the local fallback must
+  // strip to the same shape the cloud summary returns — hours, clock times,
+  // notes and submitter never leave the server here.
+  const entries = (await readLocalEntries()).map((entry) => ({
+    id: entry.id,
+    date: entry.date,
+    employeeId: entry.employeeId,
+    locationId: entry.locationId,
+    shift: entry.shift,
+    lines: entry.lines ?? [],
+    createdAt: entry.createdAt
+  }));
   return NextResponse.json({ entries, storage: "local" });
 }

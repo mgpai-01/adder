@@ -62,7 +62,10 @@ function fromRows(row: CountSheetRow): CountSheet {
   };
 }
 
-export async function GET() {
+export async function GET(request: Request) {
+  const denied = await denyUnless(request);
+  if (denied) return denied;
+
   const supabase = getSupabaseServerClient();
 
   if (!supabase) {

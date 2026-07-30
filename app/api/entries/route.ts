@@ -5,7 +5,10 @@ import { readLocalEntries, upsertLocalEntry } from "@/lib/localEntries";
 import type { DailyEntry } from "@/lib/types";
 import { denyUnless } from "@/lib/apiAuth";
 
-export async function GET() {
+export async function GET(request: Request) {
+  const denied = await denyUnless(request);
+  if (denied) return denied;
+
   if (isCloudEntriesConfigured()) {
     const entries = await readCloudEntries();
     return NextResponse.json({ entries, storage: "cloud" });

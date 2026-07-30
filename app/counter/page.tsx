@@ -200,7 +200,7 @@ export default function CounterPage() {
       setPalletSource("Main Entry local pallet list");
     }
 
-    fetch("/api/pallet-types", { cache: "no-store" })
+    authedFetch("/api/pallet-types", { cache: "no-store" })
       .then((response) => response.json())
       .then((result: { configured: boolean; storage?: string; palletTypes: PalletType[] }) => {
         if (result.palletTypes.length > 0) {
@@ -251,7 +251,7 @@ export default function CounterPage() {
   }
 
   async function loadEntries() {
-    const response = await fetch("/api/entries", { cache: "no-store" });
+    const response = await authedFetch("/api/entries", { cache: "no-store" });
     const result = (await response.json()) as { entries: DailyEntry[] };
     setEntries(mergeCloudEntries(result.entries ?? []));
   }
@@ -314,7 +314,7 @@ export default function CounterPage() {
     if (!response.ok) throw new Error("Unable to save count");
     const result = (await response.json()) as { ok?: boolean; entry?: DailyEntry };
     if (!result.ok || result.entry?.id !== entry.id) throw new Error("Count was not confirmed by server");
-    const verifyResponse = await fetch("/api/entries", { cache: "no-store" });
+    const verifyResponse = await authedFetch("/api/entries", { cache: "no-store" });
     if (!verifyResponse.ok) throw new Error("Unable to verify saved count");
     const verifyResult = (await verifyResponse.json()) as { entries: DailyEntry[] };
     const savedEntry = verifyResult.entries.find((item) => item.id === entry.id);

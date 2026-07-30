@@ -46,12 +46,24 @@ function toRow(palletType: Omit<PalletType, "id">) {
   };
 }
 
-export async function GET() {
+// The live board is a public display, so this stays readable without a session
+// — but the dollar rates do not. A signed-out caller gets the pallet list with
+// rate (and the rate notes) stripped, which is everything the board needs to
+// label columns and tell a QC deduction from production.
+function withoutRates(palletTypes: PalletType[]): PalletType[] {
+  return palletTypes.map(({ rate: _rate, customerRateNote: _customer, locationRateNote: _location, ...rest }) => ({
+    ...rest,
+    rate: 0
+  }));
+}
+
+export async function GET(request: Request) {
   const supabase = getSupabaseServerClient();
+  const signedOut = Boolean(await denyUnless(request));
 
   if (!supabase) {
     const palletTypes = await readLocalPalletTypes();
-    return NextResponse.json({ configured: false, storage: "local", palletTypes });
+    return NextResponse.json({ configured: false, storage: "local", palletTypes: signedOut ? withoutRates(palletTypes) : palletTypes });
   }
 
   const { data, error } = await supabase
@@ -64,7 +76,8 @@ export async function GET() {
     return NextResponse.json({ configured: true, error: error.message, palletTypes: [] }, { status: 500 });
   }
 
-  return NextResponse.json({ configured: true, palletTypes: (data as PalletTypeRow[]).map(fromRow) });
+  const palletTypes = (data as PalletTypeRow[]).map(fromRow);
+  return NextResponse.json({ configured: true, palletTypes: signedOut ? withoutRates(palletTypes) : palletTypes });
 }
 
 export async function POST(request: Request) {

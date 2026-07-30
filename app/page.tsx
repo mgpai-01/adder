@@ -1087,7 +1087,7 @@ export default function Home() {
     // cache that has been stripped of photos (to fit the storage quota), so it
     // must NEVER overwrite a cloud entry — doing so erased photos. Only push up
     // local entries the cloud doesn't have yet (e.g. created while offline).
-    fetch("/api/entries")
+    authedFetch("/api/entries")
       .then((response) => response.json())
       .then((result: { entries: DailyEntry[] }) => {
         const cloudEntries = result.entries.map(migrateEntry);
@@ -1141,7 +1141,7 @@ export default function Home() {
 
     // Pull the shared roster from the cloud; if the cloud is empty, seed it from
     // this device so existing repairers move up.
-    fetch("/api/employees")
+    authedFetch("/api/employees")
       .then((response) => response.json())
       .then(async (result: { employees: Employee[]; storage?: string }) => {
         if (result.storage !== "cloud") return;
@@ -1162,7 +1162,7 @@ export default function Home() {
       .catch(() => undefined)
       .finally(() => setRosterLoaded(true));
 
-    fetch("/api/change-log")
+    authedFetch("/api/change-log")
       .then((response) => response.json())
       .then((result: { entries: ChangeLogEntry[] }) => setChangeLog(result.entries ?? []))
       .catch(() => undefined);
@@ -1181,12 +1181,12 @@ export default function Home() {
       });
     }
 
-    fetch("/api/settings")
+    authedFetch("/api/settings")
       .then((response) => response.json())
       .then((result: { settings: PayrollSettings }) => setSettings({ ...payrollSettings, ...result.settings }))
       .finally(() => setSettingsLoaded(true));
 
-    fetch("/api/pallet-types")
+    authedFetch("/api/pallet-types")
       .then((response) => response.json())
       .then((result: { configured: boolean; storage?: string; palletTypes: PalletType[] }) => {
         if (result.palletTypes.length > 0) {
@@ -1196,7 +1196,7 @@ export default function Home() {
       })
       .catch(() => setAdminStatus("Using local storage until Supabase is configured."));
 
-    fetch("/api/count-sheets")
+    authedFetch("/api/count-sheets")
       .then((response) => response.json())
       .then((result: { configured: boolean; storage?: "local"; countSheets: CountSheet[] }) => {
         if (result.configured || result.storage === "local") {
@@ -1209,7 +1209,7 @@ export default function Home() {
   useEffect(() => {
     if (!entriesLoaded) return;
     const loadSharedEntries = () => {
-      fetch("/api/entries", { cache: "no-store" })
+      authedFetch("/api/entries", { cache: "no-store" })
         .then((response) => response.json())
         .then((result: { entries: DailyEntry[] }) => {
           // Merge the cloud pull with what's already on screen instead of

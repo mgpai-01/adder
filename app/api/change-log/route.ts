@@ -2,7 +2,10 @@ import { NextResponse } from "next/server";
 import { insertChangeLog, readChangeLog, type ChangeLogEntry } from "@/lib/cloudChangeLog";
 import { denyUnless } from "@/lib/apiAuth";
 
-export async function GET() {
+export async function GET(request: Request) {
+  const denied = await denyUnless(request);
+  if (denied) return denied;
+
   const entries = await readChangeLog();
   return NextResponse.json({ entries });
 }
