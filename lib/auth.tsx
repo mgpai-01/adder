@@ -371,8 +371,23 @@ export function getAccessToken(): string {
 // service-role key (which bypasses row level security), so they check the
 // session themselves — any call that changes rates, payroll settings, the
 // roster or deletes records has to go through this rather than plain fetch.
-export function authedFetch(url: string, options: RequestInit = {}): Promise<Response> {
-  const token = getAccessToken();
+export async function authedFetch(url: string, options: RequestInit = {}): Promise<Response> {
+  let token = getAccessToken();
+  // The cache is empty until Supabase restores the session (and briefly around
+  // a token refresh). Sending the request anyway earns a 401 that callers tend
+  // to treat as "storage unavailable" — photo uploads in particular fall back
+  // to embedding the image, which then never persists. Ask Supabase directly
+  // before giving up.
+  if (!token) {
+    try {
+      const supabase = getBrowserSupabase();
+      const { data } = (await supabase?.auth.getSession()) ?? { data: { session: null } };
+      token = data.session?.access_token ?? "";
+      if (token) setCachedAccessToken(token);
+    } catch {
+      // Leave the token empty and let the request fail normally.
+    }
+  }
   return fetch(url, {
     ...options,
     headers: {

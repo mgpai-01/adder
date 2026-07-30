@@ -2552,6 +2552,10 @@ function PhaseTracker({
   const phasesRef = useRef(phases);
   phasesRef.current = phases;
   // Full-screen view of a phase photo so count sheets can be read.
+  // Set when a phase photo could not be uploaded. The photo still shows, but an
+  // embedded image is stripped before the entry is stored, so this has to be
+  // said out loud rather than letting it vanish at the next refresh.
+  const [photoError, setPhotoError] = useState("");
   const [zoomPhoto, setZoomPhoto] = useState<string | null>(null);
   // Rotation (degrees) applied to the zoomed photo so a sideways count sheet can
   // be turned upright; resets each time a new photo is opened.
@@ -2636,20 +2640,28 @@ function PhaseTracker({
     if (!files.length) return;
     const compressed = await Promise.all(files.map((file) => compressImage(file)));
     let urls: string[] = [];
+    let uploadError = "";
     try {
       const body = new FormData();
       compressed.forEach((file) => body.append("photos", file));
       body.append("scope", activeId || "phase");
       const response = await authedFetch("/api/entry-photos", { method: "POST", body });
-      const result = (await response.json()) as { urls?: string[] };
+      const result = (await response.json()) as { urls?: string[]; error?: string };
       if (Array.isArray(result.urls) && result.urls.length === compressed.length) {
         urls = result.urls;
+        setPhotoError("");
+      } else {
+        uploadError = response.status === 401 ? "Sign-in expired — sign in again to save photos." : result.error || `Photo upload failed (${response.status}).`;
       }
-    } catch {
-      // Network/storage failure — handled by the fallback below.
+    } catch (error) {
+      uploadError = error instanceof Error ? error.message : "Photo upload failed.";
     }
     if (urls.length !== compressed.length) {
+      // The fallback keeps the photo on screen, but an embedded image is
+      // stripped before the entry is stored — so it looks saved and is not.
+      // Say so rather than letting it disappear at the next refresh.
       urls = await Promise.all(compressed.map((file) => readAsDataUrl(file)));
+      setPhotoError(uploadError || "Photo could not be uploaded — it will not be saved.");
     }
     // Read the current photos off the latest phases, not the stale closure, then
     // updatePhase merges into the latest phases too — so nothing typed during the
@@ -2801,6 +2813,9 @@ function PhaseTracker({
               onFiles={(dropped) => handlePhasePhoto(selected, dropped)}
               label={activePhotos.length > 0 ? t("Add more photos") : t("Drag & drop or tap to add phase photos")}
             />
+            {photoError && (
+              <p className="mt-2 rounded border border-red-200 bg-red-50 p-2 text-sm font-black text-red-700">{photoError}</p>
+            )}
           </div>
         </div>
       </div>
