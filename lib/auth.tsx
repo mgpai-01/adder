@@ -283,13 +283,56 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!profile || profile.role !== "admin") return;
     const TIMEOUT_MS = 15 * 60 * 1000;
+    // Activity is shared across tabs. Each tab used to run its own timer, so an
+    // admin with the app open twice was signed out by whichever tab they were
+    // not using — sign-out is global, and it took the tab they were working in
+    // with it. Writing the last activity to localStorage lets every tab see
+    // that someone is still working.
+    const ACTIVITY_KEY = "mgp-last-activity";
     let timer: ReturnType<typeof setTimeout>;
-    const reset = () => {
-      clearTimeout(timer);
-      timer = setTimeout(() => {
-        void signOut();
-      }, TIMEOUT_MS);
+    const readLastActivity = () => {
+      try {
+        return Number(window.localStorage.getItem(ACTIVITY_KEY)) || 0;
+      } catch {
+        return 0;
+      }
     };
+    // Only fire when the idle time has genuinely elapsed. If another tab has
+    // been used since, wait out the remainder instead of signing out — which
+    // also means a timer that ran long while the machine slept re-checks the
+    // real clock rather than signing out the moment it wakes.
+    const onTimeout = () => {
+      const idleFor = Date.now() - readLastActivity();
+      if (idleFor < TIMEOUT_MS) {
+        timer = setTimeout(onTimeout, TIMEOUT_MS - idleFor);
+        return;
+      }
+      void signOut();
+    };
+    let lastWrite = 0;
+    const reset = () => {
+      const now = Date.now();
+      // Throttle the shared write: these events fire continuously while
+      // scrolling, and the timer only needs second-level accuracy.
+      if (now - lastWrite > 5000) {
+        lastWrite = now;
+        try {
+          window.localStorage.setItem(ACTIVITY_KEY, String(now));
+        } catch {
+          // Private mode or a full quota — the local timer still works.
+        }
+      }
+      clearTimeout(timer);
+      timer = setTimeout(onTimeout, TIMEOUT_MS);
+    };
+    // Another tab reporting activity counts as activity here too.
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === ACTIVITY_KEY) {
+        clearTimeout(timer);
+        timer = setTimeout(onTimeout, TIMEOUT_MS);
+      }
+    };
+    window.addEventListener("storage", onStorage);
     // touchmove/pointermove matter on the yard tablets, where a long scroll is
     // one touchstart followed by movement. Listening in the capture phase makes
     // scrolling inside a pane count too — scroll events don't bubble, so a
@@ -306,6 +349,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       clearTimeout(timer);
       activityEvents.forEach((event) => window.removeEventListener(event, reset, { capture: true }));
       document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("storage", onStorage);
     };
   }, [profile, signOut]);
 
