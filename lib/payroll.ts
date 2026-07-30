@@ -51,6 +51,19 @@ export function findMisdatedEntries(entries: DailyEntry[]) {
   return entries.filter((entry) => Boolean(entry.dateCorrectedFrom));
 }
 
+// Repairers are listed alphabetically by last name. The surname is taken as the
+// last word of the name, so "Alberto Arroyo Gomez" files under Gomez and a
+// single-word name like "Rodolfo" files under itself.
+export function lastNameKey(name: string) {
+  return (name.trim().split(/\s+/).slice(-1)[0] ?? "").toLowerCase();
+}
+
+// Last name, then the full name so people who share a surname keep a stable,
+// predictable order rather than swapping around between renders.
+export function compareByLastName(a: string, b: string) {
+  return lastNameKey(a).localeCompare(lastNameKey(b)) || a.localeCompare(b);
+}
+
 export function calculatePaidHours(entry: Pick<DailyEntry, "manualHours" | "breakProfile">) {
   if (entry.breakProfile === "paidLunch") {
     return entry.manualHours;

@@ -59,7 +59,7 @@ import {
   yardPalletIds,
   yardRank
 } from "@/lib/data";
-import { calculateEntry, correctedEntryDate, currency, findMisdatedEntries, getWeekKey, wholeNumber } from "@/lib/payroll";
+import { calculateEntry, compareByLastName, correctedEntryDate, currency, findMisdatedEntries, getWeekKey, wholeNumber } from "@/lib/payroll";
 import { getAccessToken, roleLabels, roleViews, useAuth } from "@/lib/auth";
 import { LanguageProvider, translate, useT, type Language } from "@/lib/i18n";
 import type { ChangeLogEntry } from "@/lib/cloudChangeLog";
@@ -2809,14 +2809,11 @@ function PhaseTracker({
           // repairer is done for the day — even if Phases 1 and 2 were never
           // entered. Finishing only an earlier phase does NOT count as done.
           const dayComplete = (member: typeof crew[number]) => phaseComplete(member.phases?.[PHASE_COUNT - 1] ?? undefined);
-          const byFirstName = (a: typeof crew[number], b: typeof crew[number]) => {
-            const first = (name: string) => name.trim().split(/\s+/)[0].toLowerCase();
-            return first(a.name).localeCompare(first(b.name)) || a.name.localeCompare(b.name);
-          };
+          const byLastName = (a: typeof crew[number], b: typeof crew[number]) => compareByLastName(a.name, b.name);
 
-          const completed = crew.filter((m) => hasActivity(m) && dayComplete(m)).sort(byFirstName);
-          const incomplete = crew.filter((m) => hasActivity(m) && !dayComplete(m)).sort(byFirstName);
-          const notStarted = crew.filter((m) => !hasActivity(m)).sort(byFirstName);
+          const completed = crew.filter((m) => hasActivity(m) && dayComplete(m)).sort(byLastName);
+          const incomplete = crew.filter((m) => hasActivity(m) && !dayComplete(m)).sort(byLastName);
+          const notStarted = crew.filter((m) => !hasActivity(m)).sort(byLastName);
 
           const groups = [
             { key: "completed", label: t("Completed"), members: completed, dim: false,
@@ -3094,8 +3091,14 @@ function ProductionEntry({
   // write to (form.employeeId) — not the fallback selectedEmployee, which can
   // differ — otherwise the choice never sticks.
   const stationEmployee = employees.find((employee) => employee.id === form.employeeId) ?? selectedEmployee;
-  const yardRepairers = employees.filter((employee) => employee.locationId === form.locationId && employee.role !== "supervisor");
-  const yardManagers = employees.filter((employee) => employee.locationId === form.locationId && employee.role === "supervisor");
+  // Alphabetical by last name, so the dropdown and the phase list below read in
+  // the same order as the Production Grid.
+  const yardRepairers = employees
+    .filter((employee) => employee.locationId === form.locationId && employee.role !== "supervisor")
+    .sort((a, b) => compareByLastName(a.name, b.name));
+  const yardManagers = employees
+    .filter((employee) => employee.locationId === form.locationId && employee.role === "supervisor")
+    .sort((a, b) => compareByLastName(a.name, b.name));
   const displayedPallets = palletsForYard(palletTypes, form.locationId);
   // Manager view drops the price columns and uses compact cells so the table
   // fits a phone screen with no sideways scroll.
@@ -4334,7 +4337,7 @@ function Payroll({
       </div>
 
       <div className="grid gap-3 md:grid-cols-5">
-        <FilterSelect label="Employee" value={employeeFilter} onChange={setEmployeeFilter} options={[{ id: "all", name: "All Employees" }, ...employees.map((employee) => ({ id: employee.id, name: employee.name }))]} />
+        <FilterSelect label="Employee" value={employeeFilter} onChange={setEmployeeFilter} options={[{ id: "all", name: "All Employees" }, ...[...employees].sort((a, b) => compareByLastName(a.name, b.name)).map((employee) => ({ id: employee.id, name: employee.name }))]} />
         <FilterSelect label="Location" value={locationFilter} onChange={setLocationFilter} options={[{ id: "all", name: "All Locations" }, ...locations.map((location) => ({ id: location.id, name: location.name }))]} />
         <FilterSelect label="Shift" value={shiftFilter} onChange={setShiftFilter} options={[{ id: "all", name: "All Shifts" }, ...shifts.map((shift) => ({ id: shift, name: shift }))]} />
         <Label title="Date" icon={<CalendarDays size={17} />}>
@@ -4561,7 +4564,6 @@ function ProductionGrid({
 
   // Repairers shown this week (those with entries), with their week report, then
   // ordered by the chosen sort. Last name = the last word of the full name.
-  const lastNameKey = (name: string) => (name.trim().split(/\s+/).slice(-1)[0] ?? "").toLowerCase();
   const sortedCrew = employees
     .filter((employee) => employee.active || gridEntries.some((entry) => entry.employeeId === employee.id))
     .map((employee) => ({ employee, employeeEntries: gridEntries.filter((entry) => entry.employeeId === employee.id) }))
@@ -4569,7 +4571,7 @@ function ProductionGrid({
     .map((row) => ({ ...row, employeeReport: buildReport(row.employeeEntries, palletTypes, employees, locations, settings) }))
     .sort((a, b) => {
       const byYard = yardRank(a.employee.locationId) - yardRank(b.employee.locationId);
-      const byName = lastNameKey(a.employee.name).localeCompare(lastNameKey(b.employee.name)) || a.employee.name.localeCompare(b.employee.name);
+      const byName = compareByLastName(a.employee.name, b.employee.name);
       const byQty = b.employeeReport.summary.quantity - a.employeeReport.summary.quantity;
       if (sortMode === "name") return byName;
       if (sortMode === "qty") return byQty || byName;
@@ -5689,7 +5691,7 @@ function EmployeeAdmin({
     if (byYard !== 0) return byYard;
     const managerRank = (employee: Employee) => (employee.role === "supervisor" ? 0 : 1);
     if (managerRank(a) !== managerRank(b)) return managerRank(a) - managerRank(b);
-    return a.name.localeCompare(b.name);
+    return compareByLastName(a.name, b.name);
   };
   const sortedEmployees = [...visibleEmployees].sort(sortByYardThenManager);
   // When grouped, split into one section per yard; otherwise one flat section.
