@@ -4730,9 +4730,6 @@ function ProductionGrid({
         // had already been taken, and showing only phase photos hides the sheets
         // uploaded from the counter. A phase counts as done if it has either (or
         // was bypassed); finishing Phase 3 also marks Phases 1 & 2 complete.
-        const weekView = buildPhaseView(employeeEntries, countSheets, palletTypes);
-        const phaseSheetPhotos = weekView.photos;
-        const phaseDone = weekView.isDone;
         return (
           <Fragment key={employee.id}>
             {startsYard && (
@@ -4851,51 +4848,6 @@ function ProductionGrid({
                   </tr>
                 </tbody>
               </table>
-            </div>
-            <div className="border-t border-steel-100 p-3">
-              <p className="mb-2 text-xs font-black uppercase tracking-wide text-steel-500">Phase check sheets</p>
-              <div className="grid gap-2 sm:grid-cols-3">
-                {phaseSheetPhotos.map((photos, index) => {
-                  const done = phaseDone(index);
-                  return (
-                    <div key={index} className={classNames("rounded border p-2", done ? "border-workshop-200 bg-workshop-50" : "border-steel-200 bg-steel-50")}>
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-sm font-black text-steel-900">Phase {index + 1}</span>
-                        <span className={classNames("flex items-center gap-1 text-xs font-black", done ? "text-workshop-700" : "text-steel-400")}>
-                          {done ? (<><CheckCircle2 size={14} /> Complete</>) : "Pending"}
-                        </span>
-                      </div>
-                      <span className="block text-[11px] font-bold text-steel-500">{PHASE_TIMES[index]}</span>
-                      {photos.length > 0 ? (
-                        <div className="mt-2 flex flex-wrap gap-1.5">
-                          {photos.map((url, photoIndex) => (
-                            <button
-                              key={photoIndex}
-                              type="button"
-                              className="block"
-                              aria-label={`Open Phase ${index + 1} photo for ${employee.name}`}
-                              onClick={() =>
-                                setLightbox({
-                                  photos: photos.map((photoUrl, i) => ({
-                                    url: photoUrl,
-                                    label: `${employee.name} · Phase ${index + 1}${photos.length > 1 ? ` (${i + 1} of ${photos.length})` : ""}`
-                                  })),
-                                  index: photoIndex
-                                })
-                              }
-                            >
-                              {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img src={url} alt={`Phase ${index + 1} photo`} className="h-14 w-14 rounded border border-steel-200 object-cover" />
-                            </button>
-                          ))}
-                        </div>
-                      ) : (
-                        <span className="mt-2 block text-xs font-bold text-steel-400">{done ? "Covered by Phase 3" : "No photo or count sheet"}</span>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
             </div>
             {/*
               Per-entry "Entry History" table removed from the Production Grid per request.
