@@ -2135,14 +2135,54 @@ export default function Home() {
     };
     for (const { employee, rows: employeeEntries } of gridCrew) {
       const gridSheet = workbook.addWorksheet(tabName(employee.name, locName(employee.locationId)));
-      gridSheet.columns = [{ width: 34 }, ...gridDays.map(() => ({ width: 13 })), { width: 12 }, { width: 12 }];
+      const moneyFormat = '"$"#,##0.00';
+      // Layout: pallet code | description | rate, then a quantity and a dollar
+      // column for each day, then the weekly block. Two header rows — weekday
+      // over the date — with each day's pair merged across them.
+      gridSheet.columns = [
+        { width: 16 },
+        { width: 26 },
+        { width: 9 },
+        ...gridDays.flatMap(() => [{ width: 9 }, { width: 12 }]),
+        { width: 22 },
+        { width: 10 },
+        { width: 12 }
+      ];
+      const firstDayCol = 4;
+      const weeklyCol = firstDayCol + gridDays.length * 2;
+
       const titleRow = gridSheet.addRow([`${employee.name} — ${locName(employee.locationId)} · ${employee.shift ?? ""}`.trim()]);
       titleRow.font = { bold: true, size: 13 };
-      const headerRow = gridSheet.addRow(["Pallet Type", ...gridDays.map((day) => formatDayHeader(day)), "Weekly Qty", "Weekly $"]);
-      headerRow.font = { bold: true };
-      // Only the pallets this repairer made, plus QC so a clean week still shows
-      // an explicit zero — the same rule the screen uses.
+
+      const dayNameRow = gridSheet.addRow([]);
+      const dayDateRow = gridSheet.addRow([]);
+      dayNameRow.getCell(1).value = "";
+      gridDays.forEach((day, index) => {
+        const column = firstDayCol + index * 2;
+        const date = new Date(`${day}T12:00:00`);
+        dayNameRow.getCell(column).value = date.toLocaleDateString(undefined, { weekday: "long" });
+        dayDateRow.getCell(column).value = date.toLocaleDateString(undefined, { month: "2-digit", day: "2-digit", year: "2-digit" });
+        gridSheet.mergeCells(dayNameRow.number, column, dayNameRow.number, column + 1);
+        gridSheet.mergeCells(dayDateRow.number, column, dayDateRow.number, column + 1);
+      });
+      dayNameRow.getCell(weeklyCol).value = "Weekly";
+      gridSheet.mergeCells(dayNameRow.number, weeklyCol, dayNameRow.number, weeklyCol + 2);
+      dayDateRow.getCell(1).value = "Pallet Type";
+      dayDateRow.getCell(3).value = "Rate";
+      dayDateRow.getCell(weeklyCol + 1).value = "Qty";
+      dayDateRow.getCell(weeklyCol + 2).value = "Amount";
+      [dayNameRow, dayDateRow].forEach((row) => {
+        row.font = { bold: true };
+        row.alignment = { horizontal: "center" };
+      });
+
+      // Every pallet type, in the configured order, whether or not this repairer
+      // made it — a rate sheet as much as a production sheet, so a blank line is
+      // itself information.
+      const dayQtyTotals = gridDays.map(() => 0);
+      const dayPayTotals = gridDays.map(() => 0);
       for (const pallet of palletTypes) {
+        const rate = Number(pallet.rate ?? 0);
         const perDay = gridDays.map((day) =>
           employeeEntries
             .filter((entry) => entry.date === day)
@@ -2157,32 +2197,43 @@ export default function Home() {
             )
         );
         const weeklyQty = perDay.reduce((total, quantity) => total + quantity, 0);
-        if (weeklyQty === 0 && pallet.category !== "QC Deductions") continue;
-        gridSheet.addRow([
-          `${pallet.code} ${pallet.description}`.trim(),
-          ...perDay,
+        const row = gridSheet.addRow([
+          pallet.code,
+          pallet.description,
+          rate,
+          ...perDay.flatMap((quantity, index) => {
+            const amount = money(quantity * rate);
+            // QC deductions come back as a negative rate, so the quantity stays
+            // positive and only the money goes down — the same as the paper sheet.
+            dayQtyTotals[index] += pallet.category === "QC Deductions" ? -quantity : quantity;
+            dayPayTotals[index] += amount;
+            return [quantity, amount];
+          }),
+          pallet.description || pallet.code,
           weeklyQty,
-          money(weeklyQty * Number(pallet.rate ?? 0))
+          money(weeklyQty * rate)
         ]);
+        row.getCell(3).numFmt = moneyFormat;
+        gridDays.forEach((_day, index) => {
+          row.getCell(firstDayCol + index * 2 + 1).numFmt = moneyFormat;
+        });
+        row.getCell(weeklyCol + 2).numFmt = moneyFormat;
       }
-      const dayTotals = gridDays.map((day) => {
-        const dayReport = buildReport(
-          employeeEntries.filter((entry) => entry.date === day),
-          palletTypes,
-          employeeList,
-          locationList,
-          settings
-        );
-        return dayReport.summary.quantity;
-      });
-      const employeeReport = buildReport(employeeEntries, palletTypes, employeeList, locationList, settings);
+
       const totalsRow = gridSheet.addRow([
-        "Daily Totals",
-        ...dayTotals,
-        employeeReport.summary.quantity,
-        money(employeeReport.summary.totalPay)
+        "TOTAL",
+        "",
+        "",
+        ...dayQtyTotals.flatMap((quantity, index) => [quantity, money(dayPayTotals[index])]),
+        "",
+        dayQtyTotals.reduce((total, quantity) => total + quantity, 0),
+        money(dayPayTotals.reduce((total, amount) => total + amount, 0))
       ]);
       totalsRow.font = { bold: true };
+      gridDays.forEach((_day, index) => {
+        totalsRow.getCell(firstDayCol + index * 2 + 1).numFmt = moneyFormat;
+      });
+      totalsRow.getCell(weeklyCol + 2).numFmt = moneyFormat;
     }
 
     const yardTotals = new Map<string, { employees: number; quantity: number; piecePay: number; totalPay: number }>();
