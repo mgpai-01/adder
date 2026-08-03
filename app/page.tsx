@@ -1339,13 +1339,67 @@ export default function Home() {
         // ignore transient network errors
       }
     };
+    // The roster has the same problem: a repairer added or renamed in Admin was
+    // invisible elsewhere until a reload. Read the photo-free summary so this
+    // stays cheap, and merge it into the records already on screen — the
+    // summary carries no photos, so taking it wholesale would blank every
+    // avatar. New people are added, departed ones drop out.
+    const refreshRoster = async () => {
+      try {
+        const response = await authedFetch("/api/employees?summary=1", { cache: "no-store" });
+        if (!response.ok) return;
+        const result = (await response.json()) as { employees?: Employee[] };
+        const incoming = result.employees ?? [];
+        if (incoming.length === 0) return;
+        setEmployeeList((current) => {
+          const byId = new Map(current.map((employee) => [employee.id, employee]));
+          const merged = incoming.map((employee) => {
+            const existing = byId.get(employee.id);
+            return existing ? { ...existing, ...employee, photoDataUrl: existing.photoDataUrl } : employee;
+          });
+          const changed =
+            merged.length !== current.length ||
+            merged.some((employee, index) => {
+              const before = current[index];
+              return (
+                !before ||
+                before.id !== employee.id ||
+                before.name !== employee.name ||
+                before.locationId !== employee.locationId ||
+                before.active !== employee.active ||
+                before.role !== employee.role
+              );
+            });
+          if (!changed) return current;
+          const { employees: deduped } = dedupeEmployees(withSeedPhotos(merged));
+          return deduped;
+        });
+      } catch {
+        // ignore transient network errors
+      }
+    };
+    const refreshSettings = async () => {
+      try {
+        const response = await authedFetch("/api/settings", { cache: "no-store" });
+        if (!response.ok) return;
+        const result = (await response.json()) as { settings?: PayrollSettings };
+        if (result.settings) setSettings((current) => ({ ...current, ...result.settings }));
+      } catch {
+        // ignore transient network errors
+      }
+    };
+    const refreshShared = () => {
+      refreshPalletTypes();
+      refreshRoster();
+      refreshSettings();
+    };
     const onFocus = () => {
       loadSharedEntries();
-      refreshPalletTypes();
+      refreshShared();
     };
     const pingTimer = window.setInterval(checkForChanges, 10_000);
     const fullTimer = window.setInterval(loadSharedEntries, 180_000);
-    const palletTimer = window.setInterval(refreshPalletTypes, 30_000);
+    const palletTimer = window.setInterval(refreshShared, 30_000);
     window.addEventListener("focus", onFocus);
     return () => {
       window.clearInterval(pingTimer);
