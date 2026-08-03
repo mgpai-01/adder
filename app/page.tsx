@@ -957,6 +957,12 @@ export default function Home() {
   // of reading a stale closure. Assigned during render — safe for a ref.
   const entriesRef = useRef<DailyEntry[]>([]);
   entriesRef.current = entries;
+  // Ids of entries deleted on this device. The background cloud pull merges in
+  // any cloud record it doesn't have locally, so without this a deleted entry
+  // whose DELETE hadn't landed yet would come straight back — e.g. the old
+  // record left at the wrong yard after a day was moved. Pulls skip these ids
+  // and re-fire the DELETE if the cloud still has them.
+  const deletedEntryIdsRef = useRef<Set<string>>(new Set());
   const [countSheets, setCountSheets] = useState<CountSheet[]>([]);
   const [palletTypes, setPalletTypes] = useState<PalletType[]>(defaultPalletTypes);
   const [employeeList, setEmployeeList] = useState<Employee[]>(defaultEmployees);
@@ -1268,7 +1274,14 @@ export default function Home() {
           // newer copy per id (a fresh local edit beats a stale cloud row),
           // keep any local-only entry the cloud doesn't have yet, and re-push
           // those local-only ones so a failed save still reaches the cloud.
-          const cloudEntries = result.entries.map(migrateEntry);
+          // Entries deleted here stay deleted: skip them, and nudge the cloud
+          // again in case the original DELETE never landed.
+          result.entries
+            .filter((entry) => deletedEntryIdsRef.current.has(entry.id))
+            .forEach((entry) => {
+              authedFetch(`/api/entries/${entry.id}`, { method: "DELETE" }).catch(() => undefined);
+            });
+          const cloudEntries = result.entries.map(migrateEntry).filter((entry) => !deletedEntryIdsRef.current.has(entry.id));
           const cloudById = new Map(cloudEntries.map((entry) => [entry.id, entry]));
           const recency = (entry: DailyEntry) => entry.updatedAt ?? entry.createdAt ?? "";
           const merged = new Map(cloudById);
@@ -1584,6 +1597,7 @@ export default function Home() {
       }).catch(() => undefined);
     });
     deleteIds.forEach((id) => {
+      deletedEntryIdsRef.current.add(id);
       authedFetch(`/api/entries/${id}`, { method: "DELETE" }).catch(() => undefined);
     });
   }, [entriesLoaded, employeeList, entries]);
@@ -1715,13 +1729,17 @@ export default function Home() {
   function handleYardChange(locationId: string) {
     const repairers = activeEmployees.filter((employee) => employee.locationId === locationId && !isManager(employee));
     const managers = activeEmployees.filter((employee) => employee.locationId === locationId && isManager(employee));
-    const employeeId = repairers.some((employee) => employee.id === form.employeeId)
-      ? form.employeeId
-      : repairers[0]?.id ?? "";
+    // Keep the person being edited selected across a yard switch. Changing the
+    // yard with someone's day loaded is how that day gets moved to the yard
+    // actually worked — if the form silently flipped to the new yard's first
+    // repairer, Save would write the wrong person's entry and the loaded one
+    // would stay on the old yard. They remain pickable via "Other yards".
+    const current = activeEmployees.find((employee) => employee.id === form.employeeId && !isManager(employee));
+    const employeeId = current?.id ?? repairers[0]?.id ?? "";
     const yardManagerId = managers.some((employee) => employee.id === form.yardManagerId)
       ? form.yardManagerId
       : managers[0]?.id ?? "";
-    const selectedRepairer = repairers.find((employee) => employee.id === employeeId);
+    const selectedRepairer = current ?? repairers.find((employee) => employee.id === employeeId);
     const data = entryFormData(employeeId, form.date, locationId);
     formDirtyRef.current = false;
     setEditingEntryId(data.existingId);
@@ -1793,7 +1811,27 @@ export default function Home() {
       submittedById: profile?.id
     };
 
-    setEntries((current) => [cleanEntry, ...current.filter((entry) => entry.id !== entryId)]);
+    // The form loads the repairer's WHOLE day (entryFormData merges their
+    // entries across yards), so this save is the whole day. Any other record
+    // they have for the same date — e.g. the old one left at a different yard
+    // after the Yard dropdown was changed — is now absorbed into this save and
+    // must go, or the grid would keep showing the day under the old yard.
+    const targetName = normName(nameOfEmployeeId(cleanEntry.employeeId));
+    const staleIds = entries
+      .filter(
+        (entry) =>
+          entry.id !== entryId &&
+          entry.date === cleanEntry.date &&
+          normName(nameOfEmployeeId(entry.employeeId)) === targetName
+      )
+      .map((entry) => entry.id);
+    const staleIdSet = new Set(staleIds);
+
+    setEntries((current) => [cleanEntry, ...current.filter((entry) => entry.id !== entryId && !staleIdSet.has(entry.id))]);
+    staleIds.forEach((id) => {
+      deletedEntryIdsRef.current.add(id);
+      authedFetch(`/api/entries/${id}`, { method: "DELETE" }).catch(() => undefined);
+    });
     // Saved — the form now matches the cloud, so it's safe to auto-refresh again.
     formDirtyRef.current = false;
     // Keep the saved numbers on screen (and keep editing this same entry) so the
@@ -1866,6 +1904,7 @@ export default function Home() {
       return;
     }
 
+    deletedEntryIdsRef.current.add(id);
     setEntries((current) => current.filter((item) => item.id !== id));
     setSaveStatus("Entry deleted.");
     try {
