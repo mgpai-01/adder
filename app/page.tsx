@@ -5115,6 +5115,44 @@ function ProductionGrid({
         <Metric label="Weekly Total" value={currency(weekReport.summary.totalPay)} />
       </div>
 
+      {/* A yard can receive production without hosting a card: everyone who
+          worked there has their main yard elsewhere, so their card sits under
+          that one. Without this the yard would vanish from the grid entirely
+          even though its pallets are counted everywhere else. */}
+      {locations
+        .filter((location) => !sortedCrew.some((row) => row.employee.locationId === location.id))
+        .map((location) => ({
+          location,
+          visitors: sortedCrew
+            .filter((row) => (row.perYardQty.get(location.id) ?? 0) !== 0)
+            .map((row) => ({ name: row.employee.name, quantity: row.perYardQty.get(location.id) ?? 0, homeYard: row.employee.locationId }))
+        }))
+        .filter((entry) => entry.visitors.length > 0)
+        .sort((a, b) => yardRank(a.location.id) - yardRank(b.location.id))
+        .map(({ location, visitors }) => (
+          <div key={`visiting-${location.id}`}>
+            <div className="mt-2 flex flex-wrap items-baseline justify-between gap-2 border-b-2 border-workshop-500 pb-1">
+              <h3 className="text-xl font-black uppercase tracking-wide text-steel-900">{location.name}</h3>
+              <span className="text-sm font-black text-steel-500">
+                {visitors.length} {visitors.length === 1 ? "repairer" : "repairers"} ·{" "}
+                {wholeNumber(visitors.reduce((total, visitor) => total + visitor.quantity, 0))} pallets
+              </span>
+            </div>
+            <div className="mt-2 grid gap-1 rounded border border-steel-100 bg-white p-3">
+              {visitors.map((visitor) => (
+                <p key={visitor.name} className="flex flex-wrap items-center justify-between gap-2 text-sm font-bold text-steel-700">
+                  <span>
+                    {visitor.name} · {wholeNumber(visitor.quantity)} pallets here
+                  </span>
+                  <span className="text-xs font-black uppercase tracking-wide text-steel-400">
+                    full week on their card under {locations.find((item) => item.id === visitor.homeYard)?.name ?? visitor.homeYard}
+                  </span>
+                </p>
+              ))}
+            </div>
+          </div>
+        ))}
+
       {sortedCrew.map(({ employee, employeeEntries, employeeReport, yardsWorked, yardByDay, perYardQty }, crewIndex) => {
         // The crew is already ordered Fontana, Mesa, Citrus, so a yard heading
         // goes above the first card of each run.
