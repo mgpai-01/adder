@@ -824,29 +824,37 @@ function loadImageElement(src: string): Promise<HTMLImageElement> {
   });
 }
 
+// Renders the image with the given rotation baked in, returning a JPEG blob.
+// Fetches to a blob first so remote (http) photos don't taint the canvas.
+async function rotatedPhotoBlob(src: string, rotation: number): Promise<Blob> {
+  const sourceBlob = await (await fetch(src)).blob();
+  if (rotation === 0) return sourceBlob;
+  const objectUrl = URL.createObjectURL(sourceBlob);
+  try {
+    const img = await loadImageElement(objectUrl);
+    const swap = rotation === 90 || rotation === 270;
+    const canvas = document.createElement("canvas");
+    canvas.width = swap ? img.naturalHeight : img.naturalWidth;
+    canvas.height = swap ? img.naturalWidth : img.naturalHeight;
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("no canvas context");
+    context.translate(canvas.width / 2, canvas.height / 2);
+    context.rotate((rotation * Math.PI) / 180);
+    context.drawImage(img, -img.naturalWidth / 2, -img.naturalHeight / 2);
+    return await new Promise<Blob>((resolve, reject) =>
+      canvas.toBlob((result) => (result ? resolve(result) : reject(new Error("toBlob failed"))), "image/jpeg", 0.92)
+    );
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
 // Download a photo to the device, baking in any on-screen rotation so the saved
 // file is oriented the way the viewer is showing it.
 async function downloadPhoto(dataUrl: string, rotationDeg: number, fileName: string) {
   const rotation = (((rotationDeg % 360) + 360) % 360);
   try {
-    let blob: Blob;
-    if (rotation === 0) {
-      blob = await (await fetch(dataUrl)).blob();
-    } else {
-      const img = await loadImageElement(dataUrl);
-      const swap = rotation === 90 || rotation === 270;
-      const canvas = document.createElement("canvas");
-      canvas.width = swap ? img.naturalHeight : img.naturalWidth;
-      canvas.height = swap ? img.naturalWidth : img.naturalHeight;
-      const context = canvas.getContext("2d");
-      if (!context) throw new Error("no canvas context");
-      context.translate(canvas.width / 2, canvas.height / 2);
-      context.rotate((rotation * Math.PI) / 180);
-      context.drawImage(img, -img.naturalWidth / 2, -img.naturalHeight / 2);
-      blob = await new Promise<Blob>((resolve, reject) =>
-        canvas.toBlob((result) => (result ? resolve(result) : reject(new Error("toBlob failed"))), "image/jpeg", 0.92)
-      );
-    }
+    const blob = await rotatedPhotoBlob(dataUrl, rotation);
     const url = URL.createObjectURL(blob);
     triggerDownload(url, fileName);
     setTimeout(() => URL.revokeObjectURL(url), 10_000);
@@ -856,16 +864,18 @@ async function downloadPhoto(dataUrl: string, rotationDeg: number, fileName: str
   }
 }
 
-// Open an image in a new browser tab. Chrome blocks navigating a new tab
-// straight to a data: URL, so convert those to a blob: URL first; http(s)
-// URLs open directly.
-async function openImageInNewTab(src: string) {
+// Open an image in a new browser tab, oriented exactly as the viewer shows it —
+// any rotation applied on screen is baked into what the tab displays. Chrome
+// blocks navigating a new tab straight to a data: URL, so those become blob:
+// URLs; http(s) URLs only open directly when there is no rotation to apply.
+async function openImageInNewTab(src: string, rotationDeg = 0) {
+  const rotation = (((rotationDeg % 360) + 360) % 360);
   try {
-    if (/^https?:/i.test(src)) {
+    if (rotation === 0 && /^https?:/i.test(src)) {
       window.open(src, "_blank", "noopener");
       return;
     }
-    const blob = await (await fetch(src)).blob();
+    const blob = await rotatedPhotoBlob(src, rotation);
     const url = URL.createObjectURL(blob);
     window.open(url, "_blank", "noopener");
     setTimeout(() => URL.revokeObjectURL(url), 60_000);
@@ -3303,7 +3313,7 @@ function PhaseTracker({
             </button>
             <button
               type="button"
-              onClick={() => openImageInNewTab(photoUrl)}
+              onClick={() => openImageInNewTab(photoUrl, zoomRotation)}
               aria-label={t("Open in new tab")}
               title={t("Open in new tab")}
               className="flex h-11 w-11 items-center justify-center rounded-full bg-white/15 text-white backdrop-blur transition-colors hover:bg-white/30"
@@ -3346,7 +3356,6 @@ function PhaseTracker({
               isPanning ? "" : "transition-transform"
             )}
             onClick={(event) => event.stopPropagation()}
-            onWheel={(event) => adjustZoom(event.deltaY < 0 ? 0.25 : -0.25)}
             onPointerDown={(event) => {
               if (zoomScale <= 1) return;
               event.preventDefault();
