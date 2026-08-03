@@ -5222,15 +5222,13 @@ function ProductionGrid({
                     {weekDays.map((day) => (
                       <th key={day} className="p-2 text-center">
                         {formatDayHeader(day)}
-                        {/* Only worth the extra line when the week actually
-                            spans yards; otherwise it repeats the header. */}
-                        {yardsWorked.length > 1 && (
-                          <span className="mt-0.5 block text-[10px] font-black uppercase tracking-wide text-safety-400">
-                            {(yardByDay.get(day) ?? [])
-                              .map((id) => locations.find((location) => location.id === id)?.name ?? id)
-                              .join(" / ") || "—"}
-                          </span>
-                        )}
+                        {/* The yard that day's work was done at, on every day
+                            that has work — not just weeks split across yards. */}
+                        <span className="mt-0.5 block text-[10px] font-black uppercase tracking-wide text-safety-400">
+                          {(yardByDay.get(day) ?? [])
+                            .map((id) => locations.find((location) => location.id === id)?.name ?? id)
+                            .join(" / ") || "\u00a0"}
+                        </span>
                       </th>
                     ))}
                     <th className="bg-safety-400 p-2 text-center text-steel-900">Weekly Qty</th>
