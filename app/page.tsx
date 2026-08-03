@@ -1300,7 +1300,7 @@ export default function Home() {
     let lastFingerprint: string | null = null;
     const checkForChanges = async () => {
       try {
-        const response = await fetch("/api/entries/ping", { cache: "no-store" });
+        const response = await authedFetch("/api/entries/ping", { cache: "no-store" });
         const { fingerprint } = (await response.json()) as { fingerprint?: string };
         const next = fingerprint ?? "";
         if (lastFingerprint === null) {
@@ -1315,13 +1315,43 @@ export default function Home() {
         // ignore transient network errors
       }
     };
+    // Pallet types were only fetched once, at page load, so a pallet added on one
+    // device stayed invisible to everyone else until they reloaded — including
+    // the person entering production, who then couldn't record it. The list is
+    // small, so re-reading it on a slow timer (and whenever the tab regains
+    // focus) is cheap and keeps every screen offering the same pallets.
+    const refreshPalletTypes = async () => {
+      try {
+        const response = await authedFetch("/api/pallet-types", { cache: "no-store" });
+        if (!response.ok) return;
+        const result = (await response.json()) as { palletTypes?: PalletType[] };
+        if (!result.palletTypes || result.palletTypes.length === 0) return;
+        setPalletTypes((current) => {
+          const changed =
+            current.length !== result.palletTypes!.length ||
+            result.palletTypes!.some((pallet) => {
+              const existing = current.find((item) => item.id === pallet.id);
+              return !existing || existing.rate !== pallet.rate || existing.code !== pallet.code || existing.description !== pallet.description || existing.active !== pallet.active;
+            });
+          return changed ? result.palletTypes! : current;
+        });
+      } catch {
+        // ignore transient network errors
+      }
+    };
+    const onFocus = () => {
+      loadSharedEntries();
+      refreshPalletTypes();
+    };
     const pingTimer = window.setInterval(checkForChanges, 10_000);
     const fullTimer = window.setInterval(loadSharedEntries, 180_000);
-    window.addEventListener("focus", loadSharedEntries);
+    const palletTimer = window.setInterval(refreshPalletTypes, 30_000);
+    window.addEventListener("focus", onFocus);
     return () => {
       window.clearInterval(pingTimer);
       window.clearInterval(fullTimer);
-      window.removeEventListener("focus", loadSharedEntries);
+      window.clearInterval(palletTimer);
+      window.removeEventListener("focus", onFocus);
     };
   }, [entriesLoaded]);
 

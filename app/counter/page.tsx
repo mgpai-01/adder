@@ -258,7 +258,23 @@ export default function CounterPage() {
 
   useEffect(() => {
     loadEntries().catch(() => setStatus("Offline mode: saved counts will sync later"));
-    const timer = window.setInterval(() => loadEntries().catch(() => undefined), 15_000);
+    // Pallet types were read once on load, so a pallet added in Admin never
+    // reached the counting station until someone reloaded it — the one screen
+    // that needs it to key the count. Re-read it alongside the entries.
+    const refreshPallets = async () => {
+      try {
+        const response = await authedFetch("/api/pallet-types", { cache: "no-store" });
+        if (!response.ok) return;
+        const result = (await response.json()) as { palletTypes?: PalletType[] };
+        if (result.palletTypes && result.palletTypes.length > 0) setPalletTypes(result.palletTypes);
+      } catch {
+        // Offline — the list already on screen still works.
+      }
+    };
+    const timer = window.setInterval(() => {
+      loadEntries().catch(() => undefined);
+      refreshPallets();
+    }, 15_000);
     return () => window.clearInterval(timer);
   }, []);
 
