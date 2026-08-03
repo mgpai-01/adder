@@ -1410,12 +1410,15 @@ export default function Home() {
   // Keep the selected repairer valid. Roster reconciliation can change employee
   // ids (e.g. "jose-ramirez" -> "mgp-jose-ramirez"), leaving form.employeeId
   // pointing at nothing — which made the card, the Repairer dropdown, and the
-  // station edits disagree. If the current id isn't a real repairer in this
-  // yard, snap to the first one so everything points at the same person.
+  // station edits disagree. Snap to this yard's first repairer only when the
+  // selected id isn't a real repairer at all: someone covering another yard for
+  // the day is deliberately picked from outside this yard's crew, and snapping
+  // them back would make that impossible to record.
   useEffect(() => {
     if (!rosterLoaded) return;
     const repairers = activeEmployees.filter((employee) => employee.locationId === form.locationId && !isManager(employee));
-    if (repairers.length > 0 && !repairers.some((employee) => employee.id === form.employeeId)) {
+    const stillValid = activeEmployees.some((employee) => employee.id === form.employeeId && !isManager(employee));
+    if (!stillValid && repairers.length > 0) {
       handleEmployeeChange(repairers[0].id);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1437,8 +1440,10 @@ export default function Home() {
   //  1) Merge duplicate entries for the same repairer + day (the old save bug
   //     created a new record every time, which double-counted on the board and
   //     made the grid load just one of them — often an empty one showing 0).
-  //  2) Put each entry on the repairer's current yard, so moving someone between
-  //     yards carries their production with them.
+  //  2) Snap each entry onto the repairer's current id, so renaming or
+  //     re-creating a roster record doesn't orphan their production.
+  // The entry's own yard is left alone: it records where that day's work
+  // happened, which is not always the yard on the repairer's roster record.
   // Sums pallets, merges phase check-ins, keeps the newest record's id, deletes
   // the extras, and saves the result. Idempotent: once everything is one entry
   // per repairer/day on the right yard, there's nothing left to do.
@@ -1448,18 +1453,16 @@ export default function Home() {
     // entries snap onto whatever id the dropdown currently uses (active records
     // win over deactivated duplicates).
     const idByName = new Map<string, string>();
-    const yardByName = new Map<string, string>();
     [...employeeList].sort((a, b) => Number(b.active) - Number(a.active)).forEach((employee) => {
       const key = normName(employee.name);
-      if (!idByName.has(key)) {
-        idByName.set(key, employee.id);
-        yardByName.set(key, employee.locationId);
-      }
+      if (!idByName.has(key)) idByName.set(key, employee.id);
     });
 
     const groups = new Map<string, DailyEntry[]>();
     entries.forEach((entry) => {
-      const key = `${normName(nameOfEmployeeId(entry.employeeId))}|${entry.date}`;
+      // Keyed by yard too, so a repairer who covers a second yard on the same
+      // day keeps two entries instead of having them merged into one.
+      const key = `${normName(nameOfEmployeeId(entry.employeeId))}|${entry.date}|${entry.locationId}`;
       const group = groups.get(key);
       if (group) group.push(entry);
       else groups.set(key, [entry]);
@@ -1471,16 +1474,14 @@ export default function Home() {
       const nameKey = key.split("|")[0];
       const primary = [...group].sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""))[0];
       const targetId = idByName.get(nameKey) ?? primary.employeeId;
-      const targetYard = yardByName.get(nameKey) ?? primary.locationId;
       const phases = combinePhases(group, palletTypes);
       const result: DailyEntry = {
         ...primary,
         employeeId: targetId,
-        locationId: targetYard,
         lines: aggregatePhaseLines(phases),
         phases
       };
-      const changed = group.length > 1 || primary.employeeId !== targetId || primary.locationId !== targetYard;
+      const changed = group.length > 1 || primary.employeeId !== targetId;
       if (changed) {
         merged.push(result);
         group.filter((entry) => entry.id !== primary.id).forEach((entry) => deleteIds.push(entry.id));
@@ -2114,10 +2115,35 @@ export default function Home() {
     // alphabetically by last name, each holding that person's week in the same
     // shape as the on-screen grid.
     const gridDays = Array.from(new Set(filteredEntries.map((entry) => entry.date))).sort();
-    const gridCrew = employeeList
-      .map((employee) => ({ employee, rows: filteredEntries.filter((entry) => entry.employeeId === employee.id) }))
-      .filter((row) => row.rows.length > 0)
-      .sort((a, b) => compareByLastName(a.employee.name, b.employee.name));
+    // One tab per repairer per yard they worked, so a week split across yards
+    // shows up as two tabs rather than being silently folded into their home
+    // yard. Ordered by last name, then by yard for anyone who covered two.
+    const gridCrew = Array.from(
+      filteredEntries
+        .reduce((map, entry) => {
+          const key = `${entry.employeeId}|${entry.locationId}`;
+          const bucket = map.get(key) ?? { employeeId: entry.employeeId, locationId: entry.locationId, rows: [] as DailyEntry[] };
+          bucket.rows.push(entry);
+          map.set(key, bucket);
+          return map;
+        }, new Map<string, { employeeId: string; locationId: string; rows: DailyEntry[] }>())
+        .values()
+    )
+      .map((row) => {
+        const found = employeeList.find((item) => item.id === row.employeeId);
+        return {
+          employee: {
+            ...(found ?? { id: row.employeeId, name: row.employeeId.replaceAll("-", " "), shift: "AM" as Shift, active: true }),
+            locationId: row.locationId
+          } as Employee,
+          rows: row.rows
+        };
+      })
+      .sort(
+        (a, b) =>
+          compareByLastName(a.employee.name, b.employee.name) ||
+          yardRank(a.employee.locationId) - yardRank(b.employee.locationId)
+      );
     // Excel caps tab names at 31 characters and rejects : \ / ? * [ ], so the
     // name is sanitised, trimmed and made unique.
     const usedTabNames = new Set<string>();
@@ -2264,14 +2290,23 @@ export default function Home() {
       outline(totalsRow);
     }
 
+    // Credited to the yard each entry was worked at, so a repairer covering a
+    // second yard adds to that yard's numbers rather than their home yard's.
     const yardTotals = new Map<string, { employees: number; quantity: number; piecePay: number; totalPay: number }>();
-    for (const row of report.byEmployee) {
-      const current = yardTotals.get(row.employee.locationId) ?? { employees: 0, quantity: 0, piecePay: 0, totalPay: 0 };
-      current.employees += 1;
-      current.quantity += row.quantity;
-      current.piecePay += row.piecePay;
-      current.totalPay += row.totalPay;
-      yardTotals.set(row.employee.locationId, current);
+    const yardHeads = new Map<string, Set<string>>();
+    for (const entry of filteredEntries) {
+      const entryReport = buildReport([entry], palletTypes, employeeList, locationList, settings);
+      const current = yardTotals.get(entry.locationId) ?? { employees: 0, quantity: 0, piecePay: 0, totalPay: 0 };
+      current.quantity += entryReport.summary.quantity;
+      current.piecePay += entryReport.summary.piecePay;
+      current.totalPay += entryReport.summary.totalPay;
+      yardTotals.set(entry.locationId, current);
+      const heads = yardHeads.get(entry.locationId) ?? new Set<string>();
+      heads.add(entry.employeeId);
+      yardHeads.set(entry.locationId, heads);
+    }
+    for (const [id, value] of yardTotals) {
+      value.employees = yardHeads.get(id)?.size ?? 0;
     }
     addSheet(
       "Yard Totals",
@@ -3267,8 +3302,15 @@ function ProductionEntry({
   const stationEmployee = employees.find((employee) => employee.id === form.employeeId) ?? selectedEmployee;
   // Alphabetical by last name, so the dropdown and the phase list below read in
   // the same order as the Production Grid.
+  // This yard's own crew, for the top of the picker.
   const yardRepairers = employees
     .filter((employee) => employee.locationId === form.locationId && employee.role !== "supervisor")
+    .sort((a, b) => compareByLastName(a.name, b.name));
+  // Everyone else, so a repairer covering another yard for a day can be picked
+  // without moving them off their home yard in Admin. The entry records the
+  // yard selected here, which is what the grid and yard totals count.
+  const visitingRepairers = employees
+    .filter((employee) => employee.locationId !== form.locationId && employee.role !== "supervisor" && employee.active)
     .sort((a, b) => compareByLastName(a.name, b.name));
   const yardManagers = employees
     .filter((employee) => employee.locationId === form.locationId && employee.role === "supervisor")
@@ -3370,12 +3412,21 @@ function ProductionEntry({
         )}
         <Label title={t("Repairer")} icon={<UserRound size={17} />}>
           <select className="field" value={form.employeeId} onChange={(event) => onEmployeeChange(event.target.value)}>
-            {yardRepairers.length === 0 && <option value="">{t("No repairers in this yard")}</option>}
+            {yardRepairers.length === 0 && visitingRepairers.length === 0 && <option value="">{t("No repairers in this yard")}</option>}
             {yardRepairers.map((employee) => (
               <option key={employee.id} value={employee.id}>
                 {employee.name}
               </option>
             ))}
+            {visitingRepairers.length > 0 && (
+              <optgroup label={t("Other yards")}>
+                {visitingRepairers.map((employee) => (
+                  <option key={employee.id} value={employee.id}>
+                    {employee.name} ({locations.find((location) => location.id === employee.locationId)?.name ?? employee.locationId})
+                  </option>
+                ))}
+              </optgroup>
+            )}
           </select>
         </Label>
         {/* Station assignment for the selected repairer. Saved on the repairer,
@@ -4838,11 +4889,37 @@ function ProductionGrid({
 
   // Repairers shown this week (those with entries), with their week report, then
   // ordered by the chosen sort. Last name = the last word of the full name.
-  const sortedCrew = employees
-    .filter((employee) => employee.active || gridEntries.some((entry) => entry.employeeId === employee.id))
-    .map((employee) => ({ employee, employeeEntries: gridEntries.filter((entry) => entry.employeeId === employee.id) }))
-    .filter((row) => row.employeeEntries.length > 0)
-    .map((row) => ({ ...row, employeeReport: buildReport(row.employeeEntries, palletTypes, employees, locations, settings) }))
+  // A repairer is listed under the yard the work actually happened at, taken
+  // from each entry, not the yard on their roster record. Someone who covers a
+  // second yard mid-week therefore appears under both, each card holding only
+  // that yard's days, and the yard totals stay true to where the pallets were
+  // made. (Their roster yard remains their default on the entry screen.)
+  const sortedCrew = Array.from(
+    gridEntries
+      .reduce((map, entry) => {
+        const key = `${entry.employeeId}|${entry.locationId}`;
+        const bucket = map.get(key) ?? { employeeId: entry.employeeId, locationId: entry.locationId, employeeEntries: [] as DailyEntry[] };
+        bucket.employeeEntries.push(entry);
+        map.set(key, bucket);
+        return map;
+      }, new Map<string, { employeeId: string; locationId: string; employeeEntries: DailyEntry[] }>())
+      .values()
+  )
+    .map((row) => {
+      const employee = employees.find((item) => item.id === row.employeeId) ?? {
+        id: row.employeeId,
+        name: row.employeeId.replaceAll("-", " "),
+        locationId: row.locationId,
+        shift: "AM" as Shift,
+        active: true
+      };
+      return {
+        // The yard shown is where this block's work happened.
+        employee: { ...employee, locationId: row.locationId },
+        employeeEntries: row.employeeEntries,
+        employeeReport: buildReport(row.employeeEntries, palletTypes, employees, locations, settings)
+      };
+    })
     .sort((a, b) => {
       // Yard always wins: Fontana, then Mesa, then Citrus. sortMode only orders
       // the repairers inside each yard.
