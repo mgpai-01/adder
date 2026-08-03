@@ -1755,48 +1755,6 @@ export default function Home() {
     }
   }
 
-  // Re-point every entry line that references an orphaned/unknown pallet id
-  // (e.g. a legacy "custom:…") to a real pallet type, so the production gets a
-  // name and rate and starts counting in payroll everywhere. Rewrites the
-  // affected entries in place via the normal save path.
-  async function remapPalletInEntries(fromId: string, toId: string): Promise<number> {
-    const touches = (lines?: ProductionLine[]) => (lines ?? []).some((line) => line.palletTypeId === fromId);
-    const remapLines = (lines?: ProductionLine[]): ProductionLine[] => {
-      const result: ProductionLine[] = [];
-      const indexByType = new Map<string, number>();
-      for (const line of lines ?? []) {
-        const id = line.palletTypeId === fromId ? toId : line.palletTypeId;
-        if (indexByType.has(id)) {
-          result[indexByType.get(id)!].quantity += Number(line.quantity || 0);
-        } else {
-          indexByType.set(id, result.length);
-          result.push({ ...line, palletTypeId: id });
-        }
-      }
-      return result;
-    };
-    const affectedIds = entries
-      .filter((entry) => touches(entry.lines) || (entry.phases ?? []).some((phase) => touches(phase.lines)))
-      .map((entry) => entry.id);
-    let remapped = 0;
-    for (const id of affectedIds) {
-      // Re-read the freshest copy each pass (not the snapshot taken at the start),
-      // so if someone saves a new production number for this entry mid-remap we
-      // just re-point the pallet id on their latest numbers instead of overwriting
-      // them with the pre-remap values.
-      const entry = entriesRef.current.find((item) => item.id === id);
-      if (!entry) continue;
-      if (!(touches(entry.lines) || (entry.phases ?? []).some((phase) => touches(phase.lines)))) continue;
-      await updateSavedEntry({
-        ...entry,
-        lines: remapLines(entry.lines),
-        phases: entry.phases?.map((phase) => ({ ...phase, lines: remapLines(phase.lines) }))
-      });
-      remapped++;
-    }
-    return remapped;
-  }
-
   // Re-stamp every misdated entry (UTC-rollover bug) with the real local date
   // of when it was created. Goes through the normal save path so the change is
   // stamped, synced, and reflected everywhere.
@@ -2462,7 +2420,6 @@ export default function Home() {
               onCreatePallet={createPalletType}
               onUpdatePallet={updatePalletType}
               onDeletePallet={deletePalletType}
-              onRemapPallet={remapPalletInEntries}
               onFixMisdatedEntries={fixMisdatedEntries}
               onCreateEmployee={createEmployee}
               onUpdateEmployee={updateEmployee}
@@ -4305,7 +4262,7 @@ function ReconciliationCard({ entries, report, palletTypes }: { entries: DailyEn
       {unknownList.length > 0 ? (
         <div className="mt-3 text-sm text-steel-900">
           <p className="font-bold">
-            These {wholeNumber(unknownQty)} pallets were entered but aren&apos;t in your Pallet Types list, so they pay $0 and don&apos;t show on the tracker. Match them in <strong>Admin → Pallet Types → Match Unknown Pallets</strong>:
+            These {wholeNumber(unknownQty)} pallets were entered but aren&apos;t in your Pallet Types list, so they pay $0 and don&apos;t show on the tracker. Add the pallet under <strong>Admin → Pallet Types</strong>, then re-enter those days on the Daily Grid so they price correctly:
           </p>
           <ul className="mt-2 grid gap-1">
             {unknownList.map((item) => (
@@ -5323,7 +5280,6 @@ function Settings({
   onCreatePallet,
   onUpdatePallet,
   onDeletePallet,
-  onRemapPallet,
   onFixMisdatedEntries,
   onCreateEmployee,
   onUpdateEmployee,
@@ -5345,7 +5301,6 @@ function Settings({
   onCreatePallet: (palletType: Omit<PalletType, "id">) => void | Promise<void>;
   onUpdatePallet: (id: string, patch: Partial<PalletType>) => void | Promise<void>;
   onDeletePallet: (id: string) => void | Promise<void>;
-  onRemapPallet: (fromId: string, toId: string) => Promise<number>;
   onFixMisdatedEntries: () => Promise<number>;
   onCreateEmployee: (employee: Omit<Employee, "id">) => void | Promise<void>;
   onUpdateEmployee: (id: string, patch: Partial<Employee>) => void | Promise<void>;
@@ -5372,7 +5327,7 @@ function Settings({
           <MisdatedEntriesRepair entries={entries} employees={employees} palletTypes={palletTypes} onFix={onFixMisdatedEntries} />
         </>
       )}
-      {activeTab === "pallets" && <PalletAdmin palletTypes={palletTypes} entries={entries} onCreate={onCreatePallet} onUpdate={onUpdatePallet} onDelete={onDeletePallet} onRemapPallet={onRemapPallet} />}
+      {activeTab === "pallets" && <PalletAdmin palletTypes={palletTypes} entries={entries} onCreate={onCreatePallet} onUpdate={onUpdatePallet} onDelete={onDeletePallet} />}
       {activeTab === "employees" && <EmployeeAdmin employees={employees} locations={locations} shifts={shifts} onCreate={onCreateEmployee} onUpdate={onUpdateEmployee} onDelete={onDeleteEmployee} />}
       {activeTab === "locations" && <LocationShiftAdmin locations={locations} shifts={shifts} onLocationsChange={onLocationsChange} onShiftsChange={onShiftsChange} />}
     </div>
@@ -5557,14 +5512,12 @@ function PalletAdmin({
   onCreate,
   onUpdate,
   onDelete,
-  onRemapPallet
 }: {
   palletTypes: PalletType[];
   entries: DailyEntry[];
   onCreate: (palletType: Omit<PalletType, "id">) => void | Promise<void>;
   onUpdate: (id: string, patch: Partial<PalletType>) => void | Promise<void>;
   onDelete: (id: string) => void | Promise<void>;
-  onRemapPallet: (fromId: string, toId: string) => Promise<number>;
 }) {
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<"All" | PalletCategory>("All");
@@ -5574,36 +5527,6 @@ function PalletAdmin({
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState("Ready.");
   const [error, setError] = useState("");
-
-  // Pallet ids referenced by entries that don't resolve to any pallet type in
-  // the list (orphaned "custom:…" leftovers). Each carries its total quantity so
-  // the admin can see how much production is stuck on it.
-  const unknownPallets = useMemo(() => {
-    const totals = new Map<string, number>();
-    for (const entry of entries) {
-      for (const line of entry.lines ?? []) {
-        if (!findPalletType(palletTypes, line.palletTypeId)) {
-          totals.set(line.palletTypeId, (totals.get(line.palletTypeId) ?? 0) + Number(line.quantity || 0));
-        }
-      }
-    }
-    return Array.from(totals, ([id, quantity]) => ({ id, quantity })).sort((a, b) => b.quantity - a.quantity);
-  }, [entries, palletTypes]);
-  const [remapTargets, setRemapTargets] = useState<Record<string, string>>({});
-  const [remapBusy, setRemapBusy] = useState<string | null>(null);
-
-  async function applyRemap(fromId: string) {
-    const toId = remapTargets[fromId];
-    if (!toId) return;
-    setRemapBusy(fromId);
-    try {
-      const count = await onRemapPallet(fromId, toId);
-      const target = palletTypes.find((pallet) => pallet.id === toId);
-      setMessage(`Matched ${fromId} → ${target?.code ?? toId} across ${count} entr${count === 1 ? "y" : "ies"}.`);
-    } finally {
-      setRemapBusy(null);
-    }
-  }
 
   const filtered = palletTypes.filter((pallet) => {
     const query = search.toLowerCase();
@@ -5690,46 +5613,6 @@ function PalletAdmin({
   return (
     <div className="grid gap-4">
       <SaveNotice message={message} error={error} />
-
-      {unknownPallets.length > 0 && (
-        <div className="rounded border-2 border-amber-300 bg-amber-50 p-4 text-steel-900">
-          <h3 className="flex items-center gap-2 text-lg font-black">
-            <ShieldCheck size={18} /> Match Unknown Pallets ({unknownPallets.length})
-          </h3>
-          <p className="mt-1 text-sm font-bold text-steel-600">
-            These pallets were entered in production but aren&apos;t in your list, so they have no name or rate and pay $0. Pick a pallet type for each — the production is moved onto it and starts counting in payroll everywhere. Add the pallet under &quot;Custom&quot; below first if it doesn&apos;t exist yet.
-          </p>
-          <div className="mt-3 grid gap-2">
-            {unknownPallets.map((unknown) => (
-              <div key={unknown.id} className="grid items-center gap-2 rounded border border-amber-200 bg-white p-2 sm:grid-cols-[1fr_auto_1fr_auto]">
-                <div className="min-w-0">
-                  <span className="block truncate font-mono text-sm font-black">{unknown.id}</span>
-                  <span className="text-xs font-bold text-steel-500">{wholeNumber(unknown.quantity)} pallets entered</span>
-                </div>
-                <span className="hidden text-steel-400 sm:inline">→</span>
-                <select
-                  className="field"
-                  value={remapTargets[unknown.id] ?? ""}
-                  onChange={(event) => setRemapTargets((current) => ({ ...current, [unknown.id]: event.target.value }))}
-                >
-                  <option value="">Choose pallet type…</option>
-                  {palletTypes.filter((pallet) => pallet.active).map((pallet) => (
-                    <option key={pallet.id} value={pallet.id}>{`${pallet.code} ${pallet.description}`.trim()} (${pallet.rate})</option>
-                  ))}
-                </select>
-                <button
-                  type="button"
-                  disabled={!remapTargets[unknown.id] || remapBusy === unknown.id}
-                  className="touch-target rounded bg-[#1f7a4d] px-4 py-2 font-black text-white disabled:bg-steel-400"
-                  onClick={() => applyRemap(unknown.id)}
-                >
-                  {remapBusy === unknown.id ? "Matching…" : "Match"}
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
       <div className="grid gap-3 md:grid-cols-[1fr_1fr_160px_auto]">
         <Label title="Pallet Name" icon={<Factory size={17} />}>
