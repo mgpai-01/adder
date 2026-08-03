@@ -1865,6 +1865,10 @@ export default function Home() {
       updatedAt: new Date().toISOString(),
       updatedBy: "Admin"
     };
+    // This is the user's own deliberate edit (grid cell, edit modal, repair
+    // tool), so any "unsaved typing" hold on the entry form is stale — clear
+    // it so the form refreshes and shows these numbers instead of old ones.
+    formDirtyRef.current = false;
     setEntries((current) => current.map((entry) => (entry.id === stampedEntry.id ? stampedEntry : entry)));
     setSaveStatus(`Updated entry for ${updatedEntry.date}`);
     try {
