@@ -2702,6 +2702,7 @@ export default function Home() {
               onEditEntry={setEditingEntry}
               onViewEntry={setViewingEntry}
               onDeleteEntry={deleteSavedEntry}
+              onUpdateEntry={updateSavedEntry}
               exportCsv={exportCsv}
               exportExcel={exportExcel}
             />
@@ -4937,6 +4938,7 @@ function ProductionGrid({
   onEditEntry,
   onViewEntry,
   onDeleteEntry,
+  onUpdateEntry,
   exportCsv,
   exportExcel
 }: {
@@ -4952,6 +4954,8 @@ function ProductionGrid({
   onEditEntry: (entry: DailyEntry) => void;
   onViewEntry: (entry: DailyEntry) => void;
   onDeleteEntry: (id: string) => void;
+  // Writes a corrected entry through the normal save path (stamped + synced).
+  onUpdateEntry: (entry: DailyEntry) => void;
   // Export the currently-shown week's entries as CSV / multi-sheet Excel.
   exportCsv: (entries: DailyEntry[]) => void;
   exportExcel: (entries: DailyEntry[]) => void;
@@ -4967,6 +4971,60 @@ function ProductionGrid({
   // Which repairer/day the phase breakdown pop-up is showing, opened from a day
   // in that repairer's Daily Totals row.
   const [dayDetail, setDayDetail] = useState<{ employeeId: string; employeeName: string; date: string } | null>(null);
+  // Double-click any quantity cell to correct it in place. The typed number
+  // becomes that repairer's day total for the pallet and saves immediately.
+  const [editCell, setEditCell] = useState<{ employeeId: string; palletId: string; day: string } | null>(null);
+  const [editValue, setEditValue] = useState("");
+  const cancelEditRef = useRef(false);
+
+  function commitCellEdit(employeeEntries: DailyEntry[], pallet: PalletType, day: string) {
+    setEditCell(null);
+    const parsed = Number(editValue.trim());
+    if (editValue.trim() === "" || Number.isNaN(parsed) || parsed < 0) return;
+    const nextQty = Math.round(parsed);
+    const matchesPallet = (id: string) => getResolvedPalletTypeId(palletTypes, id) === pallet.id;
+    const dayEntries = employeeEntries
+      .filter((entry) => entry.date === day)
+      .sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
+    if (dayEntries.length === 0) return;
+    const currentQty = dayEntries.reduce(
+      (total, entry) => total + entry.lines.reduce((sum, line) => sum + (matchesPallet(line.palletTypeId) ? line.quantity : 0), 0),
+      0
+    );
+    if (currentQty === nextQty) return;
+    // The typed number is written onto one entry — the one already carrying
+    // this pallet, else the day's newest — and cleared from any other entry
+    // that day, so the cell ends up showing exactly what was typed.
+    const target = dayEntries.find((entry) => entry.lines.some((line) => matchesPallet(line.palletTypeId))) ?? dayEntries[0];
+    for (const entry of dayEntries) {
+      const phases = normalizePhases(entry.phases);
+      let touched = false;
+      let nextPhases = phases.map((phase) => {
+        const kept = (phase.lines ?? []).filter((line) => !matchesPallet(line.palletTypeId));
+        if (kept.length !== (phase.lines ?? []).length) touched = true;
+        return { ...phase, lines: kept };
+      });
+      if (entry.id === target.id && nextQty > 0) {
+        // Land the number on the phase that already had this pallet, else the
+        // last phase, so pay and the phase breakdown stay consistent.
+        let phaseIndex = -1;
+        for (let i = phases.length - 1; i >= 0; i--) {
+          if ((phases[i].lines ?? []).some((line) => matchesPallet(line.palletTypeId))) {
+            phaseIndex = i;
+            break;
+          }
+        }
+        if (phaseIndex === -1) phaseIndex = Math.max(0, nextPhases.length - 1);
+        nextPhases = nextPhases.map((phase, index) =>
+          index === phaseIndex ? { ...phase, lines: [...(phase.lines ?? []), { palletTypeId: pallet.id, quantity: nextQty }] } : phase
+        );
+        touched = true;
+      }
+      if (!touched) continue;
+      const withAmounts = nextPhases.map((phase) => ({ ...phase, amount: phasePalletCount(phase, palletTypes) }));
+      onUpdateEntry({ ...entry, phases: withAmounts, lines: aggregatePhaseLines(withAmounts) });
+    }
+  }
   const gridEntries = yardFilter === "all" ? weekEntries : weekEntries.filter((entry) => entry.locationId === yardFilter);
   const activePallets = palletTypes.filter((pallet) => pallet.active || gridEntries.some((entry) => entry.lines.some((line) => line.palletTypeId === pallet.id)));
   const weekReport = buildReport(gridEntries, palletTypes, employees, locations, settings);
@@ -5316,21 +5374,70 @@ function ProductionGrid({
                           <strong className="block">{pallet.code}</strong>
                           <span className="text-steel-500">{pallet.description}</span>
                         </td>
-                        {dayCells.map((cell) => (
-                          <td key={cell.day} className="p-2 text-center">
-                            {/* A day with none of this pallet is left blank —
-                                "0 / $0.00" in most cells makes the days they
-                                did make it harder to pick out. */}
-                            {cell.quantity === 0 ? (
-                              <span className="block text-steel-300">—</span>
-                            ) : (
-                              <>
-                                <span className="block font-black">{wholeNumber(cell.quantity)}</span>
-                                <span className={classNames("block", cell.amount < 0 ? "text-red-700" : "text-steel-500")}>{currency(cell.amount)}</span>
-                              </>
-                            )}
-                          </td>
-                        ))}
+                        {dayCells.map((cell) => {
+                          const isEditing =
+                            editCell !== null &&
+                            editCell.employeeId === employee.id &&
+                            editCell.palletId === pallet.id &&
+                            editCell.day === cell.day;
+                          // Only days with a saved entry can be edited — a blank
+                          // day has no record (hours, yard, phases) to write to.
+                          const editable = employeeEntries.some((entry) => entry.date === cell.day);
+                          return (
+                            <td key={cell.day} className={classNames("text-center", isEditing ? "p-1" : "p-2")}>
+                              {isEditing ? (
+                                <input
+                                  autoFocus
+                                  type="number"
+                                  inputMode="numeric"
+                                  min={0}
+                                  className="w-16 rounded border-2 border-workshop-500 p-1 text-center text-sm font-black"
+                                  value={editValue}
+                                  onChange={(event) => setEditValue(event.target.value)}
+                                  onFocus={(event) => event.target.select()}
+                                  onBlur={() => {
+                                    if (cancelEditRef.current) {
+                                      cancelEditRef.current = false;
+                                      setEditCell(null);
+                                      return;
+                                    }
+                                    commitCellEdit(employeeEntries, pallet, cell.day);
+                                  }}
+                                  onKeyDown={(event) => {
+                                    if (event.key === "Enter") event.currentTarget.blur();
+                                    if (event.key === "Escape") {
+                                      cancelEditRef.current = true;
+                                      event.currentTarget.blur();
+                                    }
+                                  }}
+                                />
+                              ) : (
+                                <div
+                                  className={classNames(editable && "cursor-cell rounded transition-colors hover:bg-safety-400/20")}
+                                  title={editable ? "Double-click to edit" : undefined}
+                                  onDoubleClick={() => {
+                                    if (!editable) return;
+                                    cancelEditRef.current = false;
+                                    setEditValue(String(cell.quantity));
+                                    setEditCell({ employeeId: employee.id, palletId: pallet.id, day: cell.day });
+                                  }}
+                                >
+                                  {/* A day with none of this pallet is left blank —
+                                      "0 / $0.00" in most cells makes the days they
+                                      did make it harder to pick out. */}
+                                  {cell.quantity === 0 ? (
+                                    <span className="block text-steel-300">—</span>
+                                  ) : (
+                                    <>
+                                      <span className="block font-black">{wholeNumber(cell.quantity)}</span>
+                                      <span className={classNames("block", cell.amount < 0 ? "text-red-700" : "text-steel-500")}>{currency(cell.amount)}</span>
+                                    </>
+                                  )}
+                                </div>
+                              )}
+                            </td>
+                          );
+                        })}
                         <td className="bg-workshop-100 p-2 text-center font-black">{wholeNumber(weeklyQty)}</td>
                         <td className="bg-workshop-100 p-2 text-center font-black">{currency(weeklyAmount)}</td>
                       </tr>
