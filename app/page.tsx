@@ -2110,6 +2110,72 @@ export default function Home() {
       true
     );
 
+    // "Production Grid" — the same layout as the on-screen grid: one block per
+    // repairer, headed by their name and yard, with a row per pallet type they
+    // made, a column per day of the week, and the weekly totals on the right.
+    // Repairers run in yard order (Fontana, Mesa, Citrus) then by last name.
+    const gridSheet = workbook.addWorksheet("Production Grid");
+    const gridDays = Array.from(new Set(filteredEntries.map((entry) => entry.date))).sort();
+    gridSheet.columns = [{ width: 34 }, ...gridDays.map(() => ({ width: 13 })), { width: 12 }, { width: 12 }];
+    const gridCrew = employeeList
+      .map((employee) => ({ employee, rows: filteredEntries.filter((entry) => entry.employeeId === employee.id) }))
+      .filter((row) => row.rows.length > 0)
+      .sort(
+        (a, b) =>
+          yardRank(a.employee.locationId) - yardRank(b.employee.locationId) ||
+          compareByLastName(a.employee.name, b.employee.name)
+      );
+    for (const { employee, rows: employeeEntries } of gridCrew) {
+      const titleRow = gridSheet.addRow([`${employee.name} — ${locName(employee.locationId)} · ${employee.shift ?? ""}`.trim()]);
+      titleRow.font = { bold: true, size: 12 };
+      const headerRow = gridSheet.addRow(["Pallet Type", ...gridDays.map((day) => formatDayHeader(day)), "Weekly Qty", "Weekly $"]);
+      headerRow.font = { bold: true };
+      // Only the pallets this repairer made, plus QC so a clean week still shows
+      // an explicit zero — the same rule the screen uses.
+      for (const pallet of palletTypes) {
+        const perDay = gridDays.map((day) =>
+          employeeEntries
+            .filter((entry) => entry.date === day)
+            .reduce(
+              (total, entry) =>
+                total +
+                entry.lines.reduce(
+                  (lineTotal, line) => lineTotal + (getResolvedPalletTypeId(palletTypes, line.palletTypeId) === pallet.id ? Number(line.quantity || 0) : 0),
+                  0
+                ),
+              0
+            )
+        );
+        const weeklyQty = perDay.reduce((total, quantity) => total + quantity, 0);
+        if (weeklyQty === 0 && pallet.category !== "QC Deductions") continue;
+        gridSheet.addRow([
+          `${pallet.code} ${pallet.description}`.trim(),
+          ...perDay,
+          weeklyQty,
+          money(weeklyQty * Number(pallet.rate ?? 0))
+        ]);
+      }
+      const dayTotals = gridDays.map((day) => {
+        const dayReport = buildReport(
+          employeeEntries.filter((entry) => entry.date === day),
+          palletTypes,
+          employeeList,
+          locationList,
+          settings
+        );
+        return dayReport.summary.quantity;
+      });
+      const employeeReport = buildReport(employeeEntries, palletTypes, employeeList, locationList, settings);
+      const totalsRow = gridSheet.addRow([
+        "Daily Totals",
+        ...dayTotals,
+        employeeReport.summary.quantity,
+        money(employeeReport.summary.totalPay)
+      ]);
+      totalsRow.font = { bold: true };
+      gridSheet.addRow([]);
+    }
+
     const yardTotals = new Map<string, { employees: number; quantity: number; piecePay: number; totalPay: number }>();
     for (const row of report.byEmployee) {
       const current = yardTotals.get(row.employee.locationId) ?? { employees: 0, quantity: 0, piecePay: 0, totalPay: 0 };
