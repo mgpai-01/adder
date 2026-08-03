@@ -5222,13 +5222,26 @@ function ProductionGrid({
                     {weekDays.map((day) => (
                       <th key={day} className="p-2 text-center">
                         {formatDayHeader(day)}
-                        {/* The yard that day's work was done at, on every day
-                            that has work — not just weeks split across yards. */}
-                        <span className="mt-0.5 block text-[10px] font-black uppercase tracking-wide text-safety-400">
-                          {(yardByDay.get(day) ?? [])
+                        {/* The yard on every column: the one that day's work was
+                            done at, or — on a day with no work — the yard they
+                            are on, dimmed so the two read apart. */}
+                        {(() => {
+                          const worked = yardByDay.get(day) ?? [];
+                          const ids = worked.length > 0 ? worked : [employee.locationId];
+                          const label = ids
                             .map((id) => locations.find((location) => location.id === id)?.name ?? id)
-                            .join(" / ") || "\u00a0"}
-                        </span>
+                            .join(" / ");
+                          return (
+                            <span
+                              className={classNames(
+                                "mt-0.5 block text-[10px] font-black uppercase tracking-wide",
+                                worked.length > 0 ? "text-safety-400" : "text-white/35"
+                              )}
+                            >
+                              {label}
+                            </span>
+                          );
+                        })()}
                       </th>
                     ))}
                     <th className="bg-safety-400 p-2 text-center text-steel-900">Weekly Qty</th>
