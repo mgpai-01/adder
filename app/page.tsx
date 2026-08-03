@@ -2110,24 +2110,34 @@ export default function Home() {
       true
     );
 
-    // "Production Grid" — the same layout as the on-screen grid: one block per
-    // repairer, headed by their name and yard, with a row per pallet type they
-    // made, a column per day of the week, and the weekly totals on the right.
-    // Repairers run in yard order (Fontana, Mesa, Citrus) then by last name.
-    const gridSheet = workbook.addWorksheet("Production Grid");
+    // One tab per repairer, named "Last name, First — Yard" and ordered
+    // alphabetically by last name, each holding that person's week in the same
+    // shape as the on-screen grid.
     const gridDays = Array.from(new Set(filteredEntries.map((entry) => entry.date))).sort();
-    gridSheet.columns = [{ width: 34 }, ...gridDays.map(() => ({ width: 13 })), { width: 12 }, { width: 12 }];
     const gridCrew = employeeList
       .map((employee) => ({ employee, rows: filteredEntries.filter((entry) => entry.employeeId === employee.id) }))
       .filter((row) => row.rows.length > 0)
-      .sort(
-        (a, b) =>
-          yardRank(a.employee.locationId) - yardRank(b.employee.locationId) ||
-          compareByLastName(a.employee.name, b.employee.name)
-      );
+      .sort((a, b) => compareByLastName(a.employee.name, b.employee.name));
+    // Excel caps tab names at 31 characters and rejects : \ / ? * [ ], so the
+    // name is sanitised, trimmed and made unique.
+    const usedTabNames = new Set<string>();
+    const tabName = (name: string, yard: string) => {
+      const base = `${name} - ${yard}`.replace(/[:\\/?*[\]]/g, "-").slice(0, 31).trim();
+      let candidate = base || "Repairer";
+      let suffix = 2;
+      while (usedTabNames.has(candidate.toLowerCase())) {
+        const room = 31 - String(suffix).length - 1;
+        candidate = `${base.slice(0, room)} ${suffix}`;
+        suffix += 1;
+      }
+      usedTabNames.add(candidate.toLowerCase());
+      return candidate;
+    };
     for (const { employee, rows: employeeEntries } of gridCrew) {
+      const gridSheet = workbook.addWorksheet(tabName(employee.name, locName(employee.locationId)));
+      gridSheet.columns = [{ width: 34 }, ...gridDays.map(() => ({ width: 13 })), { width: 12 }, { width: 12 }];
       const titleRow = gridSheet.addRow([`${employee.name} — ${locName(employee.locationId)} · ${employee.shift ?? ""}`.trim()]);
-      titleRow.font = { bold: true, size: 12 };
+      titleRow.font = { bold: true, size: 13 };
       const headerRow = gridSheet.addRow(["Pallet Type", ...gridDays.map((day) => formatDayHeader(day)), "Weekly Qty", "Weekly $"]);
       headerRow.font = { bold: true };
       // Only the pallets this repairer made, plus QC so a clean week still shows
@@ -2173,7 +2183,6 @@ export default function Home() {
         money(employeeReport.summary.totalPay)
       ]);
       totalsRow.font = { bold: true };
-      gridSheet.addRow([]);
     }
 
     const yardTotals = new Map<string, { employees: number; quantity: number; piecePay: number; totalPay: number }>();
