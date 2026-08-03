@@ -4212,18 +4212,65 @@ function Dashboard({
 // were entered but aren't in the Pallet Types list (no name, no rate → paid $0
 // and hidden from the live tracker), and confirms the internal totals foot:
 // per-employee sum == per-pallet-type sum == grand total.
-function ReconciliationCard({ entries, report, palletTypes }: { entries: DailyEntry[]; report: ReturnType<typeof buildReport>; palletTypes: PalletType[] }) {
+// Which unmatched pallets an admin has marked as dealt with. Keyed by pallet id
+// with the quantity that was showing at the time, so if more production later
+// lands on the same id the reminder comes back on its own.
+const clearedUnknownKey = "mgp-cleared-unknown-pallets-v1";
+function readClearedUnknown(): Record<string, number> {
+  try {
+    return JSON.parse(window.localStorage.getItem(clearedUnknownKey) ?? "{}") as Record<string, number>;
+  } catch {
+    return {};
+  }
+}
+
+function ReconciliationCard({ entries, report, palletTypes, employees }: { entries: DailyEntry[]; report: ReturnType<typeof buildReport>; palletTypes: PalletType[]; employees: Employee[] }) {
+  // Each unmatched pallet id with the repairer/day lines that put it there, so
+  // it is clear who entered it and when it needs re-entering.
   const unknownList = useMemo(() => {
-    const totals = new Map<string, number>();
+    const totals = new Map<string, { id: string; quantity: number; rows: { employeeId: string; date: string; quantity: number }[] }>();
     for (const entry of entries) {
       for (const line of entry.lines ?? []) {
-        if (!findPalletType(palletTypes, line.palletTypeId)) {
-          totals.set(line.palletTypeId, (totals.get(line.palletTypeId) ?? 0) + Number(line.quantity || 0));
-        }
+        if (findPalletType(palletTypes, line.palletTypeId)) continue;
+        const quantity = Number(line.quantity || 0);
+        const bucket = totals.get(line.palletTypeId) ?? { id: line.palletTypeId, quantity: 0, rows: [] };
+        bucket.quantity += quantity;
+        const existing = bucket.rows.find((row) => row.employeeId === entry.employeeId && row.date === entry.date);
+        if (existing) existing.quantity += quantity;
+        else bucket.rows.push({ employeeId: entry.employeeId, date: entry.date, quantity });
+        totals.set(line.palletTypeId, bucket);
       }
     }
-    return Array.from(totals, ([id, quantity]) => ({ id, quantity })).sort((a, b) => b.quantity - a.quantity);
+    return Array.from(totals.values())
+      .map((item) => ({ ...item, rows: item.rows.sort((a, b) => a.date.localeCompare(b.date)) }))
+      .sort((a, b) => b.quantity - a.quantity);
   }, [entries, palletTypes]);
+
+  const [cleared, setCleared] = useState<Record<string, number>>({});
+  useEffect(() => setCleared(readClearedUnknown()), []);
+  function markCleared(id: string, quantity: number) {
+    const next = { ...cleared, [id]: quantity };
+    setCleared(next);
+    try {
+      window.localStorage.setItem(clearedUnknownKey, JSON.stringify(next));
+    } catch {
+      // Storage unavailable — the reminder simply stays visible.
+    }
+  }
+  function restoreCleared() {
+    setCleared({});
+    try {
+      window.localStorage.removeItem(clearedUnknownKey);
+    } catch {
+      // Nothing to do.
+    }
+  }
+  // Still cleared only while the quantity is unchanged; new production on the
+  // same id raises it again.
+  const openUnknown = unknownList.filter((item) => cleared[item.id] !== item.quantity);
+  const clearedCount = unknownList.length - openUnknown.length;
+  const employeeName = (id: string) => employees.find((employee) => employee.id === id)?.name ?? id.replaceAll("-", " ");
+  const dayLabel = (date: string) => new Date(`${date}T12:00:00`).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
 
   const unknownQty = unknownList.reduce((sum, item) => sum + item.quantity, 0);
   const grandQty = report.summary.quantity;
@@ -4231,14 +4278,14 @@ function ReconciliationCard({ entries, report, palletTypes }: { entries: DailyEn
   const byPalletQty = report.byPallet.reduce((sum, row) => (row.category === "QC Deductions" ? sum - row.quantity : sum + row.quantity), 0);
   const booksBalance = byEmployeeQty === grandQty && byPalletQty === grandQty;
   const trackerQty = grandQty - unknownQty;
-  const ok = booksBalance && unknownList.length === 0;
+  const ok = booksBalance && openUnknown.length === 0;
 
   return (
     <div className={classNames("rounded border-2 p-4", ok ? "border-workshop-300 bg-workshop-50" : "border-amber-300 bg-amber-50")}>
       <div className="flex items-center gap-2">
         {ok ? <CheckCircle2 size={20} className="text-workshop-700" /> : <ShieldCheck size={20} className="text-amber-700" />}
         <h3 className="text-lg font-black text-steel-900">
-          {ok ? "Numbers reconcile" : `${unknownList.length} unmatched pallet type${unknownList.length === 1 ? "" : "s"} — needs attention`}
+          {ok ? "Numbers reconcile" : `${openUnknown.length} unmatched pallet type${openUnknown.length === 1 ? "" : "s"} — needs attention`}
         </h3>
       </div>
       <div className="mt-3 grid gap-3 sm:grid-cols-4">
@@ -4259,23 +4306,66 @@ function ReconciliationCard({ entries, report, palletTypes }: { entries: DailyEn
           <p className={classNames("text-2xl font-black", booksBalance ? "text-workshop-700" : "text-red-700")}>{booksBalance ? "✓ Even" : "✗ Off"}</p>
         </div>
       </div>
-      {unknownList.length > 0 ? (
-        <div className="mt-3 text-sm text-steel-900">
-          <p className="font-bold">
-            These {wholeNumber(unknownQty)} pallets were entered but aren&apos;t in your Pallet Types list, so they pay $0 and don&apos;t show on the tracker. Add the pallet under <strong>Admin → Pallet Types</strong>, then re-enter those days on the Daily Grid so they price correctly:
+      {openUnknown.length > 0 ? (
+        <div className="mt-4 grid gap-3">
+          <p className="text-sm font-bold text-steel-700">
+            These pallets were entered but aren&apos;t in your Pallet Types list, so they pay $0 and don&apos;t show on the tracker. Add the pallet under <strong>Admin → Pallet Types</strong>, then re-enter the days below on the Daily Grid. Once a pallet is sorted, clear it to take it off this list.
           </p>
-          <ul className="mt-2 grid gap-1">
-            {unknownList.map((item) => (
-              <li key={item.id} className="flex items-center justify-between rounded border border-amber-200 bg-white px-3 py-1.5">
-                <span className="truncate font-mono text-xs font-black">{item.id}</span>
-                <span className="shrink-0 text-sm font-black">{wholeNumber(item.quantity)} pallets</span>
-              </li>
-            ))}
-          </ul>
+          {openUnknown.map((item) => (
+            <div key={item.id} className="overflow-hidden rounded-lg border border-amber-200 bg-white shadow-sm">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-amber-100 bg-amber-50/60 px-4 py-2.5">
+                <div className="min-w-0">
+                  <p className="truncate font-mono text-xs font-black text-steel-900">{item.id}</p>
+                  <p className="text-[11px] font-bold uppercase tracking-wide text-steel-500">
+                    {item.rows.length} {item.rows.length === 1 ? "entry" : "entries"} · {new Set(item.rows.map((row) => row.employeeId)).size} repairer
+                    {new Set(item.rows.map((row) => row.employeeId)).size === 1 ? "" : "s"}
+                  </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-3">
+                  <span className="rounded-full bg-amber-100 px-3 py-1 text-sm font-black text-amber-800">{wholeNumber(item.quantity)} pallets · $0.00</span>
+                  <button
+                    type="button"
+                    className="touch-target rounded border border-steel-300 bg-white px-3 py-1.5 text-sm font-black text-steel-700 transition-colors hover:border-workshop-500 hover:text-workshop-700"
+                    onClick={() => markCleared(item.id, item.quantity)}
+                  >
+                    Clear
+                  </button>
+                </div>
+              </div>
+              <table className="w-full text-left text-sm">
+                <thead>
+                  <tr className="border-b border-steel-100 text-[11px] font-black uppercase tracking-wide text-steel-500">
+                    <th className="px-4 py-1.5">Repairer</th>
+                    <th className="px-4 py-1.5">Day entered</th>
+                    <th className="px-4 py-1.5 text-right">Pallets</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {item.rows.map((row) => (
+                    <tr key={`${row.employeeId}-${row.date}`} className="border-b border-steel-50 last:border-0 font-bold text-steel-900">
+                      <td className="px-4 py-1.5">{employeeName(row.employeeId)}</td>
+                      <td className="px-4 py-1.5 text-steel-600">{dayLabel(row.date)}</td>
+                      <td className="px-4 py-1.5 text-right tabular-nums">{wholeNumber(row.quantity)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ))}
         </div>
       ) : (
         <p className="mt-3 text-sm font-bold text-steel-600">
-          Every pallet entered resolves to a real type with a rate. Payroll, the production grid, the entry screen, and the live tracker all count the same {wholeNumber(grandQty)} pallets for this selection.
+          {clearedCount > 0
+            ? `Every pallet entered either resolves to a real type or has been cleared. Payroll, the production grid, the entry screen, and the live tracker count ${wholeNumber(trackerQty)} pallets for this selection.`
+            : `Every pallet entered resolves to a real type with a rate. Payroll, the production grid, the entry screen, and the live tracker all count the same ${wholeNumber(grandQty)} pallets for this selection.`}
+        </p>
+      )}
+      {clearedCount > 0 && (
+        <p className="mt-3 flex flex-wrap items-center gap-2 text-xs font-bold text-steel-500">
+          {clearedCount} cleared and hidden. They come back on their own if more production lands on them.
+          <button type="button" className="rounded border border-steel-300 bg-white px-2 py-1 font-black text-steel-700 transition-colors hover:text-steel-900" onClick={restoreCleared}>
+            Show cleared
+          </button>
         </p>
       )}
       {!booksBalance && (
@@ -4386,7 +4476,7 @@ function Payroll({
         <Metric label="Total Pay" value={currency(report.summary.totalPay)} />
       </div>
 
-      <ReconciliationCard entries={filteredEntries} report={report} palletTypes={palletTypes} />
+      <ReconciliationCard entries={filteredEntries} report={report} palletTypes={palletTypes} employees={employees} />
 
       <EmployeeTable rows={report.byEmployee} onSelectEmployee={onSelectEmployee} />
       <BreakdownTable title="Quantities by Type" rows={report.byPallet} />
