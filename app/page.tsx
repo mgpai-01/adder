@@ -2199,35 +2199,44 @@ export default function Home() {
     // alphabetically by last name, each holding that person's week in the same
     // shape as the on-screen grid.
     const gridDays = Array.from(new Set(filteredEntries.map((entry) => entry.date))).sort();
-    // One tab per repairer per yard they worked, so a week split across yards
-    // shows up as two tabs rather than being silently folded into their home
-    // yard. Ordered by last name, then by yard for anyone who covered two.
+    // One tab per repairer holding their whole week, matching the Production
+    // Grid. The tab is named for the yard they worked most; a week split across
+    // yards carries the yard for each day in a row under the dates.
     const gridCrew = Array.from(
       filteredEntries
         .reduce((map, entry) => {
-          const key = `${entry.employeeId}|${entry.locationId}`;
-          const bucket = map.get(key) ?? { employeeId: entry.employeeId, locationId: entry.locationId, rows: [] as DailyEntry[] };
+          const bucket = map.get(entry.employeeId) ?? { employeeId: entry.employeeId, rows: [] as DailyEntry[] };
           bucket.rows.push(entry);
-          map.set(key, bucket);
+          map.set(entry.employeeId, bucket);
           return map;
-        }, new Map<string, { employeeId: string; locationId: string; rows: DailyEntry[] }>())
+        }, new Map<string, { employeeId: string; rows: DailyEntry[] }>())
         .values()
     )
       .map((row) => {
         const found = employeeList.find((item) => item.id === row.employeeId);
+        const perYard = new Map<string, number>();
+        for (const entry of row.rows) {
+          perYard.set(entry.locationId, (perYard.get(entry.locationId) ?? 0) + entry.lines.reduce((total, line) => total + Number(line.quantity || 0), 0));
+        }
+        const primaryYard =
+          Array.from(perYard.entries()).sort((a, b) => b[1] - a[1] || yardRank(a[0]) - yardRank(b[0]))[0]?.[0] ?? found?.locationId ?? "";
+        const yardByDay = new Map<string, string[]>();
+        for (const entry of row.rows) {
+          const list = yardByDay.get(entry.date) ?? [];
+          if (!list.includes(entry.locationId)) list.push(entry.locationId);
+          yardByDay.set(entry.date, list);
+        }
         return {
           employee: {
             ...(found ?? { id: row.employeeId, name: row.employeeId.replaceAll("-", " "), shift: "AM" as Shift, active: true }),
-            locationId: row.locationId
+            locationId: primaryYard
           } as Employee,
-          rows: row.rows
+          rows: row.rows,
+          yardsWorked: Array.from(perYard.keys()).sort((a, b) => yardRank(a) - yardRank(b)),
+          yardByDay
         };
       })
-      .sort(
-        (a, b) =>
-          compareByLastName(a.employee.name, b.employee.name) ||
-          yardRank(a.employee.locationId) - yardRank(b.employee.locationId)
-      );
+      .sort((a, b) => compareByLastName(a.employee.name, b.employee.name));
     // Excel caps tab names at 31 characters and rejects : \ / ? * [ ], so the
     // name is sanitised, trimmed and made unique.
     const usedTabNames = new Set<string>();
@@ -2243,7 +2252,7 @@ export default function Home() {
       usedTabNames.add(candidate.toLowerCase());
       return candidate;
     };
-    for (const { employee, rows: employeeEntries } of gridCrew) {
+    for (const { employee, rows: employeeEntries, yardsWorked, yardByDay } of gridCrew) {
       const gridSheet = workbook.addWorksheet(tabName(employee.name, locName(employee.locationId)));
       const moneyFormat = '"$"#,##0.00';
       // Layout: pallet code | description | rate, then a quantity and a dollar
@@ -2277,6 +2286,18 @@ export default function Home() {
       });
       dayNameRow.getCell(weeklyCol).value = "Weekly";
       gridSheet.mergeCells(dayNameRow.number, weeklyCol, dayNameRow.number, weeklyCol + 2);
+      // Which yard each day was worked at, when the week spans more than one.
+      if (yardsWorked.length > 1) {
+        const yardRow = gridSheet.addRow([]);
+        yardRow.getCell(1).value = "Yard";
+        gridDays.forEach((day, index) => {
+          const column = firstDayCol + index * 2;
+          yardRow.getCell(column).value = (yardByDay.get(day) ?? []).map((id) => locName(id)).join(" / ");
+          gridSheet.mergeCells(yardRow.number, column, yardRow.number, column + 1);
+        });
+        yardRow.font = { bold: true };
+        yardRow.alignment = { horizontal: "center" };
+      }
       dayDateRow.getCell(1).value = "Pallet Type";
       dayDateRow.getCell(3).value = "Rate";
       dayDateRow.getCell(weeklyCol + 1).value = "Qty";
@@ -4973,35 +4994,51 @@ function ProductionGrid({
 
   // Repairers shown this week (those with entries), with their week report, then
   // ordered by the chosen sort. Last name = the last word of the full name.
-  // A repairer is listed under the yard the work actually happened at, taken
-  // from each entry, not the yard on their roster record. Someone who covers a
-  // second yard mid-week therefore appears under both, each card holding only
-  // that yard's days, and the yard totals stay true to where the pallets were
-  // made. (Their roster yard remains their default on the entry screen.)
+  // One card per repairer holding their whole week, even when it spans yards.
+  // The card sits under the yard they did the most work at; the day columns
+  // carry the yard for each day, so a week split across yards is readable
+  // without splitting the person in two.
   const sortedCrew = Array.from(
     gridEntries
       .reduce((map, entry) => {
-        const key = `${entry.employeeId}|${entry.locationId}`;
-        const bucket = map.get(key) ?? { employeeId: entry.employeeId, locationId: entry.locationId, employeeEntries: [] as DailyEntry[] };
+        const bucket = map.get(entry.employeeId) ?? { employeeId: entry.employeeId, employeeEntries: [] as DailyEntry[] };
         bucket.employeeEntries.push(entry);
-        map.set(key, bucket);
+        map.set(entry.employeeId, bucket);
         return map;
-      }, new Map<string, { employeeId: string; locationId: string; employeeEntries: DailyEntry[] }>())
+      }, new Map<string, { employeeId: string; employeeEntries: DailyEntry[] }>())
       .values()
   )
     .map((row) => {
       const employee = employees.find((item) => item.id === row.employeeId) ?? {
         id: row.employeeId,
         name: row.employeeId.replaceAll("-", " "),
-        locationId: row.locationId,
+        locationId: row.employeeEntries[0]?.locationId ?? "",
         shift: "AM" as Shift,
         active: true
       };
+      // Pallets per yard, so the card lands under the yard they worked most.
+      const perYard = new Map<string, number>();
+      for (const entry of row.employeeEntries) {
+        const report = buildReport([entry], palletTypes, employees, locations, settings);
+        perYard.set(entry.locationId, (perYard.get(entry.locationId) ?? 0) + report.summary.quantity);
+      }
+      const yardsWorked = Array.from(perYard.keys()).sort((a, b) => yardRank(a) - yardRank(b));
+      const primaryYard =
+        Array.from(perYard.entries()).sort((a, b) => b[1] - a[1] || yardRank(a[0]) - yardRank(b[0]))[0]?.[0] ?? employee.locationId;
+      // Which yard each day was worked at, for the column headers. More than one
+      // yard in a single day is rare but possible, so they are joined.
+      const yardByDay = new Map<string, string[]>();
+      for (const entry of row.employeeEntries) {
+        const list = yardByDay.get(entry.date) ?? [];
+        if (!list.includes(entry.locationId)) list.push(entry.locationId);
+        yardByDay.set(entry.date, list);
+      }
       return {
-        // The yard shown is where this block's work happened.
-        employee: { ...employee, locationId: row.locationId },
+        employee: { ...employee, locationId: primaryYard },
         employeeEntries: row.employeeEntries,
-        employeeReport: buildReport(row.employeeEntries, palletTypes, employees, locations, settings)
+        employeeReport: buildReport(row.employeeEntries, palletTypes, employees, locations, settings),
+        yardsWorked,
+        yardByDay
       };
     })
     .sort((a, b) => {
@@ -5076,7 +5113,7 @@ function ProductionGrid({
         <Metric label="Weekly Total" value={currency(weekReport.summary.totalPay)} />
       </div>
 
-      {sortedCrew.map(({ employee, employeeEntries, employeeReport }, crewIndex) => {
+      {sortedCrew.map(({ employee, employeeEntries, employeeReport, yardsWorked, yardByDay }, crewIndex) => {
         // The crew is already ordered Fontana, Mesa, Citrus, so a yard heading
         // goes above the first card of each run.
         const startsYard = crewIndex === 0 || sortedCrew[crewIndex - 1].employee.locationId !== employee.locationId;
@@ -5108,7 +5145,13 @@ function ProductionGrid({
                 <Avatar employee={employee} size="lg" />
                 <div>
                   <h3 className="text-xl font-black">{employee.name}</h3>
-                  <p className="text-sm text-steel-500">{locations.find((location) => location.id === employee.locationId)?.name ?? employee.locationId} · {employee.shift}</p>
+                  {/* Every yard worked this week, most-worked first, so a
+                      split week is obvious from the card header. */}
+                  <p className="text-sm text-steel-500">
+                    {(yardsWorked.length > 0 ? yardsWorked : [employee.locationId])
+                      .map((id) => locations.find((location) => location.id === id)?.name ?? id)
+                      .join(", ")} · {employee.shift}
+                  </p>
                 </div>
               </button>
               <div className="grid grid-cols-3 gap-2 text-center text-sm">
@@ -5123,7 +5166,18 @@ function ProductionGrid({
                   <tr className="bg-steel-900 text-white">
                     <th className="p-2">Pallet Type</th>
                     {weekDays.map((day) => (
-                      <th key={day} className="p-2 text-center">{formatDayHeader(day)}</th>
+                      <th key={day} className="p-2 text-center">
+                        {formatDayHeader(day)}
+                        {/* Only worth the extra line when the week actually
+                            spans yards; otherwise it repeats the header. */}
+                        {yardsWorked.length > 1 && (
+                          <span className="mt-0.5 block text-[10px] font-black uppercase tracking-wide text-safety-400">
+                            {(yardByDay.get(day) ?? [])
+                              .map((id) => locations.find((location) => location.id === id)?.name ?? id)
+                              .join(" / ") || "—"}
+                          </span>
+                        )}
+                      </th>
                     ))}
                     <th className="bg-safety-400 p-2 text-center text-steel-900">Weekly Qty</th>
                     <th className="bg-safety-400 p-2 text-center text-steel-900">Weekly $</th>
