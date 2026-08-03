@@ -5038,7 +5038,9 @@ function ProductionGrid({
         employeeEntries: row.employeeEntries,
         employeeReport: buildReport(row.employeeEntries, palletTypes, employees, locations, settings),
         yardsWorked,
-        yardByDay
+        yardByDay,
+        // Pallets per yard, so a split week shows what each yard actually got.
+        perYardQty: perYard
       };
     })
     .sort((a, b) => {
@@ -5113,13 +5115,16 @@ function ProductionGrid({
         <Metric label="Weekly Total" value={currency(weekReport.summary.totalPay)} />
       </div>
 
-      {sortedCrew.map(({ employee, employeeEntries, employeeReport, yardsWorked, yardByDay }, crewIndex) => {
+      {sortedCrew.map(({ employee, employeeEntries, employeeReport, yardsWorked, yardByDay, perYardQty }, crewIndex) => {
         // The crew is already ordered Fontana, Mesa, Citrus, so a yard heading
         // goes above the first card of each run.
         const startsYard = crewIndex === 0 || sortedCrew[crewIndex - 1].employee.locationId !== employee.locationId;
         const yardLabel = locations.find((location) => location.id === employee.locationId)?.name ?? employee.locationId;
-        const yardCrew = sortedCrew.filter((row) => row.employee.locationId === employee.locationId);
-        const yardQuantity = yardCrew.reduce((total, row) => total + row.employeeReport.summary.quantity, 0);
+        // Counted from the entries worked at this yard rather than from the
+        // cards sitting under it, so someone who covered a second yard adds to
+        // that yard's number even though their card lives under their main one.
+        const yardCrew = sortedCrew.filter((row) => (row.perYardQty.get(employee.locationId) ?? 0) !== 0);
+        const yardQuantity = sortedCrew.reduce((total, row) => total + (row.perYardQty.get(employee.locationId) ?? 0), 0);
         // Everything attached to each phase this week: the photos taken on the
         // phase itself in the Daily Grid, plus any count sheets linked to the
         // repairer's entries. Count sheets carry no phase, so they are placed by
@@ -5152,6 +5157,17 @@ function ProductionGrid({
                       .map((id) => locations.find((location) => location.id === id)?.name ?? id)
                       .join(", ")} · {employee.shift}
                   </p>
+                  {/* A split week shows what each yard got, so the combined
+                      weekly figure never hides where the pallets came from. */}
+                  {yardsWorked.length > 1 && (
+                    <p className="mt-1 flex flex-wrap gap-1.5">
+                      {yardsWorked.map((id) => (
+                        <span key={id} className="rounded-full bg-steel-100 px-2 py-0.5 text-xs font-black text-steel-700">
+                          {locations.find((location) => location.id === id)?.name ?? id} {wholeNumber(perYardQty.get(id) ?? 0)}
+                        </span>
+                      ))}
+                    </p>
+                  )}
                 </div>
               </button>
               <div className="grid grid-cols-3 gap-2 text-center text-sm">
