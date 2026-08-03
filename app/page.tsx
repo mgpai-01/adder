@@ -5579,14 +5579,26 @@ function PhotoLightbox({ photos, index, onClose, onIndexChange }: {
           {photo.label}
           {photos.length > 1 && <span className="ml-2 font-bold text-white/60">{index + 1} of {photos.length}</span>}
         </span>
-        <button
-          type="button"
-          aria-label="Close"
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white/15 text-white transition-colors hover:bg-white/30"
-          onClick={onClose}
-        >
-          <X size={22} />
-        </button>
+        <div className="flex shrink-0 items-center gap-2">
+          {/* Sometimes a sheet needs to sit open in its own tab next to the
+              grid; the viewer alone can't do that. */}
+          <button
+            type="button"
+            className="touch-target flex items-center gap-2 rounded-full bg-white/15 px-4 text-sm font-black text-white transition-colors hover:bg-white/30"
+            onClick={() => void openImageInNewTab(photo.url)}
+          >
+            <ExternalLink size={18} />
+            <span className="hidden sm:inline">Open in new tab</span>
+          </button>
+          <button
+            type="button"
+            aria-label="Close"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white/15 text-white transition-colors hover:bg-white/30"
+            onClick={onClose}
+          >
+            <X size={22} />
+          </button>
+        </div>
       </div>
       {/* Clicks on the sheet itself must not close it — only the backdrop. */}
       <div className="flex min-h-0 flex-1 items-center justify-center" onClick={(event) => event.stopPropagation()}>
