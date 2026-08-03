@@ -2171,14 +2171,37 @@ export default function Home() {
       dayDateRow.getCell(3).value = "Rate";
       dayDateRow.getCell(weeklyCol + 1).value = "Qty";
       dayDateRow.getCell(weeklyCol + 2).value = "Amount";
+      const lastColumn = weeklyCol + 2;
+      // Shade a whole row across the table's width. Alternating bands make a
+      // wide day-by-day sheet readable across; without them the eye loses the
+      // line somewhere around Thursday.
+      type GridRow = ReturnType<typeof gridSheet.addRow>;
+      const shadeRow = (row: GridRow, argb: string) => {
+        for (let column = 1; column <= lastColumn; column += 1) {
+          row.getCell(column).fill = { type: "pattern", pattern: "solid", fgColor: { argb } };
+        }
+      };
+      const outline = (row: GridRow) => {
+        for (let column = 1; column <= lastColumn; column += 1) {
+          row.getCell(column).border = {
+            top: { style: "thin", color: { argb: "FFB9C2CC" } },
+            left: { style: "thin", color: { argb: "FFB9C2CC" } },
+            bottom: { style: "thin", color: { argb: "FFB9C2CC" } },
+            right: { style: "thin", color: { argb: "FFB9C2CC" } }
+          };
+        }
+      };
       [dayNameRow, dayDateRow].forEach((row) => {
         row.font = { bold: true };
         row.alignment = { horizontal: "center" };
+        shadeRow(row, "FFDDE7EE");
+        outline(row);
       });
 
       // Every pallet type, in the configured order, whether or not this repairer
       // made it — a rate sheet as much as a production sheet, so a blank line is
       // itself information.
+      let bandIndex = 0;
       const dayQtyTotals = gridDays.map(() => 0);
       const dayPayTotals = gridDays.map(() => 0);
       for (const pallet of palletTypes) {
@@ -2218,6 +2241,9 @@ export default function Home() {
           row.getCell(firstDayCol + index * 2 + 1).numFmt = moneyFormat;
         });
         row.getCell(weeklyCol + 2).numFmt = moneyFormat;
+        outline(row);
+        if (bandIndex % 2 === 1) shadeRow(row, "FFF3F7FA");
+        bandIndex += 1;
       }
 
       const totalsRow = gridSheet.addRow([
@@ -2234,6 +2260,8 @@ export default function Home() {
         totalsRow.getCell(firstDayCol + index * 2 + 1).numFmt = moneyFormat;
       });
       totalsRow.getCell(weeklyCol + 2).numFmt = moneyFormat;
+      shadeRow(totalsRow, "FFFFF2CC");
+      outline(totalsRow);
     }
 
     const yardTotals = new Map<string, { employees: number; quantity: number; piecePay: number; totalPay: number }>();
