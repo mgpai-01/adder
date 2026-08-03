@@ -96,6 +96,9 @@ export type DailyEntry = {
 };
 
 export type PayrollSettings = {
+  // Master switch for the minimum-wage make-up pay. Off means everyone is paid
+  // straight piece rate; the wage figure is kept so it can be switched back on.
+  minimumWageMakeupEnabled: boolean;
   minimumWage: number;
   overtimeMultiplier: number;
   dailyOvertimeThreshold: number;

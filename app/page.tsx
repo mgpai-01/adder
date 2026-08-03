@@ -5997,6 +5997,7 @@ function PayrollSettingsAdmin({ settings, onSettingsChange }: { settings: Payrol
   const [message, setMessage] = useState(`Current California Minimum Wage: ${currency(settings.minimumWage)}/hr`);
   const [error, setError] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const makeupOn = settings.minimumWageMakeupEnabled === true;
 
   useEffect(() => {
     setMinimumWageInput(settings.minimumWage.toFixed(2));
@@ -6074,6 +6075,38 @@ function PayrollSettingsAdmin({ settings, onSettingsChange }: { settings: Payrol
           <button type="button" disabled={isSaving} className="touch-target flex items-center justify-center gap-2 rounded bg-workshop-500 px-4 py-2 font-black text-white disabled:bg-steel-500" onClick={saveSettings}>
             <Save size={19} />
             {isSaving ? "Saving..." : "Save"}
+          </button>
+        </div>
+      </div>
+      {/* Master switch for make-up pay. Takes effect the moment it's clicked —
+          no Save needed — and recalculates every screen and export. */}
+      <div className="rounded border border-steel-100 bg-white p-4 text-steel-900">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="text-xl font-black">Minimum-Wage Make-Up Pay</h3>
+            <p className="mt-1 text-sm text-steel-500">
+              {makeupOn
+                ? "ON — anyone whose piece pay falls under minimum wage for their hours is topped up."
+                : "OFF — everyone is paid straight piece rate. No make-up or overtime top-up is added."}
+            </p>
+          </div>
+          <button
+            type="button"
+            className={classNames(
+              "touch-target rounded px-5 py-2 font-black text-white",
+              makeupOn ? "bg-emerald-600" : "bg-steel-500"
+            )}
+            onClick={() => {
+              const next = { ...settings, minimumWageMakeupEnabled: !makeupOn };
+              onSettingsChange(next);
+              setMessage(
+                next.minimumWageMakeupEnabled
+                  ? "Make-up pay turned ON. Pay now tops up to minimum wage."
+                  : "Make-up pay turned OFF. Pay is straight piece rate."
+              );
+            }}
+          >
+            {makeupOn ? "ON — click to turn off" : "OFF — click to turn on"}
           </button>
         </div>
       </div>

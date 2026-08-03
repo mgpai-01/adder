@@ -1,6 +1,7 @@
 import type { Employee, Location, PalletCategory, PalletType, PayrollSettings, Shift } from "./types";
 
 export const payrollSettings: PayrollSettings = {
+  minimumWageMakeupEnabled: false,
   minimumWage: 16.9,
   overtimeMultiplier: 1.5,
   dailyOvertimeThreshold: 8,

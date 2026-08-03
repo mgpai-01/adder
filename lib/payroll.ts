@@ -146,9 +146,12 @@ export function calculateEntry(
     (entry.phases ?? []).some(
       (phase) => (phase?.amount ?? 0) > 0 || Boolean(phase?.bypassed) || Boolean(phase?.photoDataUrl)
     );
-  const minimumWageRequired = hasActivity
-    ? regularHours * settings.minimumWage + overtimeHours * settings.minimumWage * settings.overtimeMultiplier
-    : 0;
+  // Make-up pay only applies while the switch is on — and only strictly `true`
+  // counts, so settings saved before the switch existed read as off.
+  const minimumWageRequired =
+    settings.minimumWageMakeupEnabled === true && hasActivity
+      ? regularHours * settings.minimumWage + overtimeHours * settings.minimumWage * settings.overtimeMultiplier
+      : 0;
   const additionalOwed = Math.max(0, minimumWageRequired - pieceEarnings);
   const totalPay = pieceEarnings + additionalOwed;
   const hourlyEquivalent = paidHours > 0 ? pieceEarnings / paidHours : 0;
