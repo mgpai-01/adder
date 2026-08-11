@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  AlignJustify,
   BarChart3,
   Building2,
   CalendarDays,
@@ -38,7 +39,7 @@ import {
   ZoomOut
 } from "lucide-react";
 import type { ReactNode } from "react";
-import { createContext, Fragment, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, Fragment, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   Bar,
   BarChart,
@@ -815,6 +816,13 @@ function triggerDownload(href: string, fileName: string) {
   anchor.remove();
 }
 
+// Reads the translateY a drag handler set on an element's inline style, so the
+// next frame can be computed relative to the element's untransformed position.
+function extractTranslateY(element: HTMLElement): number {
+  const match = /translateY\((-?[\d.]+)px\)/.exec(element.style.transform);
+  return match ? Number(match[1]) : 0;
+}
+
 function loadImageElement(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -967,6 +975,46 @@ export default function Home() {
   // of reading a stale closure. Assigned during render — safe for a ref.
   const entriesRef = useRef<DailyEntry[]>([]);
   entriesRef.current = entries;
+  // Personal pallet-row order for the entry screen, one per signed-in account.
+  // Loaded from this device first (instant), then from the account so the same
+  // order follows the user to any device. Empty = default order.
+  const [palletOrder, setPalletOrder] = useState<string[]>([]);
+  const palletOrderStorageKey = `mgp-pallet-order-v1:${profile?.id ?? "local"}`;
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(palletOrderStorageKey);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) setPalletOrder(parsed.filter((id): id is string => typeof id === "string"));
+      }
+    } catch {
+      // ignore storage access issues
+    }
+    if (!configured || !profile) return;
+    authedFetch("/api/auth/preferences")
+      .then((response) => response.json())
+      .then((result: { ok?: boolean; palletOrder?: string[] | null }) => {
+        if (result.ok && Array.isArray(result.palletOrder) && result.palletOrder.length > 0) {
+          setPalletOrder(result.palletOrder);
+        }
+      })
+      .catch(() => undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [configured, profile?.id]);
+
+  function handlePalletOrderChange(ids: string[]) {
+    setPalletOrder(ids);
+    safeSetItem(palletOrderStorageKey, JSON.stringify(ids));
+    // Persist to the account so the order follows this user to other devices.
+    if (configured && profile) {
+      authedFetch("/api/auth/preferences", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ palletOrder: ids })
+      }).catch(() => undefined);
+    }
+  }
+
   // Ids of entries deleted on this device. The background cloud pull merges in
   // any cloud record it doesn't have locally, so without this a deleted entry
   // whose DELETE hadn't landed yet would come straight back — e.g. the old
@@ -2687,6 +2735,8 @@ export default function Home() {
               onPhaseNotesChange={updatePhaseNotes}
               onStationChange={(employeeId, patch) => updateEmployee(employeeId, patch)}
               onSave={saveEntry}
+              palletOrder={palletOrder}
+              onPalletOrderChange={handlePalletOrderChange}
               hideYardManager={configured && profile?.role === "supervisor"}
               hidePricing={configured && profile?.role === "supervisor"}
             />
@@ -3424,6 +3474,8 @@ function ProductionEntry({
   onPhaseNotesChange,
   onStationChange,
   onSave,
+  palletOrder,
+  onPalletOrderChange,
   hideYardManager,
   hidePricing
 }: {
@@ -3447,6 +3499,9 @@ function ProductionEntry({
   // Updates a repairer's station assignment (persisted on the roster).
   onStationChange: (employeeId: string, patch: Partial<Employee>) => void;
   onSave: () => void | Promise<void>;
+  // This account's preferred pallet-row order (drag the handle to change it).
+  palletOrder: string[];
+  onPalletOrderChange: (ids: string[]) => void;
   // When a Manager is signed in, the Yard Manager picker is hidden entirely.
   hideYardManager?: boolean;
   // Managers don't need pay figures: hide the Rate/Total Earned columns so the
@@ -3473,7 +3528,124 @@ function ProductionEntry({
   const yardManagers = employees
     .filter((employee) => employee.locationId === form.locationId && employee.role === "supervisor")
     .sort((a, b) => compareByLastName(a.name, b.name));
-  const displayedPallets = palletsForYard(palletTypes, form.locationId);
+  // The yard's pallets in this account's preferred order: rows the user has
+  // arranged come first in their saved sequence, anything new lands at the
+  // bottom in default order until it's dragged somewhere.
+  const yardPallets = palletsForYard(palletTypes, form.locationId);
+  const orderRank = new Map(palletOrder.map((id, index) => [id, index]));
+  const savedSortedPallets = [...yardPallets].sort(
+    (a, b) => (orderRank.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (orderRank.get(b.id) ?? Number.MAX_SAFE_INTEGER)
+  );
+
+  // Drag-to-reorder. While a row is being dragged, `draftOrder` holds the
+  // in-progress arrangement (committed on release); the dragged row follows
+  // the pointer directly via its style so the drag stays at 60fps, and the
+  // rows making way for it glide via the FLIP animation below.
+  const [dragPalletId, setDragPalletId] = useState<string | null>(null);
+  const [draftOrder, setDraftOrder] = useState<string[] | null>(null);
+  const rowRefs = useRef(new Map<string, HTMLTableRowElement>());
+  const rowTops = useRef(new Map<string, number>());
+  const dragState = useRef<{ pointerY: number; grabOffset: number } | null>(null);
+
+  const displayedPallets = draftOrder
+    ? (draftOrder.map((id) => savedSortedPallets.find((pallet) => pallet.id === id)).filter(Boolean) as PalletType[])
+    : savedSortedPallets;
+
+  // FLIP: whenever the row order changes, every non-dragged row animates from
+  // where it was to where it now sits instead of teleporting.
+  useLayoutEffect(() => {
+    const previous = rowTops.current;
+    const next = new Map<string, number>();
+    for (const pallet of displayedPallets) {
+      const row = rowRefs.current.get(pallet.id);
+      if (!row) continue;
+      const top = row.getBoundingClientRect().top;
+      next.set(pallet.id, top);
+      const before = previous.get(pallet.id);
+      if (before !== undefined && before !== top && pallet.id !== dragPalletId) {
+        row.animate(
+          [{ transform: `translateY(${before - top}px)` }, { transform: "translateY(0)" }],
+          { duration: 220, easing: "cubic-bezier(0.2, 0, 0, 1)" }
+        );
+      }
+    }
+    rowTops.current = next;
+    // Keep the dragged row pinned under the finger/cursor even though its slot
+    // in the table just moved.
+    if (dragPalletId && dragState.current) {
+      const row = rowRefs.current.get(dragPalletId);
+      if (row) {
+        const rect = row.getBoundingClientRect();
+        const baseTop = rect.top - extractTranslateY(row);
+        row.style.transform = `translateY(${dragState.current.pointerY - dragState.current.grabOffset - baseTop}px)`;
+      }
+    }
+  });
+
+  function startPalletDrag(event: React.PointerEvent<HTMLButtonElement>, palletId: string) {
+    const row = rowRefs.current.get(palletId);
+    if (!row) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    dragState.current = { pointerY: event.clientY, grabOffset: event.clientY - row.getBoundingClientRect().top };
+    setDragPalletId(palletId);
+    setDraftOrder(displayedPallets.map((pallet) => pallet.id));
+  }
+
+  function movePalletDrag(event: React.PointerEvent<HTMLButtonElement>, palletId: string) {
+    if (!dragState.current || dragPalletId !== palletId || !draftOrder) return;
+    dragState.current.pointerY = event.clientY;
+    const row = rowRefs.current.get(palletId);
+    if (!row) return;
+    const baseTop = row.getBoundingClientRect().top - extractTranslateY(row);
+    row.style.transform = `translateY(${event.clientY - dragState.current.grabOffset - baseTop}px)`;
+    // Reorder when the pointer crosses another row's midpoint.
+    const fromIndex = draftOrder.indexOf(palletId);
+    let toIndex = fromIndex;
+    for (let index = 0; index < draftOrder.length; index++) {
+      if (draftOrder[index] === palletId) continue;
+      const other = rowRefs.current.get(draftOrder[index]);
+      if (!other) continue;
+      const rect = other.getBoundingClientRect();
+      const middle = rect.top + rect.height / 2;
+      if (index < fromIndex && event.clientY < middle) {
+        toIndex = Math.min(toIndex, index);
+      } else if (index > fromIndex && event.clientY > middle) {
+        toIndex = Math.max(toIndex, index);
+      }
+    }
+    if (toIndex !== fromIndex) {
+      const next = [...draftOrder];
+      next.splice(fromIndex, 1);
+      next.splice(toIndex, 0, palletId);
+      setDraftOrder(next);
+    }
+  }
+
+  function endPalletDrag(palletId: string) {
+    if (dragPalletId !== palletId) return;
+    const row = rowRefs.current.get(palletId);
+    if (row) {
+      // Settle the dragged row into its slot with the same glide the others use.
+      const offset = extractTranslateY(row);
+      row.style.transform = "";
+      if (offset !== 0) {
+        row.animate([{ transform: `translateY(${offset}px)` }, { transform: "translateY(0)" }], {
+          duration: 200,
+          easing: "cubic-bezier(0.2, 0, 0, 1)"
+        });
+      }
+    }
+    if (draftOrder) {
+      // Save this yard's arrangement without losing the saved order of pallets
+      // that belong to other yards — those keep their relative sequence.
+      const draftSet = new Set(draftOrder);
+      onPalletOrderChange([...draftOrder, ...palletOrder.filter((id) => !draftSet.has(id))]);
+    }
+    dragState.current = null;
+    setDragPalletId(null);
+    setDraftOrder(null);
+  }
   // Manager view drops the price columns and uses compact cells so the table
   // fits a phone screen with no sideways scroll.
   const cellPad = hidePricing ? "p-2" : "p-3";
@@ -3686,6 +3858,8 @@ function ProductionEntry({
           <table className={classNames("w-full text-left text-sm", hidePricing ? "table-fixed" : "min-w-[760px]")}>
             <thead className="bg-steel-900 text-white">
               <tr>
+                {/* Drag-handle column. */}
+                <th className="w-10 p-2" aria-label={t("Reorder")} />
                 {!hidePricing && <th className="p-3">{t("Category")}</th>}
                 <th className={cellPad}>{t("Pallet Description")}</th>
                 {!hidePricing && <th className="p-3">{t("Rate")}</th>}
@@ -3700,7 +3874,39 @@ function ProductionEntry({
                 const earned = quantity * pallet.rate;
 
                 return (
-                  <tr key={pallet.id} className="border-t border-steel-100 even:bg-steel-50">
+                  <tr
+                    key={pallet.id}
+                    ref={(element) => {
+                      if (element) rowRefs.current.set(pallet.id, element);
+                      else rowRefs.current.delete(pallet.id);
+                    }}
+                    className={classNames(
+                      "border-t border-steel-100",
+                      dragPalletId === pallet.id
+                        ? "relative z-10 bg-white shadow-xl ring-2 ring-workshop-500/60"
+                        : "even:bg-steel-50"
+                    )}
+                  >
+                    {/* Hold this handle and drag the row anywhere in the list.
+                        The order saves to this account automatically. */}
+                    <td className="w-10 p-1 text-center align-middle">
+                      <button
+                        type="button"
+                        aria-label={t("Drag to reorder")}
+                        title={t("Drag to reorder")}
+                        className={classNames(
+                          "inline-flex h-10 w-8 items-center justify-center rounded text-steel-400 transition-colors hover:bg-steel-100 hover:text-steel-700",
+                          dragPalletId === pallet.id ? "cursor-grabbing text-workshop-700" : "cursor-grab"
+                        )}
+                        style={{ touchAction: "none" }}
+                        onPointerDown={(event) => startPalletDrag(event, pallet.id)}
+                        onPointerMove={(event) => movePalletDrag(event, pallet.id)}
+                        onPointerUp={() => endPalletDrag(pallet.id)}
+                        onPointerCancel={() => endPalletDrag(pallet.id)}
+                      >
+                        <AlignJustify size={18} />
+                      </button>
+                    </td>
                     {!hidePricing && <td className={classNames(cellPad, "font-black")}>{pallet.category}</td>}
                     <td className={classNames(cellPad, hidePricing && "break-words")}>
                       {hidePricing ? (
