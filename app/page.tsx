@@ -3539,27 +3539,41 @@ function ProductionEntry({
 
   // Drag-to-reorder. While a row is being dragged, `draftOrder` holds the
   // in-progress arrangement (committed on release); the dragged row follows
-  // the pointer directly via its style so the drag stays at 60fps, and the
-  // rows making way for it glide via the FLIP animation below.
+  // the pointer via a per-frame loop so the drag stays at 60fps, and the rows
+  // making way for it glide via the FLIP animation below. All bookkeeping uses
+  // LAYOUT positions (offsetTop), never mid-animation screen rectangles —
+  // measuring rows while they're still gliding is what made the list twitch
+  // on background refreshes.
   const [dragPalletId, setDragPalletId] = useState<string | null>(null);
   const [draftOrder, setDraftOrder] = useState<string[] | null>(null);
+  const draftOrderRef = useRef<string[] | null>(null);
   const rowRefs = useRef(new Map<string, HTMLTableRowElement>());
   const rowTops = useRef(new Map<string, number>());
-  const dragState = useRef<{ pointerY: number; grabOffset: number } | null>(null);
+  const dragState = useRef<{ palletId: string; pointerY: number; grabOffset: number; raf: number } | null>(null);
 
   const displayedPallets = draftOrder
     ? (draftOrder.map((id) => savedSortedPallets.find((pallet) => pallet.id === id)).filter(Boolean) as PalletType[])
     : savedSortedPallets;
 
+  // Where a row sits in the layout right now, in viewport coordinates, with
+  // any in-flight transform (drag pin or FLIP glide) removed.
+  function rowLayoutTop(row: HTMLTableRowElement) {
+    const transform = window.getComputedStyle(row).transform;
+    const translateY = transform && transform !== "none" ? new DOMMatrixReadOnly(transform).m42 : 0;
+    return row.getBoundingClientRect().top - translateY;
+  }
+
   // FLIP: whenever the row order changes, every non-dragged row animates from
-  // where it was to where it now sits instead of teleporting.
+  // where it was to where it now sits instead of teleporting. offsetTop is a
+  // pure layout measure — scrolling and running animations can't contaminate
+  // it, so idle re-renders (background refreshes, typing) never re-animate.
   useLayoutEffect(() => {
     const previous = rowTops.current;
     const next = new Map<string, number>();
     for (const pallet of displayedPallets) {
       const row = rowRefs.current.get(pallet.id);
       if (!row) continue;
-      const top = row.getBoundingClientRect().top;
+      const top = row.offsetTop;
       next.set(pallet.id, top);
       const before = previous.get(pallet.id);
       if (before !== undefined && before !== top && pallet.id !== dragPalletId) {
@@ -3575,55 +3589,78 @@ function ProductionEntry({
     if (dragPalletId && dragState.current) {
       const row = rowRefs.current.get(dragPalletId);
       if (row) {
-        const rect = row.getBoundingClientRect();
-        const baseTop = rect.top - extractTranslateY(row);
-        row.style.transform = `translateY(${dragState.current.pointerY - dragState.current.grabOffset - baseTop}px)`;
+        row.style.transform = `translateY(${dragState.current.pointerY - dragState.current.grabOffset - rowLayoutTop(row)}px)`;
       }
     }
   });
 
+  // One frame of the drag: nudge the page when the pointer is near the top or
+  // bottom edge (so long lists can be dragged without pre-scrolling), keep the
+  // dragged row under the pointer, and reorder when it crosses a neighbour's
+  // layout midpoint.
+  function dragFrame() {
+    const state = dragState.current;
+    if (!state) return;
+    const row = rowRefs.current.get(state.palletId);
+    const order = draftOrderRef.current;
+    if (row && order) {
+      const edge = 90;
+      if (state.pointerY < edge) {
+        window.scrollBy(0, -Math.ceil(((edge - state.pointerY) / edge) * 14));
+      } else if (state.pointerY > window.innerHeight - edge) {
+        window.scrollBy(0, Math.ceil(((state.pointerY - (window.innerHeight - edge)) / edge) * 14));
+      }
+      row.style.transform = `translateY(${state.pointerY - state.grabOffset - rowLayoutTop(row)}px)`;
+
+      const fromIndex = order.indexOf(state.palletId);
+      let toIndex = fromIndex;
+      for (let index = 0; index < order.length; index++) {
+        if (order[index] === state.palletId) continue;
+        const other = rowRefs.current.get(order[index]);
+        if (!other) continue;
+        const middle = rowLayoutTop(other) + other.offsetHeight / 2;
+        if (index < fromIndex && state.pointerY < middle) {
+          toIndex = Math.min(toIndex, index);
+        } else if (index > fromIndex && state.pointerY > middle) {
+          toIndex = Math.max(toIndex, index);
+        }
+      }
+      if (toIndex !== fromIndex) {
+        const next = [...order];
+        next.splice(fromIndex, 1);
+        next.splice(toIndex, 0, state.palletId);
+        draftOrderRef.current = next;
+        setDraftOrder(next);
+      }
+    }
+    state.raf = window.requestAnimationFrame(dragFrame);
+  }
+
   function startPalletDrag(event: React.PointerEvent<HTMLButtonElement>, palletId: string) {
     const row = rowRefs.current.get(palletId);
-    if (!row) return;
+    if (!row || dragState.current) return;
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
-    dragState.current = { pointerY: event.clientY, grabOffset: event.clientY - row.getBoundingClientRect().top };
+    const order = displayedPallets.map((pallet) => pallet.id);
+    draftOrderRef.current = order;
+    dragState.current = {
+      palletId,
+      pointerY: event.clientY,
+      grabOffset: event.clientY - row.getBoundingClientRect().top,
+      raf: window.requestAnimationFrame(dragFrame)
+    };
     setDragPalletId(palletId);
-    setDraftOrder(displayedPallets.map((pallet) => pallet.id));
+    setDraftOrder(order);
   }
 
   function movePalletDrag(event: React.PointerEvent<HTMLButtonElement>, palletId: string) {
-    if (!dragState.current || dragPalletId !== palletId || !draftOrder) return;
-    dragState.current.pointerY = event.clientY;
-    const row = rowRefs.current.get(palletId);
-    if (!row) return;
-    const baseTop = row.getBoundingClientRect().top - extractTranslateY(row);
-    row.style.transform = `translateY(${event.clientY - dragState.current.grabOffset - baseTop}px)`;
-    // Reorder when the pointer crosses another row's midpoint.
-    const fromIndex = draftOrder.indexOf(palletId);
-    let toIndex = fromIndex;
-    for (let index = 0; index < draftOrder.length; index++) {
-      if (draftOrder[index] === palletId) continue;
-      const other = rowRefs.current.get(draftOrder[index]);
-      if (!other) continue;
-      const rect = other.getBoundingClientRect();
-      const middle = rect.top + rect.height / 2;
-      if (index < fromIndex && event.clientY < middle) {
-        toIndex = Math.min(toIndex, index);
-      } else if (index > fromIndex && event.clientY > middle) {
-        toIndex = Math.max(toIndex, index);
-      }
-    }
-    if (toIndex !== fromIndex) {
-      const next = [...draftOrder];
-      next.splice(fromIndex, 1);
-      next.splice(toIndex, 0, palletId);
-      setDraftOrder(next);
-    }
+    if (dragState.current?.palletId === palletId) dragState.current.pointerY = event.clientY;
   }
 
   function endPalletDrag(palletId: string) {
-    if (dragPalletId !== palletId) return;
+    const state = dragState.current;
+    if (state?.palletId !== palletId) return;
+    window.cancelAnimationFrame(state.raf);
     const row = rowRefs.current.get(palletId);
     if (row) {
       // Settle the dragged row into its slot with the same glide the others use.
@@ -3636,16 +3673,26 @@ function ProductionEntry({
         });
       }
     }
-    if (draftOrder) {
+    const order = draftOrderRef.current;
+    if (order) {
       // Save this yard's arrangement without losing the saved order of pallets
       // that belong to other yards — those keep their relative sequence.
-      const draftSet = new Set(draftOrder);
-      onPalletOrderChange([...draftOrder, ...palletOrder.filter((id) => !draftSet.has(id))]);
+      const draftSet = new Set(order);
+      onPalletOrderChange([...order, ...palletOrder.filter((id) => !draftSet.has(id))]);
     }
     dragState.current = null;
+    draftOrderRef.current = null;
     setDragPalletId(null);
     setDraftOrder(null);
   }
+
+  // A drag must never survive the component unmounting mid-gesture.
+  useEffect(
+    () => () => {
+      if (dragState.current) window.cancelAnimationFrame(dragState.current.raf);
+    },
+    []
+  );
   // Manager view drops the price columns and uses compact cells so the table
   // fits a phone screen with no sideways scroll.
   const cellPad = hidePricing ? "p-2" : "p-3";
