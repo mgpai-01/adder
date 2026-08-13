@@ -2215,6 +2215,163 @@ export default function Home() {
     URL.revokeObjectURL(url);
   }
 
+  // A downloadable PDF in the same spirit as the paper timecard report: one
+  // section per repairer with each day's pallet lines (code, rate, qty, $),
+  // a subtotal per day, the person's weekly totals, and a grand total at the
+  // end. Same numbers as the grid (calculateEntry/buildReport).
+  async function exportPdf(filteredEntries = entries) {
+    const { jsPDF } = await import("jspdf");
+    const autoTable = (await import("jspdf-autotable")).default;
+
+    const locName = (id: string) => locationList.find((location) => location.id === id)?.name ?? id;
+    const usDate = (iso: string) => {
+      const [year, month, day] = iso.split("-").map(Number);
+      return `${month}/${day}/${year}`;
+    };
+    const dayName = (iso: string) => new Date(`${iso}T12:00:00`).toLocaleDateString("en-US", { weekday: "short" });
+    const sortedDates = filteredEntries.map((entry) => entry.date).sort();
+    const rangeLabel = sortedDates.length ? `${usDate(sortedDates[0])}-${usDate(sortedDates[sortedDates.length - 1])}` : "All dates";
+
+    // One bucket per repairer, ordered like the grid: yard first, then last name.
+    const byPerson = new Map<string, DailyEntry[]>();
+    filteredEntries.forEach((entry) => {
+      const group = byPerson.get(entry.employeeId);
+      if (group) group.push(entry);
+      else byPerson.set(entry.employeeId, [entry]);
+    });
+    const people = Array.from(byPerson.entries())
+      .map(([employeeId, personEntries]) => {
+        const name = nameOfEmployeeId(employeeId);
+        const report = buildReport(personEntries, palletTypes, employeeList, locationList, settings);
+        const perYard = new Map<string, number>();
+        personEntries.forEach((entry) => {
+          const quantity = calculateEntry(entry, palletTypes, settings).quantity;
+          perYard.set(entry.locationId, (perYard.get(entry.locationId) ?? 0) + quantity);
+        });
+        const primaryYard = Array.from(perYard.entries()).sort((a, b) => b[1] - a[1])[0]?.[0] ?? "";
+        const yards = Array.from(perYard.keys()).sort((a, b) => yardRank(a) - yardRank(b));
+        return { name, personEntries, report, primaryYard, yards };
+      })
+      .sort((a, b) => yardRank(a.primaryYard) - yardRank(b.primaryYard) || compareByLastName(a.name, b.name));
+
+    const doc = new jsPDF({ unit: "pt", format: "letter" });
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const margin = 40;
+
+    // Document header, laid out like the paper timecard report.
+    doc.setFont("helvetica", "bold").setFontSize(16).text("Pallet Production Pay", pageWidth / 2, 48, { align: "center" });
+    doc.setFontSize(12).text("Manufacturing Green Products", pageWidth / 2, 70, { align: "center" });
+    doc.setFont("helvetica", "normal").setFontSize(9);
+    doc.text(rangeLabel, pageWidth - margin, 48, { align: "right" });
+    doc.text(new Date().toLocaleString(), pageWidth - margin, 60, { align: "right" });
+
+    let cursorY = 95;
+    const grid = { lineColor: [140, 140, 140] as [number, number, number], lineWidth: 0.5 };
+
+    for (const person of people) {
+      // Keep the person's header with their table: start a fresh page when
+      // there is no room left for a header plus a few rows.
+      if (cursorY > pageHeight - 130) {
+        doc.addPage();
+        cursorY = 50;
+      }
+      doc.setFont("helvetica", "bold").setFontSize(11);
+      doc.text(`${person.name.toUpperCase()} — ${person.yards.map(locName).join(" / ")}`, margin, cursorY);
+
+      // Day-by-day pallet lines with a bold subtotal row per day.
+      const body: (string | number)[][] = [];
+      const subtotalRows: number[] = [];
+      const days = Array.from(new Set(person.personEntries.map((entry) => entry.date))).sort();
+      for (const day of days) {
+        const dayEntries = person.personEntries.filter((entry) => entry.date === day);
+        for (const entry of dayEntries) {
+          for (const line of entry.lines) {
+            const pallet = findPalletType(palletTypes, line.palletTypeId);
+            const rate = pallet?.rate ?? 0;
+            body.push([
+              usDate(day),
+              dayName(day),
+              locName(entry.locationId),
+              `${pallet?.code ?? line.palletTypeId} ${pallet?.description ?? ""}`.trim(),
+              currency(rate),
+              line.quantity,
+              currency(rate * line.quantity)
+            ]);
+          }
+        }
+        const dayReport = buildReport(dayEntries, palletTypes, employeeList, locationList, settings);
+        subtotalRows.push(body.length);
+        body.push([usDate(day), dayName(day), "", "Day total", "", wholeNumber(dayReport.summary.quantity), currency(dayReport.summary.totalPay)]);
+      }
+      const totalRow = body.length;
+      body.push([
+        "",
+        "",
+        "",
+        "TOTAL GROSS PAID",
+        person.report.summary.makeup > 0 ? `incl. make-up ${currency(person.report.summary.makeup)}` : "",
+        wholeNumber(person.report.summary.quantity),
+        currency(person.report.summary.totalPay)
+      ]);
+
+      autoTable(doc, {
+        head: [["Date", "Day", "Yard", "Pallet", "Rate", "Qty", "Amount"]],
+        body,
+        startY: cursorY + 8,
+        margin: { left: margin, right: margin },
+        theme: "grid",
+        styles: { font: "helvetica", fontSize: 8, textColor: [20, 20, 20], cellPadding: 3, lineColor: grid.lineColor, lineWidth: grid.lineWidth },
+        headStyles: { fillColor: [34, 48, 61], textColor: 255, fontStyle: "bold" },
+        columnStyles: {
+          0: { cellWidth: 62 },
+          1: { cellWidth: 40 },
+          2: { cellWidth: 62 },
+          4: { halign: "right", cellWidth: 90 },
+          5: { halign: "right", cellWidth: 45 },
+          6: { halign: "right", cellWidth: 70 }
+        },
+        didParseCell: (data) => {
+          if (data.section !== "body") return;
+          if (subtotalRows.includes(data.row.index)) {
+            data.cell.styles.fontStyle = "bold";
+            data.cell.styles.fillColor = [237, 240, 243];
+          }
+          if (data.row.index === totalRow) {
+            data.cell.styles.fontStyle = "bold";
+            data.cell.styles.fillColor = [255, 236, 130];
+            data.cell.styles.fontSize = 9;
+          }
+        }
+      });
+      cursorY = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 24;
+    }
+
+    // Grand total across everyone, like the report's closing gross line.
+    const totalReport = buildReport(filteredEntries, palletTypes, employeeList, locationList, settings);
+    if (cursorY > pageHeight - 70) {
+      doc.addPage();
+      cursorY = 50;
+    }
+    doc.setFont("helvetica", "bold").setFontSize(11);
+    doc.text(
+      `TOTAL — ${wholeNumber(totalReport.summary.quantity)} pallets — Gross Paid ${currency(totalReport.summary.totalPay)}`,
+      margin,
+      cursorY
+    );
+
+    // Page numbers.
+    const pages = doc.getNumberOfPages();
+    for (let page = 1; page <= pages; page++) {
+      doc.setPage(page);
+      doc.setFont("helvetica", "normal").setFontSize(8).setTextColor(120);
+      doc.text(`Page ${page} of ${pages}`, pageWidth / 2, pageHeight - 18, { align: "center" });
+      doc.setTextColor(0);
+    }
+
+    doc.save(`mgp-pallet-pay-${sortedDates[0] ?? today}.pdf`);
+  }
+
   // Build a multi-sheet .xlsx from the (filtered) entries so accounting gets the
   // information cleanly separated: a summary, payroll per employee, the raw
   // per-pallet-line detail, and rollups by pallet type, yard, and day. Uses the
@@ -2770,6 +2927,7 @@ export default function Home() {
               palletOrder={palletOrder}
               exportCsv={exportCsv}
               exportExcel={exportExcel}
+              exportPdf={exportPdf}
             />
           )}
           {view === "dashboard" && <Dashboard settings={settings} darkMode={darkMode} countSheets={scopedCountSheets} entries={scopedEntries} locations={scopedLocationList} shifts={shiftList} palletTypes={palletTypes} employees={employeeList} onSelectEmployee={setProfileEmployeeId} />}
@@ -2785,6 +2943,7 @@ export default function Home() {
               settings={settings}
               exportCsv={exportCsv}
               exportExcel={exportExcel}
+              exportPdf={exportPdf}
               darkMode={darkMode}
               onEditEntry={setEditingEntry}
               onViewEntry={setViewingEntry}
@@ -5004,6 +5163,7 @@ function Payroll({
   settings,
   exportCsv,
   exportExcel,
+  exportPdf,
   darkMode,
   onEditEntry,
   onViewEntry,
@@ -5019,6 +5179,7 @@ function Payroll({
   settings: PayrollSettings;
   exportCsv: (entries: DailyEntry[]) => void;
   exportExcel: (entries: DailyEntry[]) => void;
+  exportPdf: (entries: DailyEntry[]) => void;
   darkMode: boolean;
   onEditEntry: (entry: DailyEntry) => void;
   onViewEntry: (entry: DailyEntry) => void;
@@ -5059,6 +5220,10 @@ function Payroll({
           <button type="button" className="touch-target flex items-center gap-2 rounded bg-[#1f7a4d] px-4 py-2 font-black text-white" onClick={() => exportExcel(filteredEntries)}>
             <Download size={19} />
             Export Excel
+          </button>
+          <button type="button" className="touch-target flex items-center gap-2 rounded bg-workshop-500 px-4 py-2 font-black text-white" onClick={() => exportPdf(filteredEntries)}>
+            <Download size={19} />
+            Pay PDF
           </button>
         </div>
       </div>
@@ -5208,7 +5373,8 @@ function ProductionGrid({
   onUpdateEntry,
   palletOrder,
   exportCsv,
-  exportExcel
+  exportExcel,
+  exportPdf
 }: {
   entries: DailyEntry[];
   countSheets: CountSheet[];
@@ -5230,6 +5396,7 @@ function ProductionGrid({
   // Export the currently-shown week's entries as CSV / multi-sheet Excel.
   exportCsv: (entries: DailyEntry[]) => void;
   exportExcel: (entries: DailyEntry[]) => void;
+  exportPdf: (entries: DailyEntry[]) => void;
 }) {
   const weekDays = getWeekDays(selectedWeek);
   const weekEntries = entries.filter((entry) => weekDays.includes(entry.date));
@@ -5485,6 +5652,15 @@ function ProductionGrid({
           >
             <Download size={19} />
             Export Excel
+          </button>
+          <button
+            type="button"
+            disabled={gridEntries.length === 0}
+            className="touch-target flex items-center gap-2 rounded bg-workshop-500 px-4 py-2 font-black text-white disabled:cursor-not-allowed disabled:opacity-50"
+            onClick={() => exportPdf(gridEntries)}
+          >
+            <Download size={19} />
+            Pay PDF
           </button>
           <select
             aria-label="Sort repairers"
