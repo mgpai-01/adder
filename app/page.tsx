@@ -2219,7 +2219,7 @@ export default function Home() {
   // section per repairer with each day's pallet lines (code, rate, qty, $),
   // a subtotal per day, the person's weekly totals, and a grand total at the
   // end. Same numbers as the grid (calculateEntry/buildReport).
-  async function exportPdf(filteredEntries = entries) {
+  async function exportPdf(filteredEntries = entries, fileLabel?: string) {
     const { jsPDF } = await import("jspdf");
     const autoTable = (await import("jspdf-autotable")).default;
 
@@ -2369,7 +2369,8 @@ export default function Home() {
       doc.setTextColor(0);
     }
 
-    doc.save(`mgp-pallet-pay-${sortedDates[0] ?? today}.pdf`);
+    const labelSlug = fileLabel ? `${fileLabel.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-")}-` : "";
+    doc.save(`mgp-pallet-pay-${labelSlug}${sortedDates[0] ?? today}.pdf`);
   }
 
   // Build a multi-sheet .xlsx from the (filtered) entries so accounting gets the
@@ -5179,7 +5180,7 @@ function Payroll({
   settings: PayrollSettings;
   exportCsv: (entries: DailyEntry[]) => void;
   exportExcel: (entries: DailyEntry[]) => void;
-  exportPdf: (entries: DailyEntry[]) => void;
+  exportPdf: (entries: DailyEntry[], fileLabel?: string) => void;
   darkMode: boolean;
   onEditEntry: (entry: DailyEntry) => void;
   onViewEntry: (entry: DailyEntry) => void;
@@ -5396,7 +5397,7 @@ function ProductionGrid({
   // Export the currently-shown week's entries as CSV / multi-sheet Excel.
   exportCsv: (entries: DailyEntry[]) => void;
   exportExcel: (entries: DailyEntry[]) => void;
-  exportPdf: (entries: DailyEntry[]) => void;
+  exportPdf: (entries: DailyEntry[], fileLabel?: string) => void;
 }) {
   const weekDays = getWeekDays(selectedWeek);
   const weekEntries = entries.filter((entry) => weekDays.includes(entry.date));
@@ -5823,6 +5824,16 @@ function ProductionGrid({
                         }}
                       />
                     </label>
+                    {/* This person's own pallet-pay PDF for the shown week —
+                        same report as the header button, scoped to them. */}
+                    <button
+                      type="button"
+                      className="touch-target flex items-center gap-2 rounded border border-steel-200 bg-white px-3 py-2 text-sm font-black text-steel-700 transition-colors hover:border-workshop-500 hover:text-workshop-700"
+                      onClick={() => exportPdf(employeeEntries, employee.name)}
+                    >
+                      <Download size={17} />
+                      Pay PDF
+                    </button>
                     {timeCards.map(({ url, entry }, cardIndex) => (
                       <div key={url} className="relative">
                         <button
