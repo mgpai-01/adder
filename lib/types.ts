@@ -89,6 +89,9 @@ export type DailyEntry = {
   // the (wrong) date that was stored. Lets the admin panel offer to persist the
   // correction, and records what was changed once it is.
   dateCorrectedFrom?: string;
+  // Photos of the repairer's physical time card, uploaded from the Production
+  // Grid. Stored as small storage URLs (same pipeline as phase photos).
+  timeCardPhotoUrls?: string[];
   updatedAt?: string;
   updatedBy?: string;
   submittedBy?: string;

@@ -5237,6 +5237,39 @@ function ProductionGrid({
   // Which repairer/day the phase breakdown pop-up is showing, opened from a day
   // in that repairer's Daily Totals row.
   const [dayDetail, setDayDetail] = useState<{ employeeId: string; employeeName: string; date: string } | null>(null);
+  // Per-person time card upload (photo of the physical card). The photo goes
+  // through the same storage pipeline as phase photos and hangs off the
+  // person's newest entry of the shown week, so it syncs like everything else.
+  const [uploadingTimeCardFor, setUploadingTimeCardFor] = useState<string | null>(null);
+  async function handleTimeCardUpload(employeeId: string, weekEntriesForPerson: DailyEntry[], files: File[]) {
+    if (files.length === 0 || uploadingTimeCardFor) return;
+    const target = [...weekEntriesForPerson].sort(
+      (a, b) => b.date.localeCompare(a.date) || (b.createdAt ?? "").localeCompare(a.createdAt ?? "")
+    )[0];
+    if (!target) return;
+    setUploadingTimeCardFor(employeeId);
+    try {
+      const compressed = await Promise.all(files.map((file) => compressImage(file)));
+      const body = new FormData();
+      compressed.forEach((file) => body.append("photos", file));
+      body.append("scope", `timecard-${employeeId}`);
+      const response = await authedFetch("/api/entry-photos", { method: "POST", body });
+      const result = (await response.json()) as { urls?: string[]; error?: string };
+      if (Array.isArray(result.urls) && result.urls.length > 0) {
+        onUpdateEntry({ ...target, timeCardPhotoUrls: [...(target.timeCardPhotoUrls ?? []), ...result.urls] });
+      } else {
+        window.alert(result.error || "Time card upload failed — try again.");
+      }
+    } catch {
+      window.alert("Time card upload failed — check the connection and try again.");
+    } finally {
+      setUploadingTimeCardFor(null);
+    }
+  }
+  function removeTimeCardPhoto(entry: DailyEntry, url: string) {
+    if (!window.confirm("Remove this time card photo?")) return;
+    onUpdateEntry({ ...entry, timeCardPhotoUrls: (entry.timeCardPhotoUrls ?? []).filter((item) => item !== url) });
+  }
   // Double-click any quantity cell to correct it in place. The typed number
   // becomes that repairer's day total for the pallet and saves immediately.
   const [editCell, setEditCell] = useState<{ employeeId: string; palletId: string; day: string } | null>(null);
@@ -5576,6 +5609,67 @@ function ProductionGrid({
                 <strong className="rounded bg-safety-400 px-3 py-2">{currency(employeeReport.summary.piecePay)}</strong>
                 <strong className="rounded bg-safety-400 px-3 py-2">{currency(employeeReport.summary.totalPay)} total</strong>
               </div>
+              {/* Time card: upload a photo of the physical card for this week,
+                  with thumbnails of the ones already on file. */}
+              {(() => {
+                const timeCards = employeeEntries.flatMap((entry) =>
+                  (entry.timeCardPhotoUrls ?? []).map((url) => ({ url, entry }))
+                );
+                return (
+                  <div className="flex w-full flex-wrap items-center gap-2">
+                    <label
+                      className={classNames(
+                        "touch-target flex cursor-pointer items-center gap-2 rounded border border-steel-200 bg-white px-3 py-2 text-sm font-black text-steel-700 transition-colors hover:border-workshop-500 hover:text-workshop-700",
+                        uploadingTimeCardFor === employee.id && "pointer-events-none opacity-60"
+                      )}
+                    >
+                      {uploadingTimeCardFor === employee.id ? <Loader2 size={17} className="animate-spin" /> : <ImagePlus size={17} />}
+                      {uploadingTimeCardFor === employee.id ? "Uploading…" : "Add time card"}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        className="hidden"
+                        onChange={(event) => {
+                          const files = Array.from(event.target.files ?? []);
+                          event.target.value = "";
+                          void handleTimeCardUpload(employee.id, employeeEntries, files);
+                        }}
+                      />
+                    </label>
+                    {timeCards.map(({ url, entry }, cardIndex) => (
+                      <div key={url} className="relative">
+                        <button
+                          type="button"
+                          title={`${employee.name} — time card`}
+                          onClick={() =>
+                            setLightbox({
+                              photos: timeCards.map((card) => ({ url: card.url, label: `${employee.name} — Time card` })),
+                              index: cardIndex
+                            })
+                          }
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={url}
+                            alt={`${employee.name} time card`}
+                            className="h-12 w-12 rounded border border-steel-200 object-cover transition-transform hover:scale-105"
+                          />
+                        </button>
+                        <button
+                          type="button"
+                          aria-label="Remove time card photo"
+                          title="Remove time card photo"
+                          className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-steel-900 text-white hover:bg-red-700"
+                          onClick={() => removeTimeCardPhoto(entry, url)}
+                        >
+                          <X size={12} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
             </div>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[1120px] text-left text-xs">
