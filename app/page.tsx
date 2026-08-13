@@ -2767,6 +2767,7 @@ export default function Home() {
               onViewEntry={setViewingEntry}
               onDeleteEntry={deleteSavedEntry}
               onUpdateEntry={updateSavedEntry}
+              palletOrder={palletOrder}
               exportCsv={exportCsv}
               exportExcel={exportExcel}
             />
@@ -5205,6 +5206,7 @@ function ProductionGrid({
   onViewEntry,
   onDeleteEntry,
   onUpdateEntry,
+  palletOrder,
   exportCsv,
   exportExcel
 }: {
@@ -5222,6 +5224,9 @@ function ProductionGrid({
   onDeleteEntry: (id: string) => void;
   // Writes a corrected entry through the normal save path (stamped + synced).
   onUpdateEntry: (entry: DailyEntry) => void;
+  // This account's preferred pallet-row order — the same one the entry screen
+  // uses, so both screens read in the viewer's arrangement.
+  palletOrder: string[];
   // Export the currently-shown week's entries as CSV / multi-sheet Excel.
   exportCsv: (entries: DailyEntry[]) => void;
   exportExcel: (entries: DailyEntry[]) => void;
@@ -5325,7 +5330,12 @@ function ProductionGrid({
     }
   }
   const gridEntries = yardFilter === "all" ? weekEntries : weekEntries.filter((entry) => entry.locationId === yardFilter);
-  const activePallets = palletTypes.filter((pallet) => pallet.active || gridEntries.some((entry) => entry.lines.some((line) => line.palletTypeId === pallet.id)));
+  // Rows follow the viewer's personal pallet order — the same arrangement they
+  // dragged together on the entry screen — with anything unarranged after it.
+  const palletRank = new Map(palletOrder.map((id, index) => [id, index]));
+  const activePallets = palletTypes
+    .filter((pallet) => pallet.active || gridEntries.some((entry) => entry.lines.some((line) => line.palletTypeId === pallet.id)))
+    .sort((a, b) => (palletRank.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (palletRank.get(b.id) ?? Number.MAX_SAFE_INTEGER));
   const weekReport = buildReport(gridEntries, palletTypes, employees, locations, settings);
 
   const weekStart = weekDays[0];
