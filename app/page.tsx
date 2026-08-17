@@ -1959,6 +1959,35 @@ export default function Home() {
     return fixed;
   }
 
+  // Wipes the selected repairer's saved entry (or entries — strays included)
+  // for the day shown on the entry form, so the correct numbers can be entered
+  // fresh. The deletion is tombstoned and pushed to the cloud, so it takes
+  // effect on every screen and device, not just this one.
+  async function deleteCurrentDayEntry() {
+    const employeeName = nameOfEmployeeId(form.employeeId);
+    const targetName = normName(employeeName);
+    const matching = entries.filter(
+      (entry) => entry.date === form.date && normName(nameOfEmployeeId(entry.employeeId)) === targetName
+    );
+    if (matching.length === 0) return;
+    if (!window.confirm(t("Delete {name}'s entry for {date}? Their pallets, phases, and photos for that day will be removed everywhere.", { name: employeeName, date: form.date }))) {
+      return;
+    }
+    const ids = matching.map((entry) => entry.id);
+    const idSet = new Set(ids);
+    ids.forEach((id) => deletedEntryIdsRef.current.add(id));
+    formDirtyRef.current = false;
+    setEditingEntryId(null);
+    setEntries((current) => current.filter((entry) => !idSet.has(entry.id)));
+    // Blank the form immediately so the right numbers can go straight in.
+    setForm((current) => ({ ...current, lines: [], phases: normalizePhases([]) }));
+    setSaveStatus(`Deleted ${employeeName}'s entry for ${form.date}.`);
+    showToast(t("Entry deleted — enter the correct numbers and save"));
+    for (const id of ids) {
+      authedFetch(`/api/entries/${id}`, { method: "DELETE" }).catch(() => undefined);
+    }
+  }
+
   async function deleteSavedEntry(id: string) {
     const entry = entries.find((item) => item.id === id);
     const employee = employeeList.find((item) => item.id === entry?.employeeId);
@@ -2916,6 +2945,12 @@ export default function Home() {
               onPhaseNotesChange={updatePhaseNotes}
               onStationChange={(employeeId, patch) => updateEmployee(employeeId, patch)}
               onSave={saveEntry}
+              onDeleteDay={deleteCurrentDayEntry}
+              canDeleteDay={entries.some(
+                (entry) =>
+                  entry.date === form.date &&
+                  normName(nameOfEmployeeId(entry.employeeId)) === normName(nameOfEmployeeId(form.employeeId))
+              )}
               palletOrder={palletOrder}
               onPalletOrderChange={handlePalletOrderChange}
               hideYardManager={configured && profile?.role === "supervisor"}
@@ -3658,6 +3693,8 @@ function ProductionEntry({
   onPhaseNotesChange,
   onStationChange,
   onSave,
+  onDeleteDay,
+  canDeleteDay,
   palletOrder,
   onPalletOrderChange,
   hideYardManager,
@@ -3683,6 +3720,11 @@ function ProductionEntry({
   // Updates a repairer's station assignment (persisted on the roster).
   onStationChange: (employeeId: string, patch: Partial<Employee>) => void;
   onSave: () => void | Promise<void>;
+  // Deletes the selected repairer's saved entry for the shown day (with
+  // confirm), clearing the form so the correct numbers can be re-entered.
+  onDeleteDay: () => void | Promise<void>;
+  // Whether that repairer actually has a saved entry on the shown day.
+  canDeleteDay: boolean;
   // This account's preferred pallet-row order (drag the handle to change it).
   palletOrder: string[];
   onPalletOrderChange: (ids: string[]) => void;
@@ -4231,6 +4273,22 @@ function ProductionEntry({
           placeholder={t("Supervisor notes, trailer, customer, or repair issues")}
         />
       </Label>
+
+      {/* Wrong numbers saved? Delete this repairer's day (with confirm) and the
+          form clears so the correct entry can go straight in. The deletion
+          syncs to the grid, payroll, exports, and every other device. */}
+      {canDeleteDay && (
+        <div className="flex justify-end">
+          <button
+            type="button"
+            className="touch-target flex items-center gap-2 rounded border-2 border-red-600 bg-white px-4 py-2 font-black text-red-700 transition-colors hover:bg-red-600 hover:text-white"
+            onClick={() => void onDeleteDay()}
+          >
+            <Trash2 size={18} />
+            {t("Delete this day's entry")}
+          </button>
+        </div>
+      )}
 
       <button
         type="button"

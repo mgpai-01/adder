@@ -22,7 +22,10 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 }
 
 export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const denied = await denyUnless(request, ["admin"]);
+  // Managers can also delete: they enter the data, so fixing a wrong entry
+  // (delete + re-enter) is part of their job. They can already overwrite any
+  // entry via POST, so this grants nothing new.
+  const denied = await denyUnless(request, ["admin", "supervisor"]);
   if (denied) return denied;
 
   const { id } = await params;
