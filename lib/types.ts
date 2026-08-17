@@ -92,6 +92,10 @@ export type DailyEntry = {
   // Photos of the repairer's physical time card, uploaded from the Production
   // Grid. Stored as small storage URLs (same pipeline as phase photos).
   timeCardPhotoUrls?: string[];
+  // Tombstone: the entry was deleted. The row is kept (with this flag) so every
+  // device knows to drop its copy — a hard-deleted row looked identical to a
+  // not-yet-synced one, and other devices' offline safety nets pushed it back.
+  deleted?: boolean;
   updatedAt?: string;
   updatedBy?: string;
   submittedBy?: string;

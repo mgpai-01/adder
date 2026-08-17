@@ -1193,11 +1193,17 @@ export default function Home() {
       .then((response) => response.json())
       .then((result: { entries: DailyEntry[] }) => {
         const cloudEntries = result.entries.map(migrateEntry);
+        // Tombstones count as "the cloud has this id" (so the cached copy is
+        // never pushed back up), but they are dropped from what's shown.
         const cloudIds = new Set(cloudEntries.map((entry) => entry.id));
         const merged = new Map<string, DailyEntry>();
         // Local first, cloud second, so the cloud's photo-bearing copy wins.
         [...localEntries, ...cloudEntries].forEach((entry) => merged.set(entry.id, entry));
-        setEntries(Array.from(merged.values()).sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt)));
+        setEntries(
+          Array.from(merged.values())
+            .filter((entry) => !entry.deleted)
+            .sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt))
+        );
         localEntries
           .filter((entry) => !cloudIds.has(entry.id))
           .forEach((entry) => {
@@ -1333,9 +1339,10 @@ export default function Home() {
           // keep any local-only entry the cloud doesn't have yet, and re-push
           // those local-only ones so a failed save still reaches the cloud.
           // Entries deleted here stay deleted: skip them, and nudge the cloud
-          // again in case the original DELETE never landed.
+          // again if it still holds a LIVE copy (a tombstoned one is done —
+          // re-deleting it would bump updated_at and ping every client forever).
           result.entries
-            .filter((entry) => deletedEntryIdsRef.current.has(entry.id))
+            .filter((entry) => deletedEntryIdsRef.current.has(entry.id) && !entry.deleted)
             .forEach((entry) => {
               authedFetch(`/api/entries/${entry.id}`, { method: "DELETE" }).catch(() => undefined);
             });
@@ -1353,7 +1360,11 @@ export default function Home() {
               merged.set(local.id, local);
             }
           }
-          setEntries(Array.from(merged.values()).sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt)));
+          setEntries(
+            Array.from(merged.values())
+              .filter((entry) => !entry.deleted)
+              .sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt))
+          );
           localOnly.forEach((entry) => {
             authedFetch("/api/entries?syncSheets=false", {
               method: "POST",

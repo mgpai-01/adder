@@ -247,7 +247,8 @@ export default function CounterPage() {
         merged.set(local.id, local);
       }
     }
-    return Array.from(merged.values());
+    // Tombstones (deleted entries) are dropped from the screen.
+    return Array.from(merged.values()).filter((entry) => !entry.deleted);
   }
 
   async function loadEntries() {

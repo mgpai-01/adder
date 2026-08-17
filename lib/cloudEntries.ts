@@ -49,11 +49,13 @@ export async function readCloudEntriesSummary(): Promise<DailyEntry[]> {
 
   const { data, error } = await supabase
     .from("cloud_entries")
-    .select("id, entry_date, employee_id:data->>employeeId, location_id:data->>locationId, shift:data->>shift, lines:data->lines")
+    .select("id, entry_date, employee_id:data->>employeeId, location_id:data->>locationId, shift:data->>shift, lines:data->lines, deleted:data->>deleted")
     .order("entry_date", { ascending: false });
 
   if (error || !data) return [];
-  return (data as Array<{ id: string; entry_date: string | null; employee_id: string | null; location_id: string | null; shift: string | null; lines: unknown }>).map(
+  return (data as Array<{ id: string; entry_date: string | null; employee_id: string | null; location_id: string | null; shift: string | null; lines: unknown; deleted?: string | null }>)
+    .filter((row) => row.deleted !== "true")
+    .map(
     (row) =>
       ({
         id: row.id,
@@ -105,8 +107,34 @@ export async function upsertCloudEntry(entry: DailyEntry): Promise<{ ok: boolean
   return { ok: true };
 }
 
+// Soft delete: the row stays, its data replaced by a tombstone. Every client
+// that still holds a copy of the entry (on screen or in its localStorage
+// cache) sees the tombstone on its next pull and drops the copy — with a hard
+// delete, those stale copies looked like unsynced new entries and the clients'
+// offline safety nets pushed the "deleted" entry straight back to the cloud.
 export async function deleteCloudEntry(id: string): Promise<void> {
   const supabase = getSupabaseServerClient();
   if (!supabase) return;
-  await supabase.from("cloud_entries").delete().eq("id", id);
+  const now = new Date().toISOString();
+  const tombstone: DailyEntry = {
+    id,
+    deleted: true,
+    date: "",
+    employeeId: "",
+    locationId: "",
+    shift: "AM",
+    clockIn: "",
+    clockOut: "",
+    manualHours: 0,
+    breakProfile: "standard",
+    notes: "",
+    createdAt: now,
+    updatedAt: now,
+    lines: [],
+    phases: []
+  } as DailyEntry;
+  await supabase.from("cloud_entries").upsert(
+    { id, data: tombstone, updated_at: now },
+    { onConflict: "id" }
+  );
 }
