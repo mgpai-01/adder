@@ -227,11 +227,20 @@ function LiveBoardScreen() {
 
   useEffect(() => {
     loadData().catch(() => undefined);
-    const refreshTimer = window.setInterval(() => loadData().catch(() => undefined), refreshInterval);
+    // The TV stays visible so this never skips there, but a live-board tab
+    // buried in someone's browser stops polling until it's looked at again.
+    const refreshTimer = window.setInterval(() => {
+      if (!document.hidden) loadData().catch(() => undefined);
+    }, refreshInterval);
     const clockTimer = window.setInterval(() => setNow(new Date()), 1_000);
+    const onVisible = () => {
+      if (!document.hidden) loadData().catch(() => undefined);
+    };
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       window.clearInterval(refreshTimer);
       window.clearInterval(clockTimer);
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, []);
 

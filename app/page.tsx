@@ -1468,15 +1468,30 @@ export default function Home() {
       loadSharedEntries();
       refreshShared();
     };
-    const pingTimer = window.setInterval(checkForChanges, 10_000);
-    const fullTimer = window.setInterval(loadSharedEntries, 180_000);
-    const palletTimer = window.setInterval(refreshShared, 30_000);
+    // Background tabs stop polling entirely — a dozen forgotten tabs across
+    // the yards were generating tens of thousands of requests per day, enough
+    // for Vercel's edge to mistake the traffic for an attack and 403 everyone.
+    // The moment a tab becomes visible again it catches up with one refresh.
+    const whenVisible = (task: () => void) => () => {
+      if (!document.hidden) task();
+    };
+    const onVisible = () => {
+      if (!document.hidden) {
+        loadSharedEntries();
+        refreshShared();
+      }
+    };
+    const pingTimer = window.setInterval(whenVisible(checkForChanges), 10_000);
+    const fullTimer = window.setInterval(whenVisible(loadSharedEntries), 180_000);
+    const palletTimer = window.setInterval(whenVisible(refreshShared), 30_000);
     window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       window.clearInterval(pingTimer);
       window.clearInterval(fullTimer);
       window.clearInterval(palletTimer);
       window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, [entriesLoaded]);
 

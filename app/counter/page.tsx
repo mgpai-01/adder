@@ -271,11 +271,21 @@ export default function CounterPage() {
         // Offline — the list already on screen still works.
       }
     };
+    // Skip refreshes while the tab is hidden — background tabs polling all day
+    // rack up enough requests to trip Vercel's anti-abuse blocking.
     const timer = window.setInterval(() => {
+      if (document.hidden) return;
       loadEntries().catch(() => undefined);
       refreshPallets();
     }, 15_000);
-    return () => window.clearInterval(timer);
+    const onVisible = () => {
+      if (!document.hidden) loadEntries().catch(() => undefined);
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, []);
 
   // Seed the "Edit Today" boxes from the current totals — but NOT while the
