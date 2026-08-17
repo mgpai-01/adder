@@ -5485,6 +5485,8 @@ function ProductionGrid({
   // Optional single-yard view. "all" shows every yard. When a yard is picked,
   // the whole grid — cards, week totals, and exports — scopes to that yard.
   const [yardFilter, setYardFilter] = useState("all");
+  // Type a name to jump straight to one repairer's card(s).
+  const [searchQuery, setSearchQuery] = useState("");
   // Count sheet opened over the grid, as a list plus which one is showing, so
   // the viewer can page through a phase's sheets without closing.
   const [lightbox, setLightbox] = useState<{ photos: { url: string; label: string }[]; index: number } | null>(null);
@@ -5708,6 +5710,13 @@ function ProductionGrid({
       return byYard || byName;
     });
 
+  // The search narrows the cards to matching repairers (first or last name,
+  // any part). Yard headings and counts follow what's actually shown.
+  const searchActive = searchQuery.trim().length > 0;
+  const visibleCrew = searchActive
+    ? sortedCrew.filter((row) => row.employee.name.toLowerCase().includes(searchQuery.trim().toLowerCase()))
+    : sortedCrew;
+
   return (
     <div className="grid gap-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -5716,6 +5725,28 @@ function ProductionGrid({
           <p className="text-sm text-steel-500">Weekly spreadsheet view by repairer, pallet type, day, and dollars.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {/* Jump to one repairer: filters the cards live as you type. */}
+          <div className="relative">
+            <Search size={17} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-steel-400" />
+            <input
+              type="search"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Search repairer…"
+              aria-label="Search repairers"
+              className="touch-target w-44 rounded border border-steel-300 bg-white py-2 pl-9 pr-3 font-bold text-steel-900 outline-none transition-colors focus:border-workshop-500 sm:w-52"
+            />
+            {searchActive && (
+              <button
+                type="button"
+                aria-label="Clear search"
+                className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full text-steel-400 hover:bg-steel-100 hover:text-steel-700"
+                onClick={() => setSearchQuery("")}
+              >
+                <X size={15} />
+              </button>
+            )}
+          </div>
           {/* Export the week currently shown. Disabled when the week is empty. */}
           <button
             type="button"
@@ -5782,8 +5813,9 @@ function ProductionGrid({
       {/* A yard can receive production without hosting a card: everyone who
           worked there has their main yard elsewhere, so their card sits under
           that one. Without this the yard would vanish from the grid entirely
-          even though its pallets are counted everywhere else. */}
-      {locations
+          even though its pallets are counted everywhere else. (Hidden while a
+          search is active — the search is about one person's cards.) */}
+      {!searchActive && locations
         .filter((location) => !sortedCrew.some((row) => row.employee.locationId === location.id))
         .map((location) => ({
           location,
@@ -5817,16 +5849,16 @@ function ProductionGrid({
           </div>
         ))}
 
-      {sortedCrew.map(({ employee, employeeEntries, employeeReport, yardsWorked, yardByDay, perYardQty }, crewIndex) => {
+      {visibleCrew.map(({ employee, employeeEntries, employeeReport, yardsWorked, yardByDay, perYardQty }, crewIndex) => {
         // The crew is already ordered Fontana, Mesa, Citrus, so a yard heading
         // goes above the first card of each run.
-        const startsYard = crewIndex === 0 || sortedCrew[crewIndex - 1].employee.locationId !== employee.locationId;
+        const startsYard = crewIndex === 0 || visibleCrew[crewIndex - 1].employee.locationId !== employee.locationId;
         const yardLabel = locations.find((location) => location.id === employee.locationId)?.name ?? employee.locationId;
         // Counted from the entries worked at this yard rather than from the
         // cards sitting under it, so someone who covered a second yard adds to
         // that yard's number even though their card lives under their main one.
-        const yardCrew = sortedCrew.filter((row) => (row.perYardQty.get(employee.locationId) ?? 0) !== 0);
-        const yardQuantity = sortedCrew.reduce((total, row) => total + (row.perYardQty.get(employee.locationId) ?? 0), 0);
+        const yardCrew = visibleCrew.filter((row) => (row.perYardQty.get(employee.locationId) ?? 0) !== 0);
+        const yardQuantity = visibleCrew.reduce((total, row) => total + (row.perYardQty.get(employee.locationId) ?? 0), 0);
         // Everything attached to each phase this week: the photos taken on the
         // phase itself in the Daily Grid, plus any count sheets linked to the
         // repairer's entries. Count sheets carry no phase, so they are placed by
@@ -6143,6 +6175,12 @@ function ProductionGrid({
       {gridEntries.length === 0 && (
         <div className="rounded border border-steel-100 bg-white p-5 text-center font-bold text-steel-500">
           No production entries found for this week.
+        </div>
+      )}
+
+      {gridEntries.length > 0 && searchActive && visibleCrew.length === 0 && (
+        <div className="rounded border border-steel-100 bg-white p-5 text-center font-bold text-steel-500">
+          No repairer matching “{searchQuery.trim()}” this week.
         </div>
       )}
 
