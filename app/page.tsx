@@ -2259,6 +2259,29 @@ export default function Home() {
     const pageHeight = doc.internal.pageSize.getHeight();
     const margin = 40;
 
+    // The round MGP logo in the top-left, rasterized from the site's SVG at
+    // print resolution. A fetch/draw failure just means no logo — the report
+    // still generates.
+    try {
+      const svgBlob = await (await fetch("/logo.svg")).blob();
+      const objectUrl = URL.createObjectURL(svgBlob);
+      try {
+        const img = await loadImageElement(objectUrl);
+        const canvas = document.createElement("canvas");
+        canvas.width = 256;
+        canvas.height = 256;
+        const context = canvas.getContext("2d");
+        if (context) {
+          context.drawImage(img, 0, 0, 256, 256);
+          doc.addImage(canvas.toDataURL("image/png"), "PNG", margin, 24, 52, 52);
+        }
+      } finally {
+        URL.revokeObjectURL(objectUrl);
+      }
+    } catch {
+      // no logo
+    }
+
     // Document header, laid out like the paper timecard report.
     doc.setFont("helvetica", "bold").setFontSize(16).text("Pallet Production Pay", pageWidth / 2, 48, { align: "center" });
     doc.setFontSize(12).text("Manufacturing Green Products", pageWidth / 2, 70, { align: "center" });
@@ -2266,7 +2289,7 @@ export default function Home() {
     doc.text(rangeLabel, pageWidth - margin, 48, { align: "right" });
     doc.text(new Date().toLocaleString(), pageWidth - margin, 60, { align: "right" });
 
-    let cursorY = 95;
+    let cursorY = 100;
     const grid = { lineColor: [140, 140, 140] as [number, number, number], lineWidth: 0.5 };
 
     for (const person of people) {
