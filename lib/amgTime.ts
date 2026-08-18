@@ -29,6 +29,10 @@ type AmgTimecardLine = {
   OT3?: number;
   Unpaid?: number;
   IsMissing?: boolean;
+  // Present when the line is a miscellaneous transaction (bonus hours, pay
+  // adjustments) rather than punched work time. Those lines are excluded so
+  // synced hours match the plain (no-bonus) Timecard report.
+  MiscEntry?: { CategoryId?: number; Hours?: number; Amount?: number } | null;
 };
 
 type AmgEmployeeTimecards = {
@@ -84,8 +88,9 @@ function amgDate(iso: string): string {
 
 // Pulls every active employee's daily paid hours from AMG for the given range
 // (ISO yyyy-mm-dd, inclusive), in the same block shape the file importer
-// produces — code, name, and per-day totals (Reg + OT levels; the same figure
-// the Timecard report prints in its "Total" column).
+// produces — code, name, and per-day totals (Reg + OT levels). Bonus/misc
+// lines are excluded, so the figures match the plain (no-bonus) Timecard
+// report's "Total" column — worked time only.
 export async function fetchAmgHours(startDate: string, endDate: string): Promise<ImportedBlock[]> {
   const cookie = await amgLogin();
 
@@ -93,9 +98,11 @@ export async function fetchAmgHours(startDate: string, endDate: string): Promise
   const active = employees.filter((employee) => employee.Active !== false);
   if (active.length === 0) return [];
 
+  // The full (non-Lite) feed is used because only it carries MiscEntry, the
+  // marker that a line is a bonus/adjustment rather than punched work time.
   const timecards = await amgPost<AmgEmployeeTimecards[]>(
     cookie,
-    `/JsonApi/TimeCard/GetTimecardsLite?startDate=${encodeURIComponent(amgDate(startDate))}&endDate=${encodeURIComponent(
+    `/JsonApi/TimeCard/GetTimecards?startDate=${encodeURIComponent(amgDate(startDate))}&endDate=${encodeURIComponent(
       amgDate(endDate)
     )}&showAbsences=false`,
     active.map((employee) => employee.Id)
@@ -110,6 +117,9 @@ export async function fetchAmgHours(startDate: string, endDate: string): Promise
     const dayTotals = new Map<string, { hours: number; ot1: number; ot2: number }>();
     for (const line of record.Timecards ?? []) {
       if (!line.Date || line.IsMissing) continue;
+      // Bonus and other pay adjustments come through as misc-transaction
+      // lines; only punched work time counts toward the day's hours.
+      if (line.MiscEntry) continue;
       const date = line.Date.slice(0, 10);
       const hours = (line.Reg ?? 0) + (line.OT1 ?? 0) + (line.OT2 ?? 0) + (line.OT3 ?? 0);
       if (hours <= 0) continue;

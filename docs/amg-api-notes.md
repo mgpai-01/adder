@@ -14,10 +14,13 @@ Credentials live in Vercel env vars `AMG_USERNAME` / `AMG_PASSWORD`
   `[{ Id, Code, Name, FullName, LastName, Badge, Active }]`. `Code` is the
   timecard report's employee code (e.g. "00137") and is what we remember on
   roster records as `timeclockCode`.
-- `POST /JsonApi/TimeCard/GetTimecardsLite?startDate=YYYY-MM-DDT00:00:00&endDate=...&showAbsences=false`
+- `POST /JsonApi/TimeCard/GetTimecards?startDate=YYYY-MM-DDT00:00:00&endDate=...&showAbsences=false`
   — body = array of employee Ids. Returns per employee
-  `{ EmployeeId, Timecards: [{ Date, Reg, OT1, OT2, OT3, Unpaid, IsMissing }] }`.
-  Daily paid hours = Reg + OT1 + OT2 + OT3 (matches the report's "Total").
+  `{ EmployeeId, Timecards: [{ Date, Reg, OT1, OT2, OT3, Unpaid, IsMissing, MiscEntry, ... }] }`.
+  Daily paid hours = Reg + OT1 + OT2 + OT3 over lines WITHOUT `MiscEntry`.
+  Lines with `MiscEntry` are bonuses/pay adjustments, not worked time — the
+  Lite variant (`GetTimecardsLite`) folds them into the totals with no way to
+  tell them apart, which is why the full feed is used.
 
 ## Other endpoints of note (not used yet)
 - `GetTimecardsWithWage`, `Wage/GetEmployeeWages` — wage figures.
