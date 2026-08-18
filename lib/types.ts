@@ -26,6 +26,9 @@ export type Employee = {
   // (sorter or repair line) and which of that station's 5 spots.
   station?: "sorter" | "repair";
   stationSpot?: number;
+  // The employee's code in the AMG Time clock system (e.g. "00137"), remembered
+  // after the first hours import so later imports match automatically.
+  timeclockCode?: string;
 };
 
 export type PalletCategory = "Stacker" | "Repair" | "Extend" | "Cut" | "Outside" | "Custom" | "QC Deductions";
@@ -92,6 +95,10 @@ export type DailyEntry = {
   // Photos of the repairer's physical time card, uploaded from the Production
   // Grid. Stored as small storage URLs (same pipeline as phase photos).
   timeCardPhotoUrls?: string[];
+  // Hours imported from the AMG Time timecard report (the day's paid total,
+  // already net of unpaid lunch). Presence of this field is what makes the
+  // Pay PDF print real hours instead of a dash.
+  importedHours?: number;
   // Tombstone: the entry was deleted. The row is kept (with this flag) so every
   // device knows to drop its copy — a hard-deleted row looked identical to a
   // not-yet-synced one, and other devices' offline safety nets pushed it back.

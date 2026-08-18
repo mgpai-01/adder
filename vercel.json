@@ -3,6 +3,10 @@
     {
       "path": "/api/keepwarm",
       "schedule": "0 8 * * *"
+    },
+    {
+      "path": "/api/hours-sync/cron",
+      "schedule": "0 10 * * *"
     }
   ]
 }

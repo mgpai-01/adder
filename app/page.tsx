@@ -62,6 +62,7 @@ import {
 } from "@/lib/data";
 import { calculateEntry, compareByLastName, correctedEntryDate, currency, findMisdatedEntries, getWeekKey, wholeNumber } from "@/lib/payroll";
 import { authedFetch, getAccessToken, roleLabels, roleViews, useAuth } from "@/lib/auth";
+import { normalizeExcelValue, parseCsvGrid, parseTimecardGrid, type ImportedBlock } from "@/lib/hoursImport";
 import { LanguageProvider, translate, useT, type Language } from "@/lib/i18n";
 import type { ChangeLogEntry } from "@/lib/cloudChangeLog";
 import AuthGate from "@/components/AuthGate";
@@ -2357,10 +2358,15 @@ export default function Home() {
       doc.setFont("helvetica", "bold").setFontSize(11);
       doc.text(`${person.name.toUpperCase()} — ${person.yards.map(locName).join(" / ")}`, margin, cursorY);
 
-      // Day-by-day pallet lines with a bold subtotal row per day.
+      // Day-by-day pallet lines with a bold subtotal row per day. Hours come
+      // from the AMG Time import when present; days without imported hours
+      // show a dash rather than a guessed number.
       const body: (string | number)[][] = [];
       const subtotalRows: number[] = [];
       const days = Array.from(new Set(person.personEntries.map((entry) => entry.date))).sort();
+      let personHours = 0;
+      let personOvertime = 0;
+      let anyHours = false;
       for (const day of days) {
         const dayEntries = person.personEntries.filter((entry) => entry.date === day);
         for (const entry of dayEntries) {
@@ -2374,15 +2380,36 @@ export default function Home() {
               `${pallet?.code ?? line.palletTypeId} ${pallet?.description ?? ""}`.trim(),
               currency(rate),
               line.quantity,
+              "",
               currency(rate * line.quantity)
             ]);
           }
         }
         const dayReport = buildReport(dayEntries, palletTypes, employeeList, locationList, settings);
+        const dayHours = dayEntries.reduce((total, entry) => total + (entry.importedHours ?? 0), 0);
+        if (dayHours > 0) {
+          anyHours = true;
+          personHours += dayHours;
+          personOvertime += Math.max(0, dayHours - settings.dailyOvertimeThreshold);
+        }
         subtotalRows.push(body.length);
-        body.push([usDate(day), dayName(day), "", "Day total", "", wholeNumber(dayReport.summary.quantity), currency(dayReport.summary.totalPay)]);
+        body.push([
+          usDate(day),
+          dayName(day),
+          "",
+          "Day total",
+          "",
+          wholeNumber(dayReport.summary.quantity),
+          dayHours > 0 ? dayHours.toFixed(2) : "—",
+          currency(dayReport.summary.totalPay)
+        ]);
       }
-      const totalRow = body.length;
+      const totalRowStart = body.length;
+      if (anyHours) {
+        const hourlyEquivalent = personHours > 0 ? person.report.summary.totalPay / personHours : 0;
+        body.push(["", "", "", "Payroll — hourly equivalent", "", "", "", `${currency(hourlyEquivalent)}/hr`]);
+        body.push(["", "", "", "Payroll — overtime hours", "", "", personOvertime.toFixed(2), ""]);
+      }
       body.push([
         "",
         "",
@@ -2390,11 +2417,12 @@ export default function Home() {
         "TOTAL GROSS PAID",
         person.report.summary.makeup > 0 ? `incl. make-up ${currency(person.report.summary.makeup)}` : "",
         wholeNumber(person.report.summary.quantity),
+        anyHours ? personHours.toFixed(2) : "",
         currency(person.report.summary.totalPay)
       ]);
 
       autoTable(doc, {
-        head: [["Date", "Day", "Yard", "Pallet", "Rate", "Qty", "Amount"]],
+        head: [["Date", "Day", "Yard", "Pallet", "Rate", "Qty", "Hours", "Amount"]],
         body,
         startY: cursorY + 8,
         margin: { left: margin, right: margin },
@@ -2402,12 +2430,13 @@ export default function Home() {
         styles: { font: "helvetica", fontSize: 8, textColor: [20, 20, 20], cellPadding: 3, lineColor: grid.lineColor, lineWidth: grid.lineWidth },
         headStyles: { fillColor: [34, 48, 61], textColor: 255, fontStyle: "bold" },
         columnStyles: {
-          0: { cellWidth: 62 },
-          1: { cellWidth: 40 },
-          2: { cellWidth: 62 },
-          4: { halign: "right", cellWidth: 90 },
-          5: { halign: "right", cellWidth: 45 },
-          6: { halign: "right", cellWidth: 70 }
+          0: { cellWidth: 60 },
+          1: { cellWidth: 38 },
+          2: { cellWidth: 58 },
+          4: { halign: "right", cellWidth: 62 },
+          5: { halign: "right", cellWidth: 40 },
+          6: { halign: "right", cellWidth: 46 },
+          7: { halign: "right", cellWidth: 68 }
         },
         didParseCell: (data) => {
           if (data.section !== "body") return;
@@ -2415,10 +2444,10 @@ export default function Home() {
             data.cell.styles.fontStyle = "bold";
             data.cell.styles.fillColor = [237, 240, 243];
           }
-          if (data.row.index === totalRow) {
+          if (data.row.index >= totalRowStart) {
             data.cell.styles.fontStyle = "bold";
             data.cell.styles.fillColor = [255, 236, 130];
-            data.cell.styles.fontSize = 9;
+            if (data.row.index === totalRowStart + (anyHours ? 2 : 0)) data.cell.styles.fontSize = 9;
           }
         }
       });
@@ -3035,6 +3064,7 @@ export default function Home() {
               onDeleteEntry={deleteSavedEntry}
               onSelectEmployee={setProfileEmployeeId}
               onUpdateEntry={updateSavedEntry}
+              onUpdateEmployee={(employeeId, patch) => updateEmployee(employeeId, patch)}
             />
           )}
           {view === "cloud" && (
@@ -5321,7 +5351,8 @@ function Payroll({
   onViewEntry,
   onDeleteEntry,
   onSelectEmployee,
-  onUpdateEntry
+  onUpdateEntry,
+  onUpdateEmployee
 }: {
   entries: DailyEntry[];
   countSheets: CountSheet[];
@@ -5338,9 +5369,11 @@ function Payroll({
   onViewEntry: (entry: DailyEntry) => void;
   onDeleteEntry: (id: string) => void;
   onSelectEmployee: (employeeId: string) => void;
-  // Saves a corrected entry (stamped + synced) — used when orphaned pallets
-  // are reassigned onto a real pallet type.
+  // Saves a corrected entry (stamped + synced): reassigning orphaned pallets
+  // onto a real type, and writing imported hours onto entries.
   onUpdateEntry: (entry: DailyEntry) => void;
+  // Remembers a person's AMG time-clock code after an hours import matches them.
+  onUpdateEmployee: (employeeId: string, patch: Partial<Employee>) => void;
 }) {
   const [employeeFilter, setEmployeeFilter] = useState("all");
   const [locationFilter, setLocationFilter] = useState("all");
@@ -5385,6 +5418,151 @@ function Payroll({
     }
   }
 
+  // AMG Time hours import: parse the uploaded Timecard report, preview which
+  // roster person each employee code belongs to, then apply the hours onto
+  // that person's entries. Codes are remembered on the roster, so after the
+  // first import the matching is automatic.
+  const [hoursImport, setHoursImport] = useState<{ blocks: ImportedBlock[]; picks: Record<string, string>; error?: string } | null>(null);
+  const [hoursImportBusy, setHoursImportBusy] = useState(false);
+  const [hoursImportResult, setHoursImportResult] = useState("");
+
+  function guessEmployeeForBlock(block: ImportedBlock): string {
+    const byCode = employees.find((employee) => employee.timeclockCode === block.code);
+    if (byCode) return byCode.id;
+    // Name fallback: the report prints "MARIA REYES PINEDA", the roster says
+    // "Maria Reyes" — match when at least first + last name both appear.
+    const fileWords = new Set(normName(block.name).split(" ").filter(Boolean));
+    if (fileWords.size === 0) return "";
+    let best: { id: string; score: number } | null = null;
+    for (const employee of employees) {
+      const words = normName(employee.name).split(" ").filter(Boolean);
+      const score = words.filter((word) => fileWords.has(word)).length;
+      if (score >= 2 && (!best || score > best.score)) best = { id: employee.id, score };
+    }
+    return best?.id ?? "";
+  }
+
+  async function handleHoursFile(file: File) {
+    setHoursImportBusy(true);
+    setHoursImportResult("");
+    try {
+      let grid: unknown[][] = [];
+      if (/\.csv$/i.test(file.name)) {
+        grid = parseCsvGrid(await file.text());
+      } else {
+        const ExcelJSModule = await import("exceljs");
+        const ExcelJS = ((ExcelJSModule as unknown as { default?: typeof ExcelJSModule }).default ?? ExcelJSModule) as typeof ExcelJSModule;
+        const workbook = new ExcelJS.Workbook();
+        await workbook.xlsx.load(await file.arrayBuffer());
+        workbook.worksheets.forEach((sheet) => {
+          sheet.eachRow({ includeEmpty: true }, (row) => {
+            const cells: unknown[] = [];
+            row.eachCell({ includeEmpty: true }, (cell, column) => {
+              cells[column - 1] = normalizeExcelValue(cell.value);
+            });
+            grid.push(cells);
+          });
+        });
+      }
+      const blocks = parseTimecardGrid(grid);
+      if (blocks.length === 0) {
+        setHoursImport({
+          blocks: [],
+          picks: {},
+          error: "No timecard data found in that file. Export the AMG Timecard report as Excel (.xlsx) or CSV — from Numbers use File → Export To → Excel."
+        });
+      } else {
+        const picks: Record<string, string> = {};
+        blocks.forEach((block) => {
+          picks[block.code] = guessEmployeeForBlock(block);
+        });
+        setHoursImport({ blocks, picks });
+      }
+    } catch (error) {
+      setHoursImport({ blocks: [], picks: {}, error: error instanceof Error ? error.message : "Could not read that file." });
+    } finally {
+      setHoursImportBusy(false);
+    }
+  }
+
+  function applyHoursImport() {
+    if (!hoursImport) return;
+    let applied = 0;
+    const skipped: string[] = [];
+    const nameOf = (id: string) => employees.find((item) => item.id === id)?.name ?? id;
+    for (const block of hoursImport.blocks) {
+      const employeeId = hoursImport.picks[block.code];
+      if (!employeeId) continue;
+      const employee = employees.find((item) => item.id === employeeId);
+      if (!employee) continue;
+      if (employee.timeclockCode !== block.code) onUpdateEmployee(employeeId, { timeclockCode: block.code });
+      const target = normName(employee.name);
+      for (const day of block.days) {
+        if (day.hours <= 0) continue;
+        const dayEntries = entries.filter(
+          (entry) => entry.date === day.date && normName(nameOf(entry.employeeId)) === target
+        );
+        if (dayEntries.length === 0) {
+          skipped.push(`${employee.name} ${day.date.slice(5).replace("-", "/")}`);
+          continue;
+        }
+        for (const entry of dayEntries) {
+          // The AMG "Total" is paid hours net of unpaid lunch, so noLunch stops
+          // the pay math from subtracting another half hour.
+          onUpdateEntry({ ...entry, manualHours: day.hours, importedHours: day.hours, breakProfile: "noLunch" });
+          applied++;
+        }
+      }
+    }
+    setHoursImportResult(
+      `Hours applied to ${applied} entr${applied === 1 ? "y" : "ies"}.` +
+        (skipped.length > 0 ? ` Skipped (no production entry that day): ${skipped.join(", ")}.` : "")
+    );
+    setHoursImport(null);
+  }
+
+  // Live AMG sync: the server logs into AMG with the stored credentials and
+  // returns the same blocks the file importer produces, so the preview/apply
+  // flow is identical — no export, no upload.
+  async function syncFromAmg() {
+    setHoursImportBusy(true);
+    setHoursImportResult("");
+    try {
+      // Pull the filtered range when one is set; otherwise the last 7 days.
+      const end = endDate || formatLocalDate(new Date());
+      const start =
+        startDate ||
+        (() => {
+          const from = new Date(`${end}T12:00:00`);
+          from.setDate(from.getDate() - 6);
+          return formatLocalDate(from);
+        })();
+      const response = await authedFetch("/api/hours-sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ startDate: start, endDate: end })
+      });
+      const result = (await response.json()) as { ok?: boolean; blocks?: ImportedBlock[]; error?: string };
+      if (!response.ok || !result.ok || !result.blocks) {
+        setHoursImport({ blocks: [], picks: {}, error: result.error || `AMG sync failed (${response.status}).` });
+        return;
+      }
+      if (result.blocks.length === 0) {
+        setHoursImport({ blocks: [], picks: {}, error: `AMG returned no hours between ${start} and ${end}.` });
+        return;
+      }
+      const picks: Record<string, string> = {};
+      result.blocks.forEach((block) => {
+        picks[block.code] = guessEmployeeForBlock(block);
+      });
+      setHoursImport({ blocks: result.blocks, picks });
+    } catch (error) {
+      setHoursImport({ blocks: [], picks: {}, error: error instanceof Error ? error.message : "AMG sync failed." });
+    } finally {
+      setHoursImportBusy(false);
+    }
+  }
+
   return (
     <div className="grid gap-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -5396,7 +5574,7 @@ function Payroll({
           {/* Opens the AMG Time clock portal in its own tab, so hours can be
               checked against pallet pay without leaving this screen behind. */}
           <a
-            href="https://amgtime.net"
+            href="https://amgwebtime.com"
             target="_blank"
             rel="noopener noreferrer"
             className="touch-target flex items-center gap-2 rounded border border-steel-300 bg-white px-4 py-2 font-black text-steel-900 transition-colors hover:border-workshop-500 hover:text-workshop-700"
@@ -5405,6 +5583,36 @@ function Payroll({
             AMG Time Clock
             <ExternalLink size={15} className="text-steel-400" />
           </a>
+          {/* Pulls hours straight from AMG over the API — no export, no file. */}
+          <button
+            type="button"
+            disabled={hoursImportBusy}
+            className="touch-target flex items-center gap-2 rounded bg-steel-900 px-4 py-2 font-black text-white transition-colors hover:bg-steel-700 disabled:opacity-60"
+            onClick={() => void syncFromAmg()}
+          >
+            {hoursImportBusy ? <Loader2 size={19} className="animate-spin" /> : <Clock size={19} />}
+            {hoursImportBusy ? "Syncing…" : "Sync Hours from AMG"}
+          </button>
+          {/* Fallback: upload the AMG Timecard report (Excel/CSV) by hand. */}
+          <label
+            className={classNames(
+              "touch-target flex cursor-pointer items-center gap-2 rounded border border-steel-300 bg-white px-4 py-2 font-black text-steel-900 transition-colors hover:border-workshop-500",
+              hoursImportBusy && "pointer-events-none opacity-60"
+            )}
+          >
+            <Download size={19} className="rotate-180" />
+            Import Hours File
+            <input
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              className="hidden"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.target.value = "";
+                if (file) void handleHoursFile(file);
+              }}
+            />
+          </label>
           <button type="button" className="touch-target flex items-center gap-2 rounded border border-steel-300 bg-white px-4 py-2 font-black text-steel-900" onClick={() => exportCsv(filteredEntries)}>
             <Download size={19} />
             Export CSV
@@ -5419,6 +5627,79 @@ function Payroll({
           </button>
         </div>
       </div>
+
+      {hoursImportResult && (
+        <p className="rounded border border-steel-100 bg-white p-3 text-sm font-bold text-steel-700">{hoursImportResult}</p>
+      )}
+
+      {/* Import preview: confirm which roster person each AMG code belongs to,
+          then apply. Assignments are saved on the roster for next time. */}
+      {hoursImport && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-steel-900/70 p-4" onClick={() => setHoursImport(null)}>
+          <div className="max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded border border-steel-100 bg-white p-5 text-steel-900" onClick={(event) => event.stopPropagation()}>
+            <h3 className="text-xl font-black">Import Hours — AMG Timecard</h3>
+            {hoursImport.error ? (
+              <p className="mt-3 font-bold text-red-700">{hoursImport.error}</p>
+            ) : (
+              <>
+                <p className="mt-1 text-sm text-steel-500">
+                  Check who each timecard belongs to, then apply. The code is remembered so next week matches automatically.
+                </p>
+                <div className="mt-4 grid gap-3">
+                  {hoursImport.blocks.map((block) => {
+                    const totalHours = block.days.reduce((total, day) => total + day.hours, 0);
+                    return (
+                      <div key={block.code} className="rounded border border-steel-100 p-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div>
+                            <strong>Code {block.code}</strong>
+                            {block.name ? <span> — {block.name}</span> : null}
+                            <span className="ml-2 text-sm font-bold text-steel-500">{totalHours.toFixed(2)} hrs</span>
+                          </div>
+                          <select
+                            className="field max-w-[240px]"
+                            value={hoursImport.picks[block.code] ?? ""}
+                            onChange={(event) =>
+                              setHoursImport({ ...hoursImport, picks: { ...hoursImport.picks, [block.code]: event.target.value } })
+                            }
+                          >
+                            <option value="">— Don't import —</option>
+                            {[...employees]
+                              .filter((employee) => employee.role !== "supervisor")
+                              .sort((a, b) => compareByLastName(a.name, b.name))
+                              .map((employee) => (
+                                <option key={employee.id} value={employee.id}>
+                                  {employee.name}
+                                </option>
+                              ))}
+                          </select>
+                        </div>
+                        <p className="mt-2 flex flex-wrap gap-1.5 text-xs font-bold text-steel-600">
+                          {block.days
+                            .filter((day) => day.hours > 0)
+                            .map((day) => (
+                              <span key={day.date} className="rounded bg-steel-100 px-2 py-0.5">
+                                {day.date.slice(5).replace("-", "/")} · {day.hours.toFixed(2)}h
+                              </span>
+                            ))}
+                        </p>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="mt-4 flex justify-end gap-2">
+                  <button type="button" className="touch-target rounded border border-steel-300 px-4 py-2 font-black text-steel-900" onClick={() => setHoursImport(null)}>
+                    Cancel
+                  </button>
+                  <button type="button" className="touch-target rounded bg-workshop-500 px-4 py-2 font-black text-white" onClick={applyHoursImport}>
+                    Apply hours
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       <div className="grid gap-3 md:grid-cols-5">
         <FilterSelect label="Employee" value={employeeFilter} onChange={setEmployeeFilter} options={[{ id: "all", name: "All Employees" }, ...[...employees].sort((a, b) => compareByLastName(a.name, b.name)).map((employee) => ({ id: employee.id, name: employee.name }))]} />
