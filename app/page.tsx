@@ -6008,8 +6008,21 @@ function ProductionGrid({
   async function openTimecardPdf(employee: Employee) {
     if (timecardBusyFor) return;
     // The tab opens on the click itself so popup blockers allow it; the AMG
-    // page's address is filled in once the server hands it over.
+    // page's address is filled in once the server hands it over. Pulling live
+    // punches from AMG takes a few seconds, so the tab says so meanwhile.
     const tab = window.open("", "_blank");
+    try {
+      tab?.document.write(
+        `<title>${employee.name} — time card</title>` +
+          `<body style="margin:0;display:grid;place-items:center;height:100vh;font-family:-apple-system,sans-serif;background:#f8fafc;color:#334155">` +
+          `<div style="text-align:center"><div style="font-size:38px">⏱</div>` +
+          `<p style="font-weight:700">Pulling ${employee.name}&#39;s time card from AMG…</p>` +
+          `<p style="color:#94a3b8;font-size:14px">This usually takes a few seconds.</p></div></body>`
+      );
+      tab?.document.close();
+    } catch {
+      // cross-origin quirk — the blank tab still works as a target
+    }
     setTimecardBusyFor(employee.id);
     try {
       // The official uploaded paper wins when it exists for this week…
