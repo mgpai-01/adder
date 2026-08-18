@@ -1,7 +1,6 @@
-import { createHmac } from "node:crypto";
 import { NextResponse } from "next/server";
 import { requireCaller } from "@/lib/apiAuth";
-import { readCloudEmployees } from "@/lib/cloudEmployees";
+import { checkTimecardAccess, timecardStoragePath } from "@/lib/timecardAccess";
 import { getSupabaseServerClient } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
@@ -21,22 +20,6 @@ const BUCKET = "count-sheets";
 // Unguessable but deterministic file name: the bucket is public, so the path
 // itself is the secret. Keyed with the service-role key, which never leaves
 // the server.
-function timecardPath(weekStart: string, code: string): string {
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
-  const digest = createHmac("sha256", key).update(`timecard|${weekStart}|${code}`).digest("hex").slice(0, 32);
-  return `timecards/${weekStart}/${digest}.pdf`;
-}
-
-function normalizeName(name: string): string {
-  return name
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
-    .replace(/[^a-z\s]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
 const WEEK_RE = /^\d{4}-\d{2}-\d{2}$/;
 const CODE_RE = /^\d{3,8}$/;
 
@@ -61,7 +44,7 @@ export async function POST(request: Request) {
     const bytes = Buffer.from(block.pdfBase64, "base64");
     // A single person's report page is tens of KB; anything huge is not that.
     if (bytes.length === 0 || bytes.length > 4 * 1024 * 1024) continue;
-    const { error } = await check.supabase.storage.from(BUCKET).upload(timecardPath(weekStart, code), bytes, {
+    const { error } = await check.supabase.storage.from(BUCKET).upload(timecardStoragePath(weekStart, code), bytes, {
       contentType: "application/pdf",
       upsert: true
     });
@@ -72,9 +55,6 @@ export async function POST(request: Request) {
 }
 
 export async function GET(request: Request) {
-  const check = await requireCaller(request);
-  if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
-
   const url = new URL(request.url);
   const weekStart = url.searchParams.get("weekStart") ?? "";
   const employeeId = url.searchParams.get("employeeId") ?? "";
@@ -82,38 +62,13 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Expected weekStart and employeeId" }, { status: 400 });
   }
 
-  const employees = await readCloudEmployees();
-  const employee = employees.find((item) => item.id === employeeId);
-  if (!employee) return NextResponse.json({ error: "Unknown person" }, { status: 404 });
+  const access = await checkTimecardAccess(request, employeeId);
+  if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
 
-  // Who may see this person's card: admins anyone; managers their yards;
-  // everyone else only themselves (matched by their account's full name).
-  if (check.role !== "admin") {
-    const { data: profile } = await check.supabase
-      .from("profiles")
-      .select("full_name, manager_yard")
-      .eq("id", check.userId)
-      .maybeSingle();
-    if (check.role === "supervisor") {
-      const yards = String((profile as { manager_yard?: string } | null)?.manager_yard ?? "")
-        .split(",")
-        .map((item) => item.trim())
-        .filter(Boolean);
-      if (!yards.includes(employee.locationId)) {
-        return NextResponse.json({ error: "This person is not in your yard" }, { status: 403 });
-      }
-    } else {
-      const ownName = normalizeName(String((profile as { full_name?: string } | null)?.full_name ?? ""));
-      if (!ownName || ownName !== normalizeName(employee.name)) {
-        return NextResponse.json({ error: "You can only open your own time card" }, { status: 403 });
-      }
-    }
-  }
-
-  const code = (employee.timeclockCode ?? "").trim();
+  const code = (access.employee.timeclockCode ?? "").trim();
   if (!code) return NextResponse.json({ error: "not-matched" }, { status: 404 });
 
-  const path = timecardPath(weekStart, code);
+  const path = timecardStoragePath(weekStart, code);
   const supabase = getSupabaseServerClient();
   if (!supabase) return NextResponse.json({ error: "Cloud storage not configured" }, { status: 503 });
   const folder = path.slice(0, path.lastIndexOf("/"));

@@ -86,6 +86,230 @@ function amgDate(iso: string): string {
   return `${iso}T00:00:00`;
 }
 
+// ===== Live per-person time sheet, laid out like AMG's printed Timecard =====
+
+type AmgPunch = {
+  Action?: number; // 2 Out For Lunch, 3 In From Lunch, 4 Out For Break, 5 In From Break, 6 Clock In, 7 Clock Out
+  ClockDate?: string;
+  JobId?: number;
+};
+
+type AmgEmployeeTransactions = {
+  EmployeeId: number;
+  Transactions?: AmgPunch[];
+};
+
+type AmgEmployeeWage = {
+  EmployeeId: number;
+  Wages?: Array<{ Amount?: number; StartDate?: string; Type?: number }>;
+};
+
+type AmgJob = { Id?: number; Code?: string; Name?: string };
+
+export type TimecardSegment = {
+  cat: "WORK" | "BRK" | "LUNCH";
+  start: string;
+  stop: string;
+  job: string;
+  hours: number;
+  reg: number;
+  ot1: number;
+  ot2: number;
+  unpaid: number;
+  total: number;
+};
+
+export type TimecardDay = {
+  date: string;
+  absent: boolean;
+  segments: TimecardSegment[];
+  summary: { hours: number; reg: number; ot1: number; ot2: number; unpaid: number; total: number };
+};
+
+export type TimecardSheet = {
+  code: string;
+  name: string;
+  jobLabel: string;
+  days: TimecardDay[];
+  totals: { hours: number; reg: number; ot1: number; ot2: number; unpaid: number; total: number };
+  wage: { rate: number; ot1Rate: number; ot2Rate: number; regPay: number; ot1Pay: number; ot2Pay: number; gross: number } | null;
+};
+
+function clockLabel(dateTime: string): string {
+  const match = /T(\d{2}):(\d{2})/.exec(dateTime);
+  if (!match) return "";
+  let hours = Number(match[1]);
+  const suffix = hours >= 12 ? "PM" : "AM";
+  hours = hours % 12 || 12;
+  return `${hours}:${match[2]} ${suffix}`;
+}
+
+function hoursBetween(start: string, stop: string): number {
+  const ms = new Date(stop).getTime() - new Date(start).getTime();
+  return Math.max(0, Math.round((ms / 3600000) * 100) / 100);
+}
+
+const round2 = (value: number) => Math.round(value * 100) / 100;
+
+// Every AMG employee's code and name — for matching roster people to their
+// AMG record by name when no code is remembered yet.
+export async function fetchAmgEmployeeDirectory(): Promise<Array<{ code: string; name: string }>> {
+  const cookie = await amgLogin();
+  const employees = await amgPost<AmgEmployeeShort[]>(cookie, "/JsonApi/Employee/GetAllEmployeesShort", null);
+  return employees
+    .filter((employee) => (employee.Code ?? "").trim())
+    .map((employee) => ({
+      code: (employee.Code ?? "").trim(),
+      name: (employee.FullName ?? employee.Name ?? "").replace(/\s+/g, " ").trim()
+    }));
+}
+
+// Builds one person's week exactly the way AMG's Timecard report shows it:
+// WORK/BRK/LUNCH segments from their punches, day summary lines straight from
+// AMG's own daily totals, the wage line from their wage on file. Bonus/misc
+// lines are excluded (the plain, no-bonus report). The per-segment REG/OT
+// split fills the day's REG bucket in clock order, then OT1, then OT2 — the
+// same way the printed report lays overtime at the end of the day.
+export async function fetchAmgTimecardSheet(startDate: string, endDate: string, code: string): Promise<TimecardSheet | null> {
+  const cookie = await amgLogin();
+  const employees = await amgPost<AmgEmployeeShort[]>(cookie, "/JsonApi/Employee/GetAllEmployeesShort", null);
+  const employee = employees.find((item) => (item.Code ?? "").trim() === code);
+  if (!employee) return null;
+  const ids = [employee.Id];
+
+  const range = `startDate=${encodeURIComponent(amgDate(startDate))}&endDate=${encodeURIComponent(amgDate(endDate))}`;
+  const [timecards, transactions, wages] = await Promise.all([
+    amgPost<AmgEmployeeTimecards[]>(cookie, `/JsonApi/TimeCard/GetTimecards?${range}&showAbsences=true`, ids),
+    amgPost<AmgEmployeeTransactions[]>(cookie, `/JsonApi/Transaction/GetTransactions?${range}`, ids).catch(() => []),
+    amgPost<AmgEmployeeWage[]>(cookie, "/JsonApi/Wage/GetEmployeeWages", ids).catch(() => [])
+  ]);
+
+  // AMG's own daily totals (and absence markers), bonus lines excluded.
+  const dayTotals = new Map<string, { reg: number; ot1: number; ot2: number; unpaid: number; absent: boolean }>();
+  const jobIds = new Set<number>();
+  for (const line of timecards.find((item) => item.EmployeeId === employee.Id)?.Timecards ?? []) {
+    if (!line.Date || line.MiscEntry) continue;
+    const date = line.Date.slice(0, 10);
+    const bucket = dayTotals.get(date) ?? { reg: 0, ot1: 0, ot2: 0, unpaid: 0, absent: false };
+    if (line.IsMissing) {
+      bucket.absent = bucket.reg + bucket.ot1 + bucket.ot2 === 0;
+    } else {
+      bucket.reg += line.Reg ?? 0;
+      bucket.ot1 += line.OT1 ?? 0;
+      bucket.ot2 += (line.OT2 ?? 0) + (line.OT3 ?? 0);
+      bucket.unpaid += line.Unpaid ?? 0;
+      bucket.absent = false;
+    }
+    dayTotals.set(date, bucket);
+    const jobId = (line as { JobId?: number }).JobId;
+    if (typeof jobId === "number" && jobId > 0) jobIds.add(jobId);
+  }
+
+  // Punches, grouped per day in clock order, turned into report segments.
+  const punchesByDay = new Map<string, AmgPunch[]>();
+  for (const punch of transactions.find((item) => item.EmployeeId === employee.Id)?.Transactions ?? []) {
+    if (!punch.ClockDate || typeof punch.Action !== "number") continue;
+    if (![2, 3, 4, 5, 6, 7, 10, 11].includes(punch.Action)) continue;
+    const date = punch.ClockDate.slice(0, 10);
+    const list = punchesByDay.get(date) ?? [];
+    list.push(punch);
+    punchesByDay.set(date, list);
+    if (typeof punch.JobId === "number" && punch.JobId > 0) jobIds.add(punch.JobId);
+  }
+
+  // Job label for the header + segment rows, e.g. "(00015) SULTANA-REPAIRER".
+  let jobLabel = "";
+  let jobCode = "";
+  if (jobIds.size > 0) {
+    const jobs = await amgPost<AmgJob[]>(cookie, "/JsonApi/Job/GetJobs", Array.from(jobIds)).catch(() => [] as AmgJob[]);
+    const first = jobs[0];
+    if (first) {
+      jobCode = (first.Code ?? "").trim();
+      jobLabel = `(${jobCode}) ${(first.Name ?? "").trim()}`.trim();
+    }
+  }
+
+  const days: TimecardDay[] = [];
+  const dates = Array.from(new Set([...dayTotals.keys(), ...punchesByDay.keys()])).sort();
+  for (const date of dates) {
+    const totals = dayTotals.get(date) ?? { reg: 0, ot1: 0, ot2: 0, unpaid: 0, absent: false };
+    const punches = (punchesByDay.get(date) ?? []).sort((a, b) => (a.ClockDate ?? "").localeCompare(b.ClockDate ?? ""));
+
+    const segments: TimecardSegment[] = [];
+    let regLeft = totals.reg;
+    let ot1Left = totals.ot1;
+    for (let index = 0; index < punches.length - 1; index++) {
+      const punch = punches[index];
+      const next = punches[index + 1];
+      if (punch.Action === 7) continue; // clocked out — no segment until the next clock-in
+      const cat: TimecardSegment["cat"] = punch.Action === 2 ? "LUNCH" : punch.Action === 4 ? "BRK" : "WORK";
+      const hours = hoursBetween(punch.ClockDate as string, next.ClockDate as string);
+      if (hours <= 0) continue;
+      if (cat === "LUNCH") {
+        segments.push({ cat, start: clockLabel(punch.ClockDate as string), stop: clockLabel(next.ClockDate as string), job: jobCode, hours, reg: 0, ot1: 0, ot2: 0, unpaid: hours, total: 0 });
+        continue;
+      }
+      const reg = round2(Math.min(hours, Math.max(0, regLeft)));
+      regLeft = round2(regLeft - reg);
+      const ot1 = round2(Math.min(hours - reg, Math.max(0, ot1Left)));
+      ot1Left = round2(ot1Left - ot1);
+      const ot2 = round2(Math.max(0, hours - reg - ot1));
+      segments.push({ cat, start: clockLabel(punch.ClockDate as string), stop: clockLabel(next.ClockDate as string), job: jobCode, hours, reg, ot1, ot2, unpaid: 0, total: hours });
+    }
+
+    const paid = round2(totals.reg + totals.ot1 + totals.ot2);
+    days.push({
+      date,
+      absent: totals.absent && segments.length === 0,
+      segments,
+      summary: {
+        hours: round2(paid + totals.unpaid),
+        reg: round2(totals.reg),
+        ot1: round2(totals.ot1),
+        ot2: round2(totals.ot2),
+        unpaid: round2(totals.unpaid),
+        total: paid
+      }
+    });
+  }
+
+  const totals = days.reduce(
+    (sum, day) => ({
+      hours: round2(sum.hours + day.summary.hours),
+      reg: round2(sum.reg + day.summary.reg),
+      ot1: round2(sum.ot1 + day.summary.ot1),
+      ot2: round2(sum.ot2 + day.summary.ot2),
+      unpaid: round2(sum.unpaid + day.summary.unpaid),
+      total: round2(sum.total + day.summary.total)
+    }),
+    { hours: 0, reg: 0, ot1: 0, ot2: 0, unpaid: 0, total: 0 }
+  );
+
+  // Current hourly wage on file → the report's Wage / Total Gross Paid lines.
+  let wage: TimecardSheet["wage"] = null;
+  const wageRows = (wages.find((item) => item.EmployeeId === employee.Id)?.Wages ?? [])
+    .filter((item) => (item.Type ?? 1) === 1 && typeof item.Amount === "number" && (item.Amount ?? 0) > 0)
+    .sort((a, b) => (b.StartDate ?? "").localeCompare(a.StartDate ?? ""));
+  const rate = wageRows[0]?.Amount ?? 0;
+  if (rate > 0) {
+    const ot1Rate = round2(rate * 1.5);
+    const ot2Rate = round2(rate * 2);
+    const regPay = round2(totals.reg * rate);
+    const ot1Pay = round2(totals.ot1 * ot1Rate);
+    const ot2Pay = round2(totals.ot2 * ot2Rate);
+    wage = { rate, ot1Rate, ot2Rate, regPay, ot1Pay, ot2Pay, gross: round2(regPay + ot1Pay + ot2Pay) };
+  }
+
+  return {
+    code,
+    name: (employee.FullName ?? employee.Name ?? "").replace(/\s+/g, " ").trim(),
+    jobLabel,
+    days,
+    totals,
+    wage
+  };
+}
+
 // Pulls every active employee's daily paid hours from AMG for the given range
 // (ISO yyyy-mm-dd, inclusive), in the same block shape the file importer
 // produces — code, name, and per-day totals (Reg + OT levels). Bonus/misc

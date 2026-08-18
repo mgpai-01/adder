@@ -6012,6 +6012,7 @@ function ProductionGrid({
     const tab = window.open("", "_blank");
     setTimecardBusyFor(employee.id);
     try {
+      // The official uploaded paper wins when it exists for this week…
       const response = await authedFetch(`/api/timecards?weekStart=${encodeURIComponent(selectedWeek)}&employeeId=${encodeURIComponent(employee.id)}`);
       const result = (await response.json()) as { ok?: boolean; url?: string; error?: string };
       if (response.ok && result.ok && result.url) {
@@ -6019,13 +6020,34 @@ function ProductionGrid({
         else window.open(result.url, "_blank");
         return;
       }
+      if (result.error && !["no-file", "not-matched"].includes(result.error)) {
+        tab?.close();
+        window.alert(result.error);
+        return;
+      }
+      // …otherwise the sheet is built live from AMG, current up to the minute
+      // and laid out identical to the paper.
+      const liveResponse = await authedFetch(`/api/timecards/live?weekStart=${encodeURIComponent(selectedWeek)}&employeeId=${encodeURIComponent(employee.id)}`);
+      const live = (await liveResponse.json()) as {
+        ok?: boolean;
+        sheet?: import("@/lib/amgTime").TimecardSheet;
+        weekStart?: string;
+        endDate?: string;
+        error?: string;
+      };
+      if (liveResponse.ok && live.ok && live.sheet) {
+        const { renderAmgTimecardPdf } = await import("@/lib/amgTimecardPdf");
+        const blob = await renderAmgTimecardPdf(live.sheet, live.weekStart ?? selectedWeek, live.endDate ?? selectedWeek);
+        const url = URL.createObjectURL(blob);
+        if (tab) tab.location.href = url;
+        else window.open(url, "_blank");
+        return;
+      }
       tab?.close();
-      if (result.error === "not-matched") {
-        window.alert(`${employee.name} isn't linked to an AMG code yet. Upload the week's AMG Timecard PDF (button up top) and match them once — it's remembered after that.`);
-      } else if (result.error === "no-file") {
-        window.alert(`No AMG time card on file for this week. Download the Timecard PDF from AMG and upload it with the "Upload AMG Timecard" button up top.`);
+      if (live.error === "not-matched") {
+        window.alert(`${employee.name} couldn't be found in AMG by name. Upload the week's AMG Timecard PDF (button up top) and match them once — it's remembered after that.`);
       } else {
-        window.alert(result.error || "Couldn't open the time card — try again.");
+        window.alert(live.error || "Couldn't open the time card — try again.");
       }
     } catch {
       tab?.close();
