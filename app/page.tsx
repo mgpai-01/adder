@@ -7083,7 +7083,26 @@ function PalletAdmin({
   }
 
   async function deletePallet(pallet: PalletType) {
-    if (!window.confirm(`Delete ${pallet.code} - ${pallet.description}?`)) {
+    // A pallet type with production recorded on it can NEVER be deleted — the
+    // stored pallets would orphan (pay $0, vanish from the tracker) exactly
+    // like the old custom-pallet bug. Deactivating hides it from the entry
+    // screens while keeping every historical number priced.
+    const usage = entries.reduce(
+      (total, entry) =>
+        total +
+        (entry.lines ?? []).reduce(
+          (sum, line) => sum + (getResolvedPalletTypeId(palletTypes, line.palletTypeId) === pallet.id ? line.quantity : 0),
+          0
+        ),
+      0
+    );
+    if (usage > 0) {
+      window.alert(
+        `${pallet.code} - ${pallet.description} has ${wholeNumber(usage)} pallets recorded on it, so it can't be deleted — those numbers would lose their rate. Set it to Inactive instead: it disappears from the entry screens and history stays paid.`
+      );
+      return;
+    }
+    if (!window.confirm(`Delete ${pallet.code} - ${pallet.description}? No production references it.`)) {
       return;
     }
 
