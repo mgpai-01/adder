@@ -5393,6 +5393,18 @@ function Payroll({
           <p className={classNames("text-sm", darkMode ? "text-steel-100" : "text-steel-500")}>Detailed pallet breakdown, compliance pay, and export filters.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {/* Opens the AMG Time clock portal in its own tab, so hours can be
+              checked against pallet pay without leaving this screen behind. */}
+          <a
+            href="https://amgtime.net"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="touch-target flex items-center gap-2 rounded border border-steel-300 bg-white px-4 py-2 font-black text-steel-900 transition-colors hover:border-workshop-500 hover:text-workshop-700"
+          >
+            <Clock size={19} />
+            AMG Time Clock
+            <ExternalLink size={15} className="text-steel-400" />
+          </a>
           <button type="button" className="touch-target flex items-center gap-2 rounded border border-steel-300 bg-white px-4 py-2 font-black text-steel-900" onClick={() => exportCsv(filteredEntries)}>
             <Download size={19} />
             Export CSV
