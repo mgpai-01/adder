@@ -70,6 +70,10 @@ import DropZone from "@/components/DropZone";
 import CalendarField, { type DateSelection } from "@/components/CalendarField";
 import type { BreakProfile, CountSheet, CountSheetStatus, DailyEntry, Employee, EntryPhase, Location, PalletCategory, PalletType, PayrollSettings, ProductionLine, Role, Shift } from "@/lib/types";
 
+// The AMG hours sync/import buttons on Payroll are parked until the team is
+// ready to use them. All the plumbing stays live behind the scenes (API
+// routes, AMG client, preview modal); set this to true to show them again.
+const AMG_HOURS_SYNC_UI = false;
 const entryStorageKey = "mgp-daily-entries-v2";
 const countSheetStorageKey = "mgp-count-sheets-v1";
 const palletStorageKey = "mgp-pallet-types-v2";
@@ -5583,36 +5587,44 @@ function Payroll({
             AMG Time Clock
             <ExternalLink size={15} className="text-steel-400" />
           </a>
-          {/* Pulls hours straight from AMG over the API — no export, no file. */}
-          <button
-            type="button"
-            disabled={hoursImportBusy}
-            className="touch-target flex items-center gap-2 rounded bg-steel-900 px-4 py-2 font-black text-white transition-colors hover:bg-steel-700 disabled:opacity-60"
-            onClick={() => void syncFromAmg()}
-          >
-            {hoursImportBusy ? <Loader2 size={19} className="animate-spin" /> : <Clock size={19} />}
-            {hoursImportBusy ? "Syncing…" : "Sync Hours from AMG"}
-          </button>
-          {/* Fallback: upload the AMG Timecard report (Excel/CSV) by hand. */}
-          <label
-            className={classNames(
-              "touch-target flex cursor-pointer items-center gap-2 rounded border border-steel-300 bg-white px-4 py-2 font-black text-steel-900 transition-colors hover:border-workshop-500",
-              hoursImportBusy && "pointer-events-none opacity-60"
-            )}
-          >
-            <Download size={19} className="rotate-180" />
-            Import Hours File
-            <input
-              type="file"
-              accept=".xlsx,.xls,.csv"
-              className="hidden"
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                event.target.value = "";
-                if (file) void handleHoursFile(file);
-              }}
-            />
-          </label>
+          {/* AMG hours sync is parked for now: the buttons are hidden but the
+              whole pipeline (API routes, lib/amgTime.ts, preview modal, file
+              importer) stays wired — flip AMG_HOURS_SYNC_UI to true to bring
+              it back exactly as it was. */}
+          {AMG_HOURS_SYNC_UI && (
+            <>
+              {/* Pulls hours straight from AMG over the API — no export, no file. */}
+              <button
+                type="button"
+                disabled={hoursImportBusy}
+                className="touch-target flex items-center gap-2 rounded bg-steel-900 px-4 py-2 font-black text-white transition-colors hover:bg-steel-700 disabled:opacity-60"
+                onClick={() => void syncFromAmg()}
+              >
+                {hoursImportBusy ? <Loader2 size={19} className="animate-spin" /> : <Clock size={19} />}
+                {hoursImportBusy ? "Syncing…" : "Sync Hours from AMG"}
+              </button>
+              {/* Fallback: upload the AMG Timecard report (Excel/CSV) by hand. */}
+              <label
+                className={classNames(
+                  "touch-target flex cursor-pointer items-center gap-2 rounded border border-steel-300 bg-white px-4 py-2 font-black text-steel-900 transition-colors hover:border-workshop-500",
+                  hoursImportBusy && "pointer-events-none opacity-60"
+                )}
+              >
+                <Download size={19} className="rotate-180" />
+                Import Hours File
+                <input
+                  type="file"
+                  accept=".xlsx,.xls,.csv"
+                  className="hidden"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    event.target.value = "";
+                    if (file) void handleHoursFile(file);
+                  }}
+                />
+              </label>
+            </>
+          )}
           <button type="button" className="touch-target flex items-center gap-2 rounded border border-steel-300 bg-white px-4 py-2 font-black text-steel-900" onClick={() => exportCsv(filteredEntries)}>
             <Download size={19} />
             Export CSV

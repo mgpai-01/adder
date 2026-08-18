@@ -34,3 +34,15 @@ Credentials live in Vercel env vars `AMG_USERNAME` / `AMG_PASSWORD`
   (3am PT); requires `CRON_SECRET` env var; covers the last 4 days; writes
   hours to entries matched by roster `timeclockCode`; skips unknown codes
   (match them once via the manual sync preview).
+
+## Currently PARKED (Aug 2026)
+The team isn't ready to feed AMG hours into payroll yet, so the integration
+is disconnected from the UI while every piece stays in the backend:
+- Payroll's "Sync Hours from AMG" / "Import Hours File" buttons are hidden
+  behind the `AMG_HOURS_SYNC_UI` flag at the top of app/page.tsx (set to
+  false; flip to true to restore).
+- The nightly cron entry was removed from vercel.json (the
+  /api/hours-sync/cron route itself still exists; re-add
+  `{"path": "/api/hours-sync/cron", "schedule": "0 10 * * *"}` to re-enable).
+- /api/hours-sync, lib/amgTime.ts, lib/hoursImport.ts, the preview modal,
+  and the AMG_* / CRON_SECRET env vars in Vercel are all untouched.
