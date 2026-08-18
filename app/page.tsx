@@ -3042,6 +3042,7 @@ export default function Home() {
               onViewEntry={setViewingEntry}
               onDeleteEntry={deleteSavedEntry}
               onUpdateEntry={updateSavedEntry}
+              onUpdateEmployee={updateEmployee}
               palletOrder={palletOrder}
               exportCsv={exportCsv}
               exportExcel={exportExcel}
@@ -5856,6 +5857,7 @@ function ProductionGrid({
   onViewEntry,
   onDeleteEntry,
   onUpdateEntry,
+  onUpdateEmployee,
   palletOrder,
   exportCsv,
   exportExcel,
@@ -5875,6 +5877,8 @@ function ProductionGrid({
   onDeleteEntry: (id: string) => void;
   // Writes a corrected entry through the normal save path (stamped + synced).
   onUpdateEntry: (entry: DailyEntry) => void;
+  // Saves a roster change (used to remember each person's AMG code).
+  onUpdateEmployee: (id: string, patch: Partial<Employee>) => void;
   // This account's preferred pallet-row order — the same one the entry screen
   // uses, so both screens read in the viewer's arrangement.
   palletOrder: string[];
@@ -5928,6 +5932,107 @@ function ProductionGrid({
   function removeTimeCardPhoto(entry: DailyEntry, url: string) {
     if (!window.confirm("Remove this time card photo?")) return;
     onUpdateEntry({ ...entry, timeCardPhotoUrls: (entry.timeCardPhotoUrls ?? []).filter((item) => item !== url) });
+  }
+  // ===== AMG Timecard paper, the original file =====
+  // The admin uploads AMG's weekly Timecard report PDF once. It is split into
+  // each person's untouched original page(s) and stored per week; the
+  // "Time Card PDF" button on every card opens that person's page for the
+  // shown week. Nothing is redrawn or recalculated.
+  const [amgUploadBusy, setAmgUploadBusy] = useState(false);
+  const [amgUploadResult, setAmgUploadResult] = useState<{
+    rangeLabel: string;
+    matched: Array<{ code: string; amgName: string; person: string }>;
+    unmatched: Array<{ code: string; amgName: string }>;
+    picks: Record<string, string>;
+  } | null>(null);
+  const [timecardBusyFor, setTimecardBusyFor] = useState<string | null>(null);
+
+  async function handleAmgReportUpload(file: File) {
+    if (amgUploadBusy) return;
+    setAmgUploadBusy(true);
+    try {
+      const { splitAmgTimecardPdf } = await import("@/lib/amgPdfSplit");
+      const split = await splitAmgTimecardPdf(file);
+      const response = await authedFetch("/api/timecards", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          weekStart: split.weekStart,
+          blocks: split.blocks.map((block) => ({ code: block.code, pdfBase64: block.pdfBase64 }))
+        })
+      });
+      const result = (await response.json()) as { ok?: boolean; error?: string };
+      if (!response.ok || !result.ok) {
+        window.alert(result.error || `Upload failed (${response.status}).`);
+        return;
+      }
+      // Link each AMG code to a roster person: remembered code first, then by
+      // name (report prints "MARIA REYES PINEDA", roster says "Maria Reyes").
+      const matched: Array<{ code: string; amgName: string; person: string }> = [];
+      const unmatched: Array<{ code: string; amgName: string }> = [];
+      for (const block of split.blocks) {
+        const byCode = employees.find((employee) => employee.timeclockCode === block.code);
+        if (byCode) {
+          matched.push({ code: block.code, amgName: block.name || block.code, person: byCode.name });
+          continue;
+        }
+        const amgWords = new Set(normName(block.name).split(" ").filter(Boolean));
+        let best: { employee: Employee; score: number } | null = null;
+        let tied = false;
+        for (const employee of employees) {
+          const words = normName(employee.name).split(" ").filter(Boolean);
+          const score = words.filter((word) => amgWords.has(word)).length;
+          if (score < 2) continue;
+          if (!best || score > best.score) {
+            best = { employee, score };
+            tied = false;
+          } else if (score === best.score) {
+            tied = true;
+          }
+        }
+        if (best && !tied) {
+          onUpdateEmployee(best.employee.id, { timeclockCode: block.code });
+          matched.push({ code: block.code, amgName: block.name || block.code, person: best.employee.name });
+        } else {
+          unmatched.push({ code: block.code, amgName: block.name || block.code });
+        }
+      }
+      setAmgUploadResult({ rangeLabel: split.rangeLabel, matched, unmatched, picks: {} });
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "Couldn't read that PDF — is it the AMG Timecard report?");
+    } finally {
+      setAmgUploadBusy(false);
+    }
+  }
+
+  async function openTimecardPdf(employee: Employee) {
+    if (timecardBusyFor) return;
+    // The tab opens on the click itself so popup blockers allow it; the AMG
+    // page's address is filled in once the server hands it over.
+    const tab = window.open("", "_blank");
+    setTimecardBusyFor(employee.id);
+    try {
+      const response = await authedFetch(`/api/timecards?weekStart=${encodeURIComponent(selectedWeek)}&employeeId=${encodeURIComponent(employee.id)}`);
+      const result = (await response.json()) as { ok?: boolean; url?: string; error?: string };
+      if (response.ok && result.ok && result.url) {
+        if (tab) tab.location.href = result.url;
+        else window.open(result.url, "_blank");
+        return;
+      }
+      tab?.close();
+      if (result.error === "not-matched") {
+        window.alert(`${employee.name} isn't linked to an AMG code yet. Upload the week's AMG Timecard PDF (button up top) and match them once — it's remembered after that.`);
+      } else if (result.error === "no-file") {
+        window.alert(`No AMG time card on file for this week. Download the Timecard PDF from AMG and upload it with the "Upload AMG Timecard" button up top.`);
+      } else {
+        window.alert(result.error || "Couldn't open the time card — try again.");
+      }
+    } catch {
+      tab?.close();
+      window.alert("Couldn't open the time card — check the connection and try again.");
+    } finally {
+      setTimecardBusyFor(null);
+    }
   }
   // Double-click any quantity cell to correct it in place. The typed number
   // becomes that repairer's day total for the pallet and saves immediately.
@@ -6150,6 +6255,27 @@ function ProductionGrid({
               </button>
             )}
           </div>
+          {/* AMG's own weekly Timecard PDF, uploaded once: it's split into each
+              person's original page and filed to their card for that week. */}
+          <label
+            className={classNames(
+              "touch-target flex cursor-pointer items-center gap-2 rounded border border-steel-300 bg-white px-4 py-2 font-black text-steel-900 transition-colors hover:border-workshop-500",
+              amgUploadBusy && "pointer-events-none opacity-60"
+            )}
+          >
+            {amgUploadBusy ? <Loader2 size={19} className="animate-spin" /> : <Download size={19} className="rotate-180" />}
+            {amgUploadBusy ? "Splitting…" : "Upload AMG Timecard"}
+            <input
+              type="file"
+              accept="application/pdf,.pdf"
+              className="hidden"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.target.value = "";
+                if (file) void handleAmgReportUpload(file);
+              }}
+            />
+          </label>
           {/* Export the week currently shown. Disabled when the week is empty. */}
           <button
             type="button"
@@ -6349,6 +6475,17 @@ function ProductionGrid({
                     >
                       <Download size={17} />
                       Pay PDF
+                    </button>
+                    {/* This person's original AMG Timecard page for the shown
+                        week — AMG's own paper, untouched. */}
+                    <button
+                      type="button"
+                      disabled={timecardBusyFor === employee.id}
+                      className="touch-target flex items-center gap-2 rounded border border-steel-200 bg-white px-3 py-2 text-sm font-black text-steel-700 transition-colors hover:border-workshop-500 hover:text-workshop-700 disabled:opacity-60"
+                      onClick={() => void openTimecardPdf(employee)}
+                    >
+                      {timecardBusyFor === employee.id ? <Loader2 size={17} className="animate-spin" /> : <Clock size={17} />}
+                      Time Card PDF
                     </button>
                     {timeCards.map(({ url, entry }, cardIndex) => (
                       <div key={url} className="relative">
@@ -6650,6 +6787,76 @@ function ProductionGrid({
           onClose={() => setDayDetail(null)}
           onOpenPhoto={(photos, index) => setLightbox({ photos, index })}
         />
+      )}
+
+      {/* Result of an AMG Timecard upload: who was filed automatically, plus
+          a one-time picker for anyone whose AMG name didn't match the roster.
+          A pick is remembered on the person, so next week files itself. */}
+      {amgUploadResult && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-steel-900/70 p-4" onClick={() => setAmgUploadResult(null)}>
+          <div className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-lg bg-white p-5 text-steel-900 shadow-2xl" onClick={(event) => event.stopPropagation()}>
+            <h3 className="text-lg font-black">AMG time cards filed — {amgUploadResult.rangeLabel}</h3>
+            <p className="mt-1 text-sm text-steel-500">
+              Each person&apos;s original AMG page is saved to their card for this week. Re-uploading the same week replaces it.
+            </p>
+            {amgUploadResult.matched.length > 0 && (
+              <ul className="mt-3 grid gap-1 text-sm">
+                {amgUploadResult.matched.map((row) => (
+                  <li key={row.code} className="flex items-center justify-between gap-2 rounded bg-steel-50 px-3 py-1.5">
+                    <span className="font-bold">{row.amgName}</span>
+                    <span className="text-steel-500">→ {row.person}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {amgUploadResult.unmatched.length > 0 && (
+              <div className="mt-4">
+                <p className="text-sm font-black text-safety-700">Who are these? Match them once:</p>
+                <ul className="mt-2 grid gap-2">
+                  {amgUploadResult.unmatched.map((row) => (
+                    <li key={row.code} className="flex flex-wrap items-center gap-2">
+                      <span className="min-w-0 flex-1 truncate text-sm font-bold">
+                        {row.amgName} <span className="text-steel-400">({row.code})</span>
+                      </span>
+                      <select
+                        className="field max-w-[220px]"
+                        value={amgUploadResult.picks[row.code] ?? ""}
+                        onChange={(event) =>
+                          setAmgUploadResult((current) =>
+                            current ? { ...current, picks: { ...current.picks, [row.code]: event.target.value } } : current
+                          )
+                        }
+                      >
+                        <option value="">— Skip —</option>
+                        {[...employees]
+                          .sort((a, b) => a.name.localeCompare(b.name))
+                          .map((employee) => (
+                            <option key={employee.id} value={employee.id}>
+                              {employee.name}
+                            </option>
+                          ))}
+                      </select>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                className="touch-target rounded bg-workshop-500 px-5 py-2 font-black text-white"
+                onClick={() => {
+                  for (const [code, employeeId] of Object.entries(amgUploadResult.picks)) {
+                    if (employeeId) onUpdateEmployee(employeeId, { timeclockCode: code });
+                  }
+                  setAmgUploadResult(null);
+                }}
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {lightbox && (
