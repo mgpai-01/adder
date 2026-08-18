@@ -3034,6 +3034,7 @@ export default function Home() {
               onViewEntry={setViewingEntry}
               onDeleteEntry={deleteSavedEntry}
               onSelectEmployee={setProfileEmployeeId}
+              onUpdateEntry={updateSavedEntry}
             />
           )}
           {view === "cloud" && (
@@ -5108,7 +5109,23 @@ function readClearedUnknown(): Record<string, number> {
   }
 }
 
-function ReconciliationCard({ entries, report, palletTypes, employees }: { entries: DailyEntry[]; report: ReturnType<typeof buildReport>; palletTypes: PalletType[]; employees: Employee[] }) {
+function ReconciliationCard({
+  entries,
+  report,
+  palletTypes,
+  employees,
+  onReassign
+}: {
+  entries: DailyEntry[];
+  report: ReturnType<typeof buildReport>;
+  palletTypes: PalletType[];
+  employees: Employee[];
+  // Moves every stored pallet under an unknown id onto a real pallet type —
+  // same people, same days, now counted and paid. Nothing is re-entered.
+  onReassign: (unknownId: string, palletTypeId: string) => void;
+}) {
+  // The admin's pick of real pallet type per unknown id, before hitting Assign.
+  const [assignPick, setAssignPick] = useState<Record<string, string>>({});
   // Each unmatched pallet id with the repairer/day lines that put it there, so
   // it is clear who entered it and when it needs re-entering.
   const unknownList = useMemo(() => {
@@ -5193,7 +5210,7 @@ function ReconciliationCard({ entries, report, palletTypes, employees }: { entri
       {openUnknown.length > 0 ? (
         <div className="mt-4 grid gap-3">
           <p className="text-sm font-bold text-steel-700">
-            These pallets were entered but aren&apos;t in your Pallet Types list, so they pay $0 and don&apos;t show on the tracker. Add the pallet under <strong>Admin → Pallet Types</strong>, then re-enter the days below on the Daily Grid. Once a pallet is sorted, clear it to take it off this list.
+            These pallets are saved on each repairer&apos;s entries below — nothing is lost — but they point at a pallet type that isn&apos;t in your Pallet Types list, so they pay $0 and don&apos;t show on the tracker. Pick what they actually were and hit <strong>Assign</strong>: every pallet moves onto that type, keeps its repairer and day, and gets paid. (If the right type is missing, add it under Admin → Pallet Types first. Clear only hides a reminder you&apos;ve decided to ignore.)
           </p>
           {openUnknown.map((item) => (
             <div key={item.id} className="overflow-hidden rounded-lg border border-amber-200 bg-white shadow-sm">
@@ -5205,8 +5222,35 @@ function ReconciliationCard({ entries, report, palletTypes, employees }: { entri
                     {new Set(item.rows.map((row) => row.employeeId)).size === 1 ? "" : "s"}
                   </p>
                 </div>
-                <div className="flex shrink-0 items-center gap-3">
+                <div className="flex shrink-0 flex-wrap items-center gap-2">
                   <span className="rounded-full bg-amber-100 px-3 py-1 text-sm font-black text-amber-800">{wholeNumber(item.quantity)} pallets · $0.00</span>
+                  <select
+                    className="field max-w-[230px] text-sm"
+                    value={assignPick[item.id] ?? ""}
+                    onChange={(event) => setAssignPick((current) => ({ ...current, [item.id]: event.target.value }))}
+                  >
+                    <option value="">What were these really?</option>
+                    {palletTypes
+                      .filter((pallet) => pallet.active)
+                      .map((pallet) => (
+                        <option key={pallet.id} value={pallet.id}>
+                          {pallet.code} {pallet.description} ({currency(pallet.rate)})
+                        </option>
+                      ))}
+                  </select>
+                  <button
+                    type="button"
+                    disabled={!assignPick[item.id]}
+                    className="touch-target rounded bg-workshop-500 px-3 py-1.5 text-sm font-black text-white transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+                    onClick={() => {
+                      const target = palletTypes.find((pallet) => pallet.id === assignPick[item.id]);
+                      if (!target) return;
+                      if (!window.confirm(`Move these ${wholeNumber(item.quantity)} pallets onto ${target.code} ${target.description} (${currency(target.rate)} each)? Repairers and days stay exactly as entered.`)) return;
+                      onReassign(item.id, target.id);
+                    }}
+                  >
+                    Assign
+                  </button>
                   <button
                     type="button"
                     className="touch-target rounded border border-steel-300 bg-white px-3 py-1.5 text-sm font-black text-steel-700 transition-colors hover:border-workshop-500 hover:text-workshop-700"
@@ -5276,7 +5320,8 @@ function Payroll({
   onEditEntry,
   onViewEntry,
   onDeleteEntry,
-  onSelectEmployee
+  onSelectEmployee,
+  onUpdateEntry
 }: {
   entries: DailyEntry[];
   countSheets: CountSheet[];
@@ -5293,6 +5338,9 @@ function Payroll({
   onViewEntry: (entry: DailyEntry) => void;
   onDeleteEntry: (id: string) => void;
   onSelectEmployee: (employeeId: string) => void;
+  // Saves a corrected entry (stamped + synced) — used when orphaned pallets
+  // are reassigned onto a real pallet type.
+  onUpdateEntry: (entry: DailyEntry) => void;
 }) {
   const [employeeFilter, setEmployeeFilter] = useState("all");
   const [locationFilter, setLocationFilter] = useState("all");
@@ -5312,6 +5360,30 @@ function Payroll({
   }, [employeeFilter, endDate, entries, locationFilter, shiftFilter, startDate]);
 
   const report = useMemo(() => buildReport(filteredEntries, palletTypes, employees, locations, settings), [employees, filteredEntries, locations, palletTypes, settings]);
+
+  // Rewrites every stored pallet line that references an unknown/orphaned
+  // pallet id onto a real pallet type — in the day lines and inside each
+  // phase — so the pallets keep their repairer and day and start paying.
+  function reassignUnknownPallet(unknownId: string, palletTypeId: string) {
+    const mapAndMerge = (lines: ProductionLine[] | undefined) => {
+      const mapped = (lines ?? []).map((line) => (line.palletTypeId === unknownId ? { palletTypeId, quantity: line.quantity } : line));
+      const byId = new Map<string, ProductionLine>();
+      for (const line of mapped) {
+        const existing = byId.get(line.palletTypeId);
+        if (existing) byId.set(line.palletTypeId, { palletTypeId: line.palletTypeId, quantity: existing.quantity + line.quantity });
+        else byId.set(line.palletTypeId, { ...line });
+      }
+      return Array.from(byId.values());
+    };
+    for (const entry of entries) {
+      const uses =
+        (entry.lines ?? []).some((line) => line.palletTypeId === unknownId) ||
+        (entry.phases ?? []).some((phase) => (phase.lines ?? []).some((line) => line.palletTypeId === unknownId));
+      if (!uses) continue;
+      const phases = (entry.phases ?? []).map((phase) => ({ ...phase, lines: mapAndMerge(phase.lines) }));
+      onUpdateEntry({ ...entry, lines: mapAndMerge(entry.lines), phases });
+    }
+  }
 
   return (
     <div className="grid gap-5">
@@ -5366,7 +5438,7 @@ function Payroll({
         <Metric label="Total Pay" value={currency(report.summary.totalPay)} />
       </div>
 
-      <ReconciliationCard entries={filteredEntries} report={report} palletTypes={palletTypes} employees={employees} />
+      <ReconciliationCard entries={filteredEntries} report={report} palletTypes={palletTypes} employees={employees} onReassign={reassignUnknownPallet} />
 
       <EmployeeTable rows={report.byEmployee} onSelectEmployee={onSelectEmployee} />
       <BreakdownTable title="Quantities by Type" rows={report.byPallet} />
