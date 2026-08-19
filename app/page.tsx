@@ -8,6 +8,7 @@ import {
   Camera,
   Check,
   CheckCircle2,
+  ChevronDown,
   Clock,
   Columns2,
   Database,
@@ -39,7 +40,7 @@ import {
   ZoomOut
 } from "lucide-react";
 import type { ReactNode } from "react";
-import { createContext, Fragment, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createContext, Fragment, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   Bar,
   BarChart,
@@ -5946,6 +5947,57 @@ function ProductionGrid({
     picks: Record<string, string>;
   } | null>(null);
   const [timecardBusyFor, setTimecardBusyFor] = useState<string | null>(null);
+  // Hidden "AMG" drop-down under each card's Daily Totals: click to reveal
+  // that person's live AMG numbers for the shown week (clock in/out, hours,
+  // overtime per day), pulled fresh from AMG every time it's opened and
+  // whenever the week changes while open.
+  const [amgRowOpen, setAmgRowOpen] = useState<Record<string, boolean>>({});
+  const [amgRowData, setAmgRowData] = useState<Record<string, { loading: boolean; error?: string; sheet?: import("@/lib/amgTime").TimecardSheet }>>({});
+
+  const loadAmgRow = useCallback(
+    async (employeeId: string, week: string) => {
+      setAmgRowData((current) => ({ ...current, [employeeId]: { ...current[employeeId], loading: true, error: undefined } }));
+      try {
+        const response = await authedFetch(`/api/timecards/live?weekStart=${encodeURIComponent(week)}&employeeId=${encodeURIComponent(employeeId)}`);
+        const result = (await response.json()) as { ok?: boolean; sheet?: import("@/lib/amgTime").TimecardSheet; error?: string };
+        if (response.ok && result.ok && result.sheet) {
+          setAmgRowData((current) => ({ ...current, [employeeId]: { loading: false, sheet: result.sheet } }));
+        } else {
+          setAmgRowData((current) => ({
+            ...current,
+            [employeeId]: {
+              loading: false,
+              error:
+                result.error === "not-matched"
+                  ? "Couldn't find this person in AMG by name — upload one AMG Timecard PDF to match them once."
+                  : result.error || "AMG didn't answer — try again."
+            }
+          }));
+        }
+      } catch {
+        setAmgRowData((current) => ({ ...current, [employeeId]: { loading: false, error: "AMG didn't answer — check the connection and try again." } }));
+      }
+    },
+    []
+  );
+
+  function toggleAmgRow(employeeId: string) {
+    const opening = !amgRowOpen[employeeId];
+    setAmgRowOpen((current) => ({ ...current, [employeeId]: opening }));
+    if (opening) void loadAmgRow(employeeId, selectedWeek);
+  }
+
+  // Week flipped while some AMG rows are open: pull that week's numbers for
+  // each of them, so the drop-down always mirrors the week on screen.
+  const amgOpenIdsKey = Object.keys(amgRowOpen)
+    .filter((id) => amgRowOpen[id])
+    .sort()
+    .join(",");
+  useEffect(() => {
+    if (!amgOpenIdsKey) return;
+    for (const id of amgOpenIdsKey.split(",")) void loadAmgRow(id, selectedWeek);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedWeek]);
 
   async function handleAmgReportUpload(file: File) {
     if (amgUploadBusy) return;
@@ -6718,6 +6770,169 @@ function ProductionGrid({
                     <td className="p-2 text-center">{wholeNumber(employeeReport.summary.quantity)}</td>
                     <td className="p-2 text-center">{currency(employeeReport.summary.totalPay)}</td>
                   </tr>
+                  {/* Hidden AMG drop-down: live hours from the AMG time clock,
+                      revealed on demand right under the Daily Totals. */}
+                  <tr className="border-t border-steel-200">
+                    <td colSpan={weekDays.length + 3} className="p-0">
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-1.5 px-2 py-1.5 text-[11px] font-black uppercase tracking-wide text-steel-400 transition-colors hover:bg-steel-50 hover:text-workshop-700"
+                        onClick={() => toggleAmgRow(employee.id)}
+                      >
+                        <Clock size={13} />
+                        AMG
+                        <ChevronDown size={13} className={classNames("transition-transform", amgRowOpen[employee.id] && "rotate-180")} />
+                      </button>
+                    </td>
+                  </tr>
+                  {amgRowOpen[employee.id] &&
+                    (() => {
+                      const state = amgRowData[employee.id];
+                      if (!state || state.loading) {
+                        return (
+                          <tr className="bg-steel-50 text-steel-500">
+                            <td colSpan={weekDays.length + 3} className="p-2">
+                              <span className="flex items-center gap-2"><Loader2 size={14} className="animate-spin" /> Pulling live hours from AMG…</span>
+                            </td>
+                          </tr>
+                        );
+                      }
+                      if (state.error || !state.sheet) {
+                        return (
+                          <tr className="bg-steel-50 text-steel-500">
+                            <td colSpan={weekDays.length + 3} className="p-2">{state.error ?? "AMG didn't answer — try again."}</td>
+                          </tr>
+                        );
+                      }
+                      // The drop-down shows the timecard laid out exactly like
+                      // AMG's paper: same columns, WORK/BRK/LUNCH rows, bold
+                      // day-summary lines, totals and wage underneath.
+                      const sheet = state.sheet;
+                      const seg2 = (value: number) => (Number.isInteger(value) ? String(value) : String(Math.round(value * 100) / 100));
+                      const usDay = (iso: string) => {
+                        const [yy, mm, dd] = iso.split("-").map(Number);
+                        return `${mm}/${dd}/${yy}`;
+                      };
+                      const dow = (iso: string) => new Date(`${iso}T12:00:00`).toLocaleDateString("en-US", { weekday: "short" });
+                      const headCell = "border border-steel-900 px-1.5 py-1 text-center font-black";
+                      const cell = "border border-steel-400 px-1.5 py-0.5 text-right";
+                      const cellL = "border border-steel-400 px-1.5 py-0.5 text-left";
+                      const sumCell = "border border-steel-400 bg-steel-200 px-1.5 py-0.5 text-right font-black";
+                      return (
+                        <tr>
+                          <td colSpan={weekDays.length + 3} className="bg-white p-3">
+                            <div className="overflow-x-auto">
+                              <div className="min-w-[820px] font-sans text-[11px] text-steel-900">
+                                <div className="mb-1 flex items-baseline justify-between">
+                                  <p className="font-black">Job :  {sheet.jobLabel || "—"}</p>
+                                  <p className="text-steel-500">Live from AMG · updates as the week goes on</p>
+                                </div>
+                                <p className="mb-2">
+                                  <span className="mr-8 font-black">Code</span>
+                                  <span className="font-black">Name</span>
+                                  <br />
+                                  <span className="mr-6">{sheet.code}</span>
+                                  <span>{sheet.name}</span>
+                                </p>
+                                <table className="w-full border-collapse">
+                                  <thead>
+                                    <tr>
+                                      {["Date", "Day", "Cat", "Start", "Stop", "Job", "Hours", "REG", "OT1", "OT2", "Unpaid", "Total", "Amount"].map((label) => (
+                                        <th key={label} className={headCell}>{label}</th>
+                                      ))}
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {sheet.days.map((day) => (
+                                      <Fragment key={day.date}>
+                                        {day.absent ? (
+                                          <tr>
+                                            <td className={cellL}>Absent  {usDay(day.date)}</td>
+                                            <td className={cellL}>{dow(day.date)}</td>
+                                            <td className={cellL} />
+                                            <td className={cell} />
+                                            <td className={cell} />
+                                            <td className={cell} />
+                                            {[0, 0, 0, 0, 0, 0, 0].map((zero, index) => (
+                                              <td key={index} className={cell}>{zero}</td>
+                                            ))}
+                                          </tr>
+                                        ) : (
+                                          day.segments.map((segment, index) => (
+                                            <tr key={`${day.date}-${index}`}>
+                                              <td className={cellL}>{index === 0 ? usDay(day.date) : ""}</td>
+                                              <td className={cellL}>{index === 0 ? dow(day.date) : ""}</td>
+                                              <td className={cellL}>{segment.cat}</td>
+                                              <td className={cell}>{segment.start}</td>
+                                              <td className={cell}>{segment.stop}</td>
+                                              <td className={cell}>{segment.job}</td>
+                                              <td className={cell}>{seg2(segment.hours)}</td>
+                                              <td className={cell}>{seg2(segment.reg)}</td>
+                                              <td className={cell}>{seg2(segment.ot1)}</td>
+                                              <td className={cell}>{seg2(segment.ot2)}</td>
+                                              <td className={cell}>{seg2(segment.unpaid)}</td>
+                                              <td className={cell}>{seg2(segment.total)}</td>
+                                              <td className={cell}>0</td>
+                                            </tr>
+                                          ))
+                                        )}
+                                        <tr>
+                                          <td className={classNames(sumCell, "text-left")}>{usDay(day.date)}</td>
+                                          <td className={classNames(sumCell, "text-left")}>{dow(day.date)}</td>
+                                          <td className={sumCell} />
+                                          <td className={sumCell} />
+                                          <td className={sumCell} />
+                                          <td className={sumCell} />
+                                          <td className={sumCell}>{day.summary.hours.toFixed(2)}</td>
+                                          <td className={sumCell}>{day.summary.reg.toFixed(2)}</td>
+                                          <td className={sumCell}>{day.summary.ot1.toFixed(2)}</td>
+                                          <td className={sumCell}>{day.summary.ot2.toFixed(2)}</td>
+                                          <td className={sumCell}>{day.summary.unpaid.toFixed(2)}</td>
+                                          <td className={sumCell}>{day.summary.total.toFixed(2)}</td>
+                                          <td className={sumCell}>0.00</td>
+                                        </tr>
+                                      </Fragment>
+                                    ))}
+                                  </tbody>
+                                </table>
+                                <div className="mt-2 flex flex-wrap items-start justify-between gap-2">
+                                  <p className="font-black">Job :  {sheet.jobLabel || "—"}</p>
+                                  <table className="border-collapse text-right">
+                                    <tbody>
+                                      <tr>
+                                        {["Hours", "REG", "OT1", "OT2", "Unpaid", "Total", "Amount"].map((label) => (
+                                          <td key={label} className="px-3 text-steel-500">{label}</td>
+                                        ))}
+                                      </tr>
+                                      <tr className="font-black">
+                                        <td className="px-3">{sheet.totals.hours.toFixed(2)}</td>
+                                        <td className="px-3">{sheet.totals.reg.toFixed(2)}</td>
+                                        <td className="px-3">{sheet.totals.ot1.toFixed(2)}</td>
+                                        <td className="px-3">{sheet.totals.ot2.toFixed(2)}</td>
+                                        <td className="px-3">{sheet.totals.unpaid.toFixed(2)}</td>
+                                        <td className="px-3">{sheet.totals.total.toFixed(2)}</td>
+                                        <td className="px-3">0.00</td>
+                                      </tr>
+                                    </tbody>
+                                  </table>
+                                </div>
+                                {sheet.wage && (
+                                  <div className="mt-1 text-right">
+                                    <p>
+                                      Wage (REG-{seg2(sheet.wage.rate)}) (OT1-{seg2(sheet.wage.ot1Rate)}) (OT2-{seg2(sheet.wage.ot2Rate)})
+                                      <span className="ml-6">{sheet.wage.regPay.toFixed(2)}</span>
+                                      <span className="ml-6">{sheet.wage.ot1Pay.toFixed(2)}</span>
+                                      <span className="ml-6">{sheet.wage.gross.toFixed(2)}</span>
+                                    </p>
+                                    <p className="font-black">Total Gross Paid <span className="ml-4">{sheet.wage.gross.toFixed(2)}</span></p>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })()}
                 </tbody>
               </table>
             </div>
