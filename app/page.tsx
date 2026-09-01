@@ -5999,32 +5999,40 @@ function ProductionGrid({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedWeek]);
 
-  // Weekly bonus. AMG hours are fetched live per person, so this is one
-  // deliberate action for the whole crew rather than something that fires on
-  // every page view. Batched a few at a time — AMG is an external clock and a
-  // full crew hitting it at once is a lot to ask of it.
-  const [bonusBusy, setBonusBusy] = useState(false);
-  const [bonusRequested, setBonusRequested] = useState(false);
+  // Weekly bonus. Each repairer's hours come live from AMG, so the crew is
+  // pulled in small batches rather than all at once — AMG is an external clock
+  // and a full yard hitting it together is a lot to ask of it.
+  //
+  // Counts in-flight batches instead of a boolean: the auto-load effect can
+  // fire again (crew changes, week flips) while an earlier batch is still
+  // running, and a boolean guard would silently drop the second one.
+  const [bonusBatches, setBonusBatches] = useState(0);
+  const bonusBusy = bonusBatches > 0;
+  // Who has already been pulled, and for which week, so re-renders and search
+  // filtering don't re-hit AMG for people already loaded.
+  const bonusLoaded = useRef<{ week: string; ids: Set<string> }>({ week: "", ids: new Set<string>() });
 
-  async function calculateBonuses(employeeIds: string[]) {
-    if (bonusBusy) return;
-    setBonusBusy(true);
-    setBonusRequested(true);
-    try {
-      const batchSize = 3;
-      for (let index = 0; index < employeeIds.length; index += batchSize) {
-        await Promise.all(employeeIds.slice(index, index + batchSize).map((id) => loadAmgRow(id, selectedWeek)));
+  const calculateBonuses = useCallback(
+    async (employeeIds: string[], week: string) => {
+      if (employeeIds.length === 0) return;
+      setBonusBatches((count) => count + 1);
+      try {
+        const batchSize = 3;
+        for (let index = 0; index < employeeIds.length; index += batchSize) {
+          await Promise.all(employeeIds.slice(index, index + batchSize).map((id) => loadAmgRow(id, week)));
+        }
+      } finally {
+        setBonusBatches((count) => count - 1);
       }
-    } finally {
-      setBonusBusy(false);
-    }
-  }
+    },
+    [loadAmgRow]
+  );
 
-  // Hours already pulled belong to the week they were pulled for, so a week
-  // flip hides the bonus rows rather than showing last week's numbers.
-  useEffect(() => {
-    setBonusRequested(false);
-  }, [selectedWeek]);
+  // Forces a fresh pull for everyone currently shown, ignoring what's cached.
+  function refreshBonuses(employeeIds: string[]) {
+    bonusLoaded.current = { week: selectedWeek, ids: new Set(employeeIds) };
+    void calculateBonuses(employeeIds, selectedWeek);
+  }
 
   async function handleAmgReportUpload(file: File) {
     if (amgUploadBusy) return;
@@ -6339,6 +6347,21 @@ function ProductionGrid({
     ? sortedCrew.filter((row) => row.employee.name.toLowerCase().includes(searchQuery.trim().toLowerCase()))
     : sortedCrew;
 
+  // Bonus rows fill themselves in. Pulls only the people not already loaded
+  // for the week on screen, so re-renders and narrowing the search don't send
+  // AMG the same request twice; flipping the week resets and pulls again.
+  const crewIdsKey = visibleCrew.map((row) => row.employee.id).join(",");
+  useEffect(() => {
+    if (!crewIdsKey) return;
+    if (bonusLoaded.current.week !== selectedWeek) {
+      bonusLoaded.current = { week: selectedWeek, ids: new Set<string>() };
+    }
+    const pending = crewIdsKey.split(",").filter((id) => !bonusLoaded.current.ids.has(id));
+    if (pending.length === 0) return;
+    for (const id of pending) bonusLoaded.current.ids.add(id);
+    void calculateBonuses(pending, selectedWeek);
+  }, [crewIdsKey, selectedWeek, calculateBonuses]);
+
   return (
     <div className="grid gap-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -6492,8 +6515,8 @@ function ProductionGrid({
           </div>
         ))}
 
-      {/* Bonus for the whole shown crew in one action. Deliberate rather than
-          automatic, because each repairer's hours come live from AMG. */}
+      {/* Bonuses load themselves; the button is only there to pull fresh hours
+          if someone's AMG punches changed since the page opened. */}
       {visibleCrew.length > 0 && (
         <div className="mt-2 flex flex-wrap items-center justify-between gap-3 rounded border border-steel-100 bg-white p-3">
           <div>
@@ -6506,9 +6529,9 @@ function ProductionGrid({
             type="button"
             disabled={bonusBusy}
             className="touch-target rounded bg-workshop-500 px-4 py-2 text-sm font-black uppercase tracking-wide text-white transition-colors hover:bg-workshop-700 disabled:opacity-60"
-            onClick={() => void calculateBonuses(visibleCrew.map((row) => row.employee.id))}
+            onClick={() => refreshBonuses(visibleCrew.map((row) => row.employee.id))}
           >
-            {bonusBusy ? "Pulling AMG hours…" : bonusRequested ? "Refresh bonuses" : "Calculate bonuses"}
+            {bonusBusy ? "Pulling AMG hours…" : "Refresh bonuses"}
           </button>
         </div>
       )}
@@ -6822,8 +6845,7 @@ function ProductionGrid({
                       week's pallet earnings less the AMG wages already paid for
                       productive time. Only shown once the hours have been
                       pulled, so it never displays a figure it can't stand up. */}
-                  {bonusRequested &&
-                    (() => {
+                  {(() => {
                       const state = amgRowData[employee.id];
                       if (!state) return null;
                       if (state.loading) {
