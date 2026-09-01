@@ -1,4 +1,5 @@
 import { defaultPalletTypes } from "./data";
+import type { TimecardSheet } from "./amgTime";
 import type { DailyEntry, EntryCalculation, PalletType, PayrollSettings } from "./types";
 
 export function currency(value: number) {
@@ -168,6 +169,72 @@ export function calculateEntry(
     additionalOwed,
     totalPay,
     hourlyEquivalent
+  };
+}
+
+export type BonusBreakdown = {
+  /** Weekly piece-rate total off the repair grid, already net of rejects. */
+  pieceRate: number;
+  /** Everything AMG paid this week, breaks included. */
+  gross: number;
+  breakHours: number;
+  breakPay: number;
+  /** Gross less break pay — wages for time actually spent repairing. */
+  productiveWages: number;
+  /** Can be negative; kept so a shortfall can be shown rather than hidden. */
+  difference: number;
+  /** Never negative. */
+  bonus: number;
+  atFloor: boolean;
+};
+
+/**
+ * Weekly bonus for one repairer: what their pallets earned, less the wages
+ * AMG already paid them for productive time.
+ *
+ * Paid rest breaks are carved out of gross before the subtraction. Under CA
+ * piece-rate rules (Lab. Code 226.2) rest and recovery periods have to be paid
+ * separately from piece-rate work, so offsetting them here would quietly
+ * absorb break pay into the piece rate instead of paying it on top.
+ *
+ * The bonus floors at zero — a repairer whose pallets don't cover their hourly
+ * cost keeps their full hourly pay, and nothing is clawed back.
+ *
+ * Returns null when AMG has no wage data for the week, so the caller can say
+ * so instead of showing a bonus computed from a missing rate.
+ */
+export function calculateWeeklyBonus(pieceRate: number, sheet: TimecardSheet): BonusBreakdown | null {
+  const wage = sheet.wage;
+  if (!wage) return null;
+
+  // Breaks are valued at whichever tier they actually landed in, so a break
+  // taken inside overtime isn't undervalued at the regular rate.
+  let breakHours = 0;
+  let breakPay = 0;
+  for (const day of sheet.days) {
+    for (const segment of day.segments) {
+      if (segment.cat !== "BRK") continue;
+      breakHours += segment.reg + segment.ot1 + segment.ot2;
+      breakPay += segment.reg * wage.rate + segment.ot1 * wage.ot1Rate + segment.ot2 * wage.ot2Rate;
+    }
+  }
+
+  const round2 = (value: number) => Math.round(value * 100) / 100;
+  breakHours = round2(breakHours);
+  breakPay = round2(breakPay);
+
+  const productiveWages = round2(wage.gross - breakPay);
+  const difference = round2(pieceRate - productiveWages);
+
+  return {
+    pieceRate: round2(pieceRate),
+    gross: round2(wage.gross),
+    breakHours,
+    breakPay,
+    productiveWages,
+    difference,
+    bonus: difference > 0 ? difference : 0,
+    atFloor: difference <= 0
   };
 }
 

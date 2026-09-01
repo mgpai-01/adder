@@ -61,7 +61,7 @@ import {
   yardPalletIds,
   yardRank
 } from "@/lib/data";
-import { calculateEntry, compareByLastName, correctedEntryDate, currency, findMisdatedEntries, getWeekKey, wholeNumber } from "@/lib/payroll";
+import { calculateEntry, calculateWeeklyBonus, compareByLastName, correctedEntryDate, currency, findMisdatedEntries, getWeekKey, wholeNumber } from "@/lib/payroll";
 import { authedFetch, getAccessToken, roleLabels, roleViews, useAuth } from "@/lib/auth";
 import { normalizeExcelValue, parseCsvGrid, parseTimecardGrid, type ImportedBlock } from "@/lib/hoursImport";
 import { LanguageProvider, translate, useT, type Language } from "@/lib/i18n";
@@ -5999,6 +5999,33 @@ function ProductionGrid({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedWeek]);
 
+  // Weekly bonus. AMG hours are fetched live per person, so this is one
+  // deliberate action for the whole crew rather than something that fires on
+  // every page view. Batched a few at a time — AMG is an external clock and a
+  // full crew hitting it at once is a lot to ask of it.
+  const [bonusBusy, setBonusBusy] = useState(false);
+  const [bonusRequested, setBonusRequested] = useState(false);
+
+  async function calculateBonuses(employeeIds: string[]) {
+    if (bonusBusy) return;
+    setBonusBusy(true);
+    setBonusRequested(true);
+    try {
+      const batchSize = 3;
+      for (let index = 0; index < employeeIds.length; index += batchSize) {
+        await Promise.all(employeeIds.slice(index, index + batchSize).map((id) => loadAmgRow(id, selectedWeek)));
+      }
+    } finally {
+      setBonusBusy(false);
+    }
+  }
+
+  // Hours already pulled belong to the week they were pulled for, so a week
+  // flip hides the bonus rows rather than showing last week's numbers.
+  useEffect(() => {
+    setBonusRequested(false);
+  }, [selectedWeek]);
+
   async function handleAmgReportUpload(file: File) {
     if (amgUploadBusy) return;
     setAmgUploadBusy(true);
@@ -6465,6 +6492,27 @@ function ProductionGrid({
           </div>
         ))}
 
+      {/* Bonus for the whole shown crew in one action. Deliberate rather than
+          automatic, because each repairer's hours come live from AMG. */}
+      {visibleCrew.length > 0 && (
+        <div className="mt-2 flex flex-wrap items-center justify-between gap-3 rounded border border-steel-100 bg-white p-3">
+          <div>
+            <p className="text-sm font-black uppercase tracking-wide text-steel-900">Weekly bonus</p>
+            <p className="text-xs font-bold text-steel-500">
+              Pallet earnings less the AMG wages already paid for productive time. Never below $0.
+            </p>
+          </div>
+          <button
+            type="button"
+            disabled={bonusBusy}
+            className="touch-target rounded bg-workshop-500 px-4 py-2 text-sm font-black uppercase tracking-wide text-white transition-colors hover:bg-workshop-700 disabled:opacity-60"
+            onClick={() => void calculateBonuses(visibleCrew.map((row) => row.employee.id))}
+          >
+            {bonusBusy ? "Pulling AMG hours…" : bonusRequested ? "Refresh bonuses" : "Calculate bonuses"}
+          </button>
+        </div>
+      )}
+
       {visibleCrew.map(({ employee, employeeEntries, employeeReport, yardsWorked, yardByDay, perYardQty }, crewIndex) => {
         // The crew is already ordered Fontana, Mesa, Citrus, so a yard heading
         // goes above the first card of each run.
@@ -6770,6 +6818,58 @@ function ProductionGrid({
                     <td className="p-2 text-center">{wholeNumber(employeeReport.summary.quantity)}</td>
                     <td className="p-2 text-center">{currency(employeeReport.summary.totalPay)}</td>
                   </tr>
+                  {/* Weekly bonus, sitting directly under Daily Totals: this
+                      week's pallet earnings less the AMG wages already paid for
+                      productive time. Only shown once the hours have been
+                      pulled, so it never displays a figure it can't stand up. */}
+                  {bonusRequested &&
+                    (() => {
+                      const state = amgRowData[employee.id];
+                      if (!state) return null;
+                      if (state.loading) {
+                        return (
+                          <tr className="bg-steel-50 text-steel-500">
+                            <td colSpan={weekDays.length + 3} className="p-2 text-xs font-bold">
+                              <span className="flex items-center gap-2">
+                                <Loader2 size={13} className="animate-spin" /> Pulling AMG hours for the bonus…
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      }
+                      const bonus = state.sheet ? calculateWeeklyBonus(employeeReport.summary.totalPay, state.sheet) : null;
+                      if (!bonus) {
+                        // Say why there's no bonus rather than showing $0.00,
+                        // which would read as "earned nothing" instead of
+                        // "couldn't be worked out".
+                        return (
+                          <tr className="bg-steel-50">
+                            <td colSpan={weekDays.length + 3} className="p-2 text-xs font-bold text-steel-500">
+                              No bonus —{" "}
+                              {state.error
+                                ? state.error
+                                : state.sheet
+                                  ? "AMG has no wage rate on file for this week."
+                                  : "AMG has no hours for this week."}
+                            </td>
+                          </tr>
+                        );
+                      }
+                      return (
+                        <tr className={classNames("font-black", bonus.atFloor ? "bg-steel-100 text-steel-600" : "bg-workshop-500 text-white")}>
+                          <td colSpan={weekDays.length + 1} className="p-2 uppercase tracking-wide">
+                            Weekly Bonus
+                            {bonus.atFloor && (
+                              <span className="ml-2 text-xs font-bold normal-case tracking-normal">
+                                pallets came in {currency(Math.abs(bonus.difference))} under hourly — full hourly pay kept
+                              </span>
+                            )}
+                          </td>
+                          <td className="p-2 text-center" />
+                          <td className="p-2 text-center text-base">{currency(bonus.bonus)}</td>
+                        </tr>
+                      );
+                    })()}
                   {/* Hidden AMG drop-down: live hours from the AMG time clock,
                       revealed on demand right under the Daily Totals. */}
                   <tr className="border-t border-steel-200">
