@@ -1084,6 +1084,11 @@ export default function Home() {
   const [entriesLoaded, setEntriesLoaded] = useState(false);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [rosterLoaded, setRosterLoaded] = useState(false);
+  // Set only once the roster endpoint actually answered. rosterLoaded flips even
+  // when that request fails, and the two seeding effects below re-create anyone
+  // missing from the built-in list — so running them on a failed load would
+  // resurrect every deleted repairer and push them back to the shared roster.
+  const [rosterFromCloud, setRosterFromCloud] = useState(false);
   const [toast, setToast] = useState("");
   const [changeLog, setChangeLog] = useState<ChangeLogEntry[]>([]);
   const toastTimer = useRef<number | undefined>(undefined);
@@ -1113,7 +1118,7 @@ export default function Home() {
   // One-time correction of the yard managers to the real people, applied once
   // per browser after the roster loads and saved to the cloud for everyone.
   useEffect(() => {
-    if (!rosterLoaded) return;
+    if (!rosterLoaded || !rosterFromCloud) return;
     if (window.localStorage.getItem("mgp-manager-fix-v1")) return;
     window.localStorage.setItem("mgp-manager-fix-v1", "1");
 
@@ -1138,7 +1143,7 @@ export default function Home() {
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rosterLoaded]);
+  }, [rosterLoaded, rosterFromCloud]);
 
   // One-time rebuild of the full roster to match the official per-yard list
   // (from the managers' PDF). Matches existing people by name to keep their
@@ -1146,7 +1151,7 @@ export default function Home() {
   // anyone missing. It never deactivates anyone — repairers stay Active unless
   // an admin manually toggles them off. Saved to the cloud for everyone.
   useEffect(() => {
-    if (!rosterLoaded) return;
+    if (!rosterLoaded || !rosterFromCloud) return;
     // Bump this key whenever the official per-yard roster (lib/data.ts) changes
     // so every device re-applies it once and overwrites stale saved assignments.
     if (window.localStorage.getItem("mgp-roster-pdf-v5")) return;
@@ -1192,7 +1197,7 @@ export default function Home() {
     applyRoster(reconciled);
     changed.forEach(saveEmployeeToCloud);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rosterLoaded]);
+  }, [rosterLoaded, rosterFromCloud]);
 
   // These loads hit endpoints that now require a session, and the session token
   // is only available once Supabase has restored it. Running on mount alone
@@ -1286,6 +1291,13 @@ export default function Home() {
     authedFetch("/api/employees")
       .then((response) => response.json())
       .then(async (result: { employees: Employee[]; storage?: string }) => {
+        // Only a real answer counts. A denied or malformed response carries no
+        // `storage`, and treating that as "roster known" is what would let the
+        // reconcile below re-seed deleted repairers from the built-in list.
+        if (result.storage === "local") {
+          setRosterFromCloud(true);
+          return;
+        }
         if (result.storage !== "cloud") return;
         if (result.employees.length > 0) {
           applyRoster(withSeedPhotos(ensureYardManagers(result.employees, effectiveLocations)));
@@ -1300,6 +1312,7 @@ export default function Home() {
             )
           );
         }
+        setRosterFromCloud(true);
       })
       .catch(() => undefined)
       .finally(() => setRosterLoaded(true));
