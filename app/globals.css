@@ -255,3 +255,21 @@ textarea {
     opacity: 0.8;
   }
 }
+
+/* Branded inline spinner: the seal turns slowly while a green arc sweeps
+   faster around it. Spinning a detailed logo quickly goes blurry and reads as
+   cheap, so the arc carries the speed and the logo stays legible. */
+.mgp-seal-spin {
+  animation: mgp-spin 2.6s linear infinite;
+}
+
+.mgp-seal-arc {
+  animation: mgp-spin 0.9s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mgp-seal-spin,
+  .mgp-seal-arc {
+    animation: none;
+  }
+}

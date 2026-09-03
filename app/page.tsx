@@ -69,6 +69,7 @@ import type { ChangeLogEntry } from "@/lib/cloudChangeLog";
 import AuthGate from "@/components/AuthGate";
 import DropZone from "@/components/DropZone";
 import CalendarField, { type DateSelection } from "@/components/CalendarField";
+import { LoadingSeal } from "@/components/LoadingLogo";
 import type { BreakProfile, CountSheet, CountSheetStatus, DailyEntry, Employee, EntryPhase, Location, PalletCategory, PalletType, PayrollSettings, ProductionLine, Role, Shift } from "@/lib/types";
 
 // The AMG hours sync/import buttons on Payroll are parked until the team is
@@ -6640,29 +6641,35 @@ function ProductionGrid({
               </button>
               {/* Two-up on phones: four of these side by side squeezes the
                   dollar figures onto two lines. */}
+              {/* min-h keeps all four the same height whether the bonus box is
+                  showing its spinner or a figure, so the card doesn't jump when
+                  the AMG hours land. */}
               <div className="grid grid-cols-2 gap-2 text-center text-sm md:grid-cols-4">
-                <strong className="rounded bg-safety-400 px-3 py-2">{wholeNumber(employeeReport.summary.quantity)} qty</strong>
-                <strong className="rounded bg-safety-400 px-3 py-2">{currency(employeeReport.summary.piecePay)}</strong>
-                <strong className="rounded bg-safety-400 px-3 py-2">{currency(employeeReport.summary.totalPay)} total</strong>
+                <strong className="flex min-h-[42px] items-center justify-center rounded bg-safety-400 px-3 py-2">{wholeNumber(employeeReport.summary.quantity)} qty</strong>
+                <strong className="flex min-h-[42px] items-center justify-center rounded bg-safety-400 px-3 py-2">{currency(employeeReport.summary.piecePay)}</strong>
+                <strong className="flex min-h-[42px] items-center justify-center rounded bg-safety-400 px-3 py-2">{currency(employeeReport.summary.totalPay)} total</strong>
                 {/* Same figure as the Weekly Bonus row below, carried up here so
                     a bonus is visible without scrolling the grid. Darker than
                     the others because it's money on top of the pay beside it. */}
                 {(() => {
                   const state = amgRowData[employee.id];
                   const bonus = state?.sheet ? calculateWeeklyBonus(employeeReport.summary.totalPay, state.sheet) : null;
+                  const box = "flex min-h-[42px] items-center justify-center gap-2 rounded px-3 py-2";
                   if (state?.loading || (!state && !bonus)) {
-                    return <strong className="rounded bg-steel-100 px-3 py-2 text-steel-500">bonus …</strong>;
+                    // 24px: below about that the seal turns to mush and stops
+                    // reading as the logo at all.
+                    return (
+                      <strong className={classNames(box, "bg-steel-100 text-steel-500")}>
+                        <LoadingSeal size={24} />
+                        bonus
+                      </strong>
+                    );
                   }
                   if (!bonus) {
-                    return <strong className="rounded bg-steel-100 px-3 py-2 text-steel-500">no bonus</strong>;
+                    return <strong className={classNames(box, "bg-steel-100 text-steel-500")}>no bonus</strong>;
                   }
                   return (
-                    <strong
-                      className={classNames(
-                        "rounded px-3 py-2",
-                        bonus.atFloor ? "bg-steel-100 text-steel-600" : "bg-workshop-500 text-white"
-                      )}
-                    >
+                    <strong className={classNames(box, bonus.atFloor ? "bg-steel-100 text-steel-600" : "bg-workshop-500 text-white")}>
                       {currency(bonus.bonus)} bonus
                     </strong>
                   );
@@ -6925,7 +6932,7 @@ function ProductionGrid({
                           <tr className="bg-steel-50 text-steel-500">
                             <td colSpan={weekDays.length + 3} className="p-2 text-xs font-bold">
                               <span className="flex items-center gap-2">
-                                <Loader2 size={13} className="animate-spin" /> Pulling AMG hours for the bonus…
+                                <LoadingSeal size={22} /> Pulling AMG hours for the bonus…
                               </span>
                             </td>
                           </tr>

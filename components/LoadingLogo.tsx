@@ -24,3 +24,27 @@ export default function LoadingLogo({ label = "Loading" }: { label?: string }) {
     </div>
   );
 }
+
+// Compact version for inline slots — a stat box, a table cell — where the full
+// LoadingLogo is far too big. Same idea, scaled down: the seal turns slowly
+// while a green arc sweeps faster around it, so the movement reads as busy
+// without the logo itself blurring at this size.
+export function LoadingSeal({ size = 22, className = "" }: { size?: number; className?: string }) {
+  return (
+    <span
+      role="status"
+      aria-label="Loading"
+      className={`relative inline-flex shrink-0 items-center justify-center align-middle ${className}`}
+      style={{ height: size, width: size }}
+    >
+      <span className="mgp-seal-arc absolute inset-0 rounded-full border-2 border-transparent border-t-workshop-500 border-r-workshop-500/40" />
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src="/logo.svg"
+        alt=""
+        className="mgp-seal-spin rounded-full"
+        style={{ height: size - 7, width: size - 7 }}
+      />
+    </span>
+  );
+}
