@@ -6638,10 +6638,35 @@ function ProductionGrid({
                   )}
                 </div>
               </button>
-              <div className="grid grid-cols-3 gap-2 text-center text-sm">
+              {/* Two-up on phones: four of these side by side squeezes the
+                  dollar figures onto two lines. */}
+              <div className="grid grid-cols-2 gap-2 text-center text-sm md:grid-cols-4">
                 <strong className="rounded bg-safety-400 px-3 py-2">{wholeNumber(employeeReport.summary.quantity)} qty</strong>
                 <strong className="rounded bg-safety-400 px-3 py-2">{currency(employeeReport.summary.piecePay)}</strong>
                 <strong className="rounded bg-safety-400 px-3 py-2">{currency(employeeReport.summary.totalPay)} total</strong>
+                {/* Same figure as the Weekly Bonus row below, carried up here so
+                    a bonus is visible without scrolling the grid. Darker than
+                    the others because it's money on top of the pay beside it. */}
+                {(() => {
+                  const state = amgRowData[employee.id];
+                  const bonus = state?.sheet ? calculateWeeklyBonus(employeeReport.summary.totalPay, state.sheet) : null;
+                  if (state?.loading || (!state && !bonus)) {
+                    return <strong className="rounded bg-steel-100 px-3 py-2 text-steel-500">bonus …</strong>;
+                  }
+                  if (!bonus) {
+                    return <strong className="rounded bg-steel-100 px-3 py-2 text-steel-500">no bonus</strong>;
+                  }
+                  return (
+                    <strong
+                      className={classNames(
+                        "rounded px-3 py-2",
+                        bonus.atFloor ? "bg-steel-100 text-steel-600" : "bg-workshop-500 text-white"
+                      )}
+                    >
+                      {currency(bonus.bonus)} bonus
+                    </strong>
+                  );
+                })()}
               </div>
               {/* Time card: upload a photo of the physical card for this week,
                   with thumbnails of the ones already on file. */}
