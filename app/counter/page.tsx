@@ -191,6 +191,21 @@ export default function CounterPage() {
     setEmployees(localEmployees);
     setLocations(normalizedLocations);
     setPendingCount(readPendingSaves().length);
+
+    // The saved roster above is only a warm start so the picker isn't empty on
+    // load. The cloud is the real roster: without this, a counting tablet kept
+    // showing repairers an admin deleted somewhere else, and a device with
+    // nothing saved fell all the way back to the built-in list in lib/data.
+    // The full record is fetched rather than ?summary=1 because the picker
+    // shows profile photos, which the summary strips.
+    authedFetch("/api/employees", { cache: "no-store" })
+      .then((response) => response.json())
+      .then((result: { employees?: Employee[]; storage?: string }) => {
+        if (result.storage !== "cloud") return;
+        const roster = (result.employees ?? []).filter((employee) => !employee.deletedByAdmin);
+        if (roster.length > 0) setEmployees(roster);
+      })
+      .catch(() => undefined);
   }, []);
 
   useEffect(() => {
