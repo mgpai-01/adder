@@ -18,6 +18,12 @@ export type Employee = {
   // roster sync never sets it, and never reactivates anyone who has it set —
   // so a manual Inactive choice sticks on every device, forever.
   deactivatedByAdmin?: boolean;
+  // True only when an admin deleted this repairer. The record is kept as a
+  // tombstone rather than dropped, because the roster reconcile re-seeds
+  // anyone from lib/data.ts who isn't present — a removed row would simply be
+  // re-created by the next device that runs it. Like deactivatedByAdmin, this
+  // is a manual choice that sticks on every device.
+  deletedByAdmin?: boolean;
   role?: Role;
   notes?: string;
   photoDataUrl?: string;

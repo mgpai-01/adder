@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { isCloudEntriesConfigured, readCloudEntriesSummary } from "@/lib/cloudEntries";
 import { readLocalEntries } from "@/lib/localEntries";
-import { isCloudRosterConfigured, readCloudEmployeesSummary } from "@/lib/cloudEmployees";
+import { isCloudRosterConfigured, readCloudEmployeesSummary, withoutDeleted } from "@/lib/cloudEmployees";
 import { readLocalSettings } from "@/lib/localSettings";
 import { getSupabaseServerClient } from "@/lib/supabase";
 import type { PalletType } from "@/lib/types";
@@ -18,7 +18,7 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const [entriesRaw, employeesRaw, settings] = await Promise.all([
     isCloudEntriesConfigured() ? readCloudEntriesSummary() : readLocalEntries(),
-    isCloudRosterConfigured() ? readCloudEmployeesSummary() : Promise.resolve([]),
+    isCloudRosterConfigured() ? readCloudEmployeesSummary().then(withoutDeleted) : Promise.resolve([]),
     readLocalSettings()
   ]);
 

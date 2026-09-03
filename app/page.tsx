@@ -1031,13 +1031,24 @@ export default function Home() {
   const [palletTypes, setPalletTypes] = useState<PalletType[]>(defaultPalletTypes);
   const [employeeList, setEmployeeList] = useState<Employee[]>(defaultEmployees);
   const [employeeAliases, setEmployeeAliases] = useState<Map<string, string>>(new Map());
+  // Names an admin has deleted. Held in a ref because the roster reconcile
+  // below reads it during an effect that must see the value from the same
+  // render the roster arrived in, not one render later.
+  const deletedNames = useRef<Set<string>>(new Set<string>());
   // Sets the roster with same-name duplicates collapsed to one person, and
   // re-points any production saved against a dropped duplicate at the record
   // that was kept, so a repairer's numbers stay whole instead of splitting
   // across two copies of them. Nothing is deleted from the cloud here — the
   // duplicate row simply stops being shown.
+  //
+  // Deleted repairers arrive as tombstones (deletedByAdmin). They are kept out
+  // of the roster but remembered, so the reconcile can tell "never added" from
+  // "deliberately removed" and stops re-seeding them.
   function applyRoster(list: Employee[]) {
-    const { employees, aliasById } = dedupeEmployees(list);
+    for (const employee of list) {
+      if (employee.deletedByAdmin) deletedNames.current.add(rosterNameKey(employee.name));
+    }
+    const { employees, aliasById } = dedupeEmployees(list.filter((employee) => !employee.deletedByAdmin));
     setEmployeeList(employees);
     setEmployeeAliases(aliasById);
   }
@@ -1121,6 +1132,8 @@ export default function Home() {
       if (existing) {
         if (existing.role !== "supervisor") updateEmployee(existing.id, { role: "supervisor" });
       } else {
+        // An admin who deleted this person meant it — don't re-create them.
+        if (deletedNames.current.has(rosterNameKey(manager.name))) continue;
         createEmployee({ name: manager.name, locationId: manager.locationId, shift: "AM", active: true, role: "supervisor", notes: "", photoDataUrl: "" });
       }
     }
@@ -1139,7 +1152,7 @@ export default function Home() {
     if (window.localStorage.getItem("mgp-roster-pdf-v5")) return;
     window.localStorage.setItem("mgp-roster-pdf-v5", "1");
 
-    const norm = (name: string) => name.toLowerCase().replace(/\./g, "").replace(/\s+/g, " ").trim();
+    const norm = rosterNameKey;
     const targetByName = new Map(defaultEmployees.map((employee) => [norm(employee.name), employee]));
     const matched = new Set<string>();
 
@@ -1159,6 +1172,11 @@ export default function Home() {
 
     for (const target of defaultEmployees) {
       if (matched.has(norm(target.name))) continue;
+      // Deleting a repairer used to be undone by this line: the built-in list
+      // still had them, so the next device to run this re-added them and saved
+      // it back to the cloud, and they reappeared for everyone. A deletion is a
+      // deliberate admin choice, so it wins over the built-in roster.
+      if (deletedNames.current.has(norm(target.name))) continue;
       // Keep the built-in id. Minting a fresh "mgp-…" id here is what created a
       // second record for people the roster already had (their seed photo is
       // keyed to the original id), so reuse it and let the dedupe collapse any
@@ -1437,8 +1455,14 @@ export default function Home() {
         const response = await authedFetch("/api/employees?summary=1", { cache: "no-store" });
         if (!response.ok) return;
         const result = (await response.json()) as { employees?: Employee[] };
-        const incoming = result.employees ?? [];
-        if (incoming.length === 0) return;
+        const all = result.employees ?? [];
+        if (all.length === 0) return;
+        // Tombstones ride along in the payload so this poll learns about a
+        // deletion made on another device; they're remembered, then dropped.
+        for (const employee of all) {
+          if (employee.deletedByAdmin) deletedNames.current.add(rosterNameKey(employee.name));
+        }
+        const incoming = all.filter((employee) => !employee.deletedByAdmin);
         setEmployeeList((current) => {
           const byId = new Map(current.map((employee) => [employee.id, employee]));
           const merged = incoming.map((employee) => {
@@ -2184,7 +2208,10 @@ export default function Home() {
   }
 
   function createEmployee(employee: Omit<Employee, "id">) {
-    const newEmployee: Employee = { ...employee, id: `employee-${Date.now()}` };
+    // Adding someone back by name lifts their tombstone, so a delete can be
+    // undone from the UI rather than being permanent.
+    deletedNames.current.delete(rosterNameKey(employee.name));
+    const newEmployee: Employee = { ...employee, id: `employee-${Date.now()}`, deletedByAdmin: false };
     setEmployeeList((current) => [...current, newEmployee]);
     setAdminStatus("Repairer saved to the cloud.");
     saveEmployeeToCloud(newEmployee);
@@ -2208,8 +2235,15 @@ export default function Home() {
   function deleteEmployee(id: string) {
     const before = employeeList.find((employee) => employee.id === id);
     setEmployeeList((current) => current.filter((item) => item.id !== id));
-    authedFetch(`/api/employees/${id}`, { method: "DELETE" }).catch(() => undefined);
-    if (before) logChange("deleted", before.name, `Removed ${before.name}`);
+    if (!before) return;
+    // Saved as a tombstone instead of dropping the row. A hard delete came
+    // straight back: the built-in roster in lib/data.ts still listed them, so
+    // the next device to run the roster reconcile re-created them and pushed
+    // that to the cloud. Keeping the record marked deleted is what makes the
+    // removal stick everywhere.
+    deletedNames.current.add(rosterNameKey(before.name));
+    saveEmployeeToCloud({ ...before, active: false, deletedByAdmin: true });
+    logChange("deleted", before.name, `Removed ${before.name}`);
   }
 
   function exportCsv(filteredEntries = entries) {

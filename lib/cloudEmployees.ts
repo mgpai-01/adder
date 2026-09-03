@@ -9,6 +9,14 @@ export function isCloudRosterConfigured(): boolean {
   return getSupabaseServerClient() !== null;
 }
 
+// Deleted repairers stay in the table as tombstones so the removal sticks
+// across devices, which means every reader has to drop them. The one exception
+// is /api/employees itself — the browser needs the tombstones to learn that a
+// deletion happened somewhere else.
+export function withoutDeleted(list: Employee[]): Employee[] {
+  return list.filter((employee) => !employee.deletedByAdmin);
+}
+
 export async function readCloudEmployees(): Promise<Employee[]> {
   const supabase = getSupabaseServerClient();
   if (!supabase) return [];
@@ -27,9 +35,23 @@ export async function readCloudEmployeesSummary(): Promise<Employee[]> {
 
   const { data, error } = await supabase
     .from("cloud_employees")
-    .select("id, name:data->>name, location_id:data->>locationId, role:data->>role, active:data->>active, shift:data->>shift");
+    // deletedByAdmin has to travel with the summary: this feeds the roster
+    // poll, and without it a deleted repairer reappears as merely inactive.
+    .select(
+      "id, name:data->>name, location_id:data->>locationId, role:data->>role, active:data->>active, shift:data->>shift, deleted_by_admin:data->>deletedByAdmin"
+    );
   if (error || !data) return [];
-  return (data as Array<{ id: string; name: string | null; location_id: string | null; role: string | null; active: string | null; shift: string | null }>).map(
+  return (
+    data as Array<{
+      id: string;
+      name: string | null;
+      location_id: string | null;
+      role: string | null;
+      active: string | null;
+      shift: string | null;
+      deleted_by_admin: string | null;
+    }>
+  ).map(
     (row) =>
       ({
         id: row.id,
@@ -37,7 +59,8 @@ export async function readCloudEmployeesSummary(): Promise<Employee[]> {
         locationId: row.location_id ?? "",
         role: (row.role ?? undefined) as Employee["role"],
         active: row.active !== "false",
-        shift: (row.shift ?? "AM") as Employee["shift"]
+        shift: (row.shift ?? "AM") as Employee["shift"],
+        deletedByAdmin: row.deleted_by_admin === "true"
       }) as Employee
   );
 }

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { fetchAmgHours, isAmgConfigured } from "@/lib/amgTime";
 import { isCloudEntriesConfigured, readCloudEntries, upsertCloudEntry } from "@/lib/cloudEntries";
-import { isCloudRosterConfigured, readCloudEmployees } from "@/lib/cloudEmployees";
+import { isCloudRosterConfigured, readCloudEmployees, withoutDeleted } from "@/lib/cloudEmployees";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -46,7 +46,7 @@ export async function GET(request: Request) {
     const endDate = isoDaysAgo(0);
     const blocks = await fetchAmgHours(startDate, endDate);
 
-    const employees = await readCloudEmployees();
+    const employees = withoutDeleted(await readCloudEmployees());
     const byCode = new Map(
       employees.filter((employee) => employee.timeclockCode).map((employee) => [employee.timeclockCode as string, employee])
     );

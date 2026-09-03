@@ -1,6 +1,6 @@
 import { createHmac } from "node:crypto";
 import { requireCaller } from "./apiAuth";
-import { readCloudEmployees } from "./cloudEmployees";
+import { readCloudEmployees, withoutDeleted } from "./cloudEmployees";
 import type { Employee } from "./types";
 
 // Where a person's stored AMG paper lives for a week. The bucket is public,
@@ -23,7 +23,7 @@ export async function checkTimecardAccess(
   const check = await requireCaller(request);
   if (!check.ok) return { ok: false, status: check.status, error: check.error };
 
-  const employees = await readCloudEmployees();
+  const employees = withoutDeleted(await readCloudEmployees());
   const employee = employees.find((item) => item.id === employeeId);
   if (!employee) return { ok: false, status: 404, error: "Unknown person" };
 
