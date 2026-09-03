@@ -6993,7 +6993,7 @@ function ProductionGrid({
                         return (
                           <tr className="bg-steel-50 text-steel-500">
                             <td colSpan={weekDays.length + 3} className="p-2">
-                              <span className="flex items-center gap-2"><Loader2 size={14} className="animate-spin" /> Pulling live hours from AMG…</span>
+                              <span className="flex items-center gap-2"><LoadingSeal size={22} /> Pulling live hours from AMG…</span>
                             </td>
                           </tr>
                         );
