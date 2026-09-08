@@ -7106,7 +7106,7 @@ function ProductionGrid({
                       <>
                         <tr className="border-t-2 border-steel-900 bg-steel-50">
                           <td colSpan={weekDays.length + 3} className="p-2 text-[11px] font-black uppercase tracking-wide text-steel-500">
-                            Supplies used
+                            Supplies
                           </td>
                         </tr>
                         {active.map((supply) => {
