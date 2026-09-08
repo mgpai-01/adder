@@ -7097,8 +7097,11 @@ function ProductionGrid({
                       can open this screen too. */}
                   {(() => {
                     const active = supplyTypes.filter((supply) => supply.active);
-                    const used = active.filter((supply) => supplyCount(employeeEntries, supply.id) > 0);
-                    if (used.length === 0) return null;
+                    if (active.length === 0) return null;
+                    // Always shown, even at zero. Hiding the block when nothing
+                    // was logged made "none used" look identical to "the
+                    // manager forgot" — and left an admin with no way to tell
+                    // either from the feature simply not being there.
                     return (
                       <>
                         <tr className="border-t-2 border-steel-900 bg-steel-50">
@@ -7106,7 +7109,7 @@ function ProductionGrid({
                             Supplies used
                           </td>
                         </tr>
-                        {used.map((supply) => {
+                        {active.map((supply) => {
                           const weekQty = supplyCount(employeeEntries, supply.id);
                           const weekCost = weekQty * (supply.unitCost ?? 0);
                           return (
@@ -7149,7 +7152,7 @@ function ProductionGrid({
                             <td className="p-2">Supplies cost</td>
                             {weekDays.map((day) => {
                               const dayEntries = employeeEntries.filter((entry) => entry.date === day);
-                              const dayCost = used.reduce(
+                              const dayCost = active.reduce(
                                 (total, supply) => total + supplyCount(dayEntries, supply.id) * (supply.unitCost ?? 0),
                                 0
                               );
@@ -7160,10 +7163,10 @@ function ProductionGrid({
                               );
                             })}
                             <td className="bg-workshop-100 p-2 text-center">
-                              {wholeNumber(used.reduce((total, supply) => total + supplyCount(employeeEntries, supply.id), 0))}
+                              {wholeNumber(active.reduce((total, supply) => total + supplyCount(employeeEntries, supply.id), 0))}
                             </td>
                             <td className="bg-workshop-100 p-2 text-center">
-                              {currency(used.reduce((total, supply) => total + supplyCount(employeeEntries, supply.id) * (supply.unitCost ?? 0), 0))}
+                              {currency(active.reduce((total, supply) => total + supplyCount(employeeEntries, supply.id) * (supply.unitCost ?? 0), 0))}
                             </td>
                           </tr>
                         )}
