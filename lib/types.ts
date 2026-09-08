@@ -72,9 +72,16 @@ export type SupplyType = {
   // One of these, shown under the name: "blade", "roll".
   unit: string;
   active: boolean;
-  // Set by an admin later. Managers never see it — it isn't rendered for them
-  // and isn't needed to log a count.
+  // What one of these costs. Only ever rendered for admins.
   unitCost?: number;
+  // How many pieces come in one unit — a nail roll holds 300 nails. Recorded
+  // for later: nothing reads it yet, but a nails-per-pallet figure or a
+  // box-level reorder point would both need it, and it's the kind of number
+  // that's a nuisance to track down twice.
+  piecesPerUnit?: number;
+  pieceUnit?: string;
+  // How many units come in a purchase box, where they're bought that way.
+  unitsPerBox?: number;
 };
 
 // How many of one supply a repairer used on a day. No line means none used:

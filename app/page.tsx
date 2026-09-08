@@ -469,6 +469,17 @@ function ensureYardManagers(list: Employee[], locationList: Location[]): Employe
 // A repairer can end up with more than one entry for a date (split yards, or
 // the old duplicate-save bug), so a day's supplies are summed across them the
 // same way the pallet lines are aggregated.
+// How many of one supply a set of entries records. Used per day and per week.
+function supplyCount(entries: DailyEntry[], supplyTypeId: string): number {
+  let total = 0;
+  for (const entry of entries) {
+    for (const line of entry.supplies ?? []) {
+      if (line.supplyTypeId === supplyTypeId) total += Number(line.quantity || 0);
+    }
+  }
+  return total;
+}
+
 function sumSupplyLines(entries: DailyEntry[]): SupplyLine[] {
   const totals = new Map<string, number>();
   for (const entry of entries) {
@@ -3119,6 +3130,10 @@ export default function Home() {
               employees={employeeList}
               locations={scopedLocationList}
               palletTypes={palletTypes}
+              supplyTypes={supplyTypes}
+              // Managers can open this screen too, so supply cost is gated on
+              // the role rather than on being here at all.
+              showSupplyCost={!configured || profile?.role === "admin"}
               settings={settings}
               selectedWeek={selectedWeek}
               onWeekChange={setSelectedWeek}
@@ -5996,6 +6011,8 @@ function formatEntryDate(dateValue: string) {
 function ProductionGrid({
   entries,
   countSheets,
+  supplyTypes,
+  showSupplyCost,
   employees,
   locations,
   palletTypes,
@@ -6018,6 +6035,9 @@ function ProductionGrid({
   employees: Employee[];
   locations: Location[];
   palletTypes: PalletType[];
+  supplyTypes: SupplyType[];
+  // Managers can reach this screen, so supply cost is shown only to admins.
+  showSupplyCost: boolean;
   settings: PayrollSettings;
   selectedWeek: string;
   onWeekChange: (week: string) => void;
@@ -7072,6 +7092,84 @@ function ProductionGrid({
                         </tr>
                       );
                     })()}
+                  {/* Supplies this repairer went through. Counts show for
+                      everyone; the money column is admin-only, since managers
+                      can open this screen too. */}
+                  {(() => {
+                    const active = supplyTypes.filter((supply) => supply.active);
+                    const used = active.filter((supply) => supplyCount(employeeEntries, supply.id) > 0);
+                    if (used.length === 0) return null;
+                    return (
+                      <>
+                        <tr className="border-t-2 border-steel-900 bg-steel-50">
+                          <td colSpan={weekDays.length + 3} className="p-2 text-[11px] font-black uppercase tracking-wide text-steel-500">
+                            Supplies used
+                          </td>
+                        </tr>
+                        {used.map((supply) => {
+                          const weekQty = supplyCount(employeeEntries, supply.id);
+                          const weekCost = weekQty * (supply.unitCost ?? 0);
+                          return (
+                            <tr key={supply.id} className="border-t border-steel-100">
+                              <td className="p-2">
+                                <span className="block font-black">{supply.name}</span>
+                                <span className="block text-[11px] font-black uppercase tracking-wide text-steel-400">
+                                  {showSupplyCost && supply.unitCost != null ? `${currency(supply.unitCost)} per ${supply.unit}` : `per ${supply.unit}`}
+                                </span>
+                              </td>
+                              {weekDays.map((day) => {
+                                const dayQty = supplyCount(
+                                  employeeEntries.filter((entry) => entry.date === day),
+                                  supply.id
+                                );
+                                return (
+                                  <td key={day} className="p-2 text-center">
+                                    {dayQty === 0 ? (
+                                      <span className="block text-steel-300">—</span>
+                                    ) : (
+                                      <>
+                                        <span className="block font-black">{wholeNumber(dayQty)}</span>
+                                        {showSupplyCost && supply.unitCost != null && (
+                                          <span className="block text-steel-500">{currency(dayQty * supply.unitCost)}</span>
+                                        )}
+                                      </>
+                                    )}
+                                  </td>
+                                );
+                              })}
+                              <td className="bg-workshop-100 p-2 text-center font-black">{wholeNumber(weekQty)}</td>
+                              <td className="bg-workshop-100 p-2 text-center font-black">
+                                {showSupplyCost && supply.unitCost != null ? currency(weekCost) : "—"}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                        {showSupplyCost && (
+                          <tr className="border-t border-steel-200 bg-steel-50 font-black">
+                            <td className="p-2">Supplies cost</td>
+                            {weekDays.map((day) => {
+                              const dayEntries = employeeEntries.filter((entry) => entry.date === day);
+                              const dayCost = used.reduce(
+                                (total, supply) => total + supplyCount(dayEntries, supply.id) * (supply.unitCost ?? 0),
+                                0
+                              );
+                              return (
+                                <td key={day} className="p-2 text-center">
+                                  {dayCost === 0 ? <span className="block font-normal text-steel-300">—</span> : currency(dayCost)}
+                                </td>
+                              );
+                            })}
+                            <td className="bg-workshop-100 p-2 text-center">
+                              {wholeNumber(used.reduce((total, supply) => total + supplyCount(employeeEntries, supply.id), 0))}
+                            </td>
+                            <td className="bg-workshop-100 p-2 text-center">
+                              {currency(used.reduce((total, supply) => total + supplyCount(employeeEntries, supply.id) * (supply.unitCost ?? 0), 0))}
+                            </td>
+                          </tr>
+                        )}
+                      </>
+                    );
+                  })()}
                   {/* Hidden AMG drop-down: live hours from the AMG time clock,
                       revealed on demand right under the Daily Totals. */}
                   <tr className="border-t border-steel-200">

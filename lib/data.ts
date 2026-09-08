@@ -62,12 +62,25 @@ export const palletCategories: PalletCategory[] = [
 
 export const shifts: Shift[] = ["AM", "PM", "Swing"];
 
-// Consumables logged against a repairer's day. No unitCost yet — an admin sets
-// prices later, and the manager side works without them.
+// Consumables logged against a repairer's day. Costs are what we actually pay
+// per unit; managers never see them, only admins.
 export const defaultSupplyTypes: SupplyType[] = [
-  { id: "sawzall-blades", name: "Sawzall blades", unit: "blade", active: true },
-  { id: "skill-saw-blades", name: "Skill saw blades", unit: "blade", active: true },
-  { id: "nail-rolls", name: "Rolls of nails", unit: "roll", active: true }
+  // HUB sells 500 for $608.00, but the price we get is $1.00 each.
+  { id: "sawzall-blades", name: "Sawzall blades", unit: "blade", active: true, unitCost: 1.0 },
+  // Bauer framing blade, Home Depot.
+  { id: "skill-saw-blades", name: "Skill saw blades", unit: "blade", active: true, unitCost: 8.92 },
+  // $0.865 a roll, rounded to the cent we price at. 300 nails to a roll,
+  // 30 rolls to a box.
+  {
+    id: "nail-rolls",
+    name: "Rolls of nails",
+    unit: "roll",
+    active: true,
+    unitCost: 0.87,
+    piecesPerUnit: 300,
+    pieceUnit: "nail",
+    unitsPerBox: 30
+  }
 ];
 
 export const defaultPalletTypes: PalletType[] = [
