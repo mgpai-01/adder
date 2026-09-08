@@ -63,6 +63,27 @@ export type ProductionLine = {
   parts?: number[];
 };
 
+// A consumable a repairer goes through — blades, nail rolls. Kept as a list
+// rather than fixed fields so adding banding or staples later is a settings
+// change, the same way pallet types work.
+export type SupplyType = {
+  id: string;
+  name: string;
+  // One of these, shown under the name: "blade", "roll".
+  unit: string;
+  active: boolean;
+  // Set by an admin later. Managers never see it — it isn't rendered for them
+  // and isn't needed to log a count.
+  unitCost?: number;
+};
+
+// How many of one supply a repairer used on a day. No line means none used:
+// blank counts as zero, so nothing has to be filled in on a quiet day.
+export type SupplyLine = {
+  supplyTypeId: string;
+  quantity: number;
+};
+
 // A repairer's day is tracked in three phases. Each phase records its own
 // pallet quantities (`lines`), an auto-computed non-QC pallet count (`amount`),
 // an optional photo, and can be bypassed when it does not apply.
@@ -101,6 +122,10 @@ export type DailyEntry = {
   // Photos of the repairer's physical time card, uploaded from the Production
   // Grid. Stored as small storage URLs (same pipeline as phase photos).
   timeCardPhotoUrls?: string[];
+  // Consumables this repairer used on this day. Counted once for the day, not
+  // per phase, so a manager logs blades one time instead of in every phase.
+  // Zero-quantity lines are dropped on save — absent means none.
+  supplies?: SupplyLine[];
   // Hours imported from the AMG Time timecard report (the day's paid total,
   // already net of unpaid lunch). Presence of this field is what makes the
   // Pay PDF print real hours instead of a dash.

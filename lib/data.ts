@@ -1,4 +1,4 @@
-import type { Employee, Location, PalletCategory, PalletType, PayrollSettings, Shift } from "./types";
+import type { Employee, Location, PalletCategory, PalletType, PayrollSettings, Shift, SupplyType } from "./types";
 
 export const payrollSettings: PayrollSettings = {
   minimumWageMakeupEnabled: false,
@@ -61,6 +61,14 @@ export const palletCategories: PalletCategory[] = [
 ];
 
 export const shifts: Shift[] = ["AM", "PM", "Swing"];
+
+// Consumables logged against a repairer's day. No unitCost yet — an admin sets
+// prices later, and the manager side works without them.
+export const defaultSupplyTypes: SupplyType[] = [
+  { id: "sawzall-blades", name: "Sawzall blades", unit: "blade", active: true },
+  { id: "skill-saw-blades", name: "Skill saw blades", unit: "blade", active: true },
+  { id: "nail-rolls", name: "Rolls of nails", unit: "roll", active: true }
+];
 
 export const defaultPalletTypes: PalletType[] = [
   { id: "stacker-block", code: "1 STACKER", description: "BLOCK", category: "Stacker", rate: 1, active: true },

@@ -51,6 +51,21 @@ export const esDict: Record<string, string> = {
   "Pallet Description": "Descripción de Tarima",
   Rate: "Tarifa",
   Quantity: "Cantidad",
+
+  // Supplies (blades, nails) logged against a repairer's day
+  "Supplies used today": "Suministros usados hoy",
+  "— for the whole day, not per phase": "— para todo el día, no por fase",
+  Supply: "Suministro",
+  "{n} items": "{n} artículos",
+  "per {unit}": "por {unit}",
+  "Leave a supply blank if none were used — it counts as zero.":
+    "Deje un suministro en blanco si no se usó ninguno — cuenta como cero.",
+  // Supply names and units, so the whole table reads in Spanish
+  "Sawzall blades": "Hojas de sierra recíproca",
+  "Skill saw blades": "Hojas de sierra circular",
+  "Rolls of nails": "Rollos de clavos",
+  blade: "hoja",
+  roll: "rollo",
   "Total Earned": "Total Ganado",
   "Phase {n} quantities": "Cantidades de la Fase {n}",
   "— enter this phase's pallets, then switch phases above":

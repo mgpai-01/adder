@@ -52,6 +52,7 @@ import {
 } from "recharts";
 import {
   defaultPalletTypes,
+  defaultSupplyTypes,
   employees as defaultEmployees,
   locations as defaultLocations,
   palletCategories,
@@ -70,7 +71,7 @@ import AuthGate from "@/components/AuthGate";
 import DropZone from "@/components/DropZone";
 import CalendarField, { type DateSelection } from "@/components/CalendarField";
 import { LoadingSeal } from "@/components/LoadingLogo";
-import type { BreakProfile, CountSheet, CountSheetStatus, DailyEntry, Employee, EntryPhase, Location, PalletCategory, PalletType, PayrollSettings, ProductionLine, Role, Shift } from "@/lib/types";
+import type { BreakProfile, CountSheet, CountSheetStatus, DailyEntry, Employee, EntryPhase, Location, PalletCategory, PalletType, PayrollSettings, ProductionLine, Role, Shift, SupplyLine, SupplyType } from "@/lib/types";
 
 // The AMG hours sync/import buttons on Payroll are parked until the team is
 // ready to use them. All the plumbing stays live behind the scenes (API
@@ -465,6 +466,19 @@ function ensureYardManagers(list: Employee[], locationList: Location[]): Employe
   return changed ? result : list;
 }
 
+// A repairer can end up with more than one entry for a date (split yards, or
+// the old duplicate-save bug), so a day's supplies are summed across them the
+// same way the pallet lines are aggregated.
+function sumSupplyLines(entries: DailyEntry[]): SupplyLine[] {
+  const totals = new Map<string, number>();
+  for (const entry of entries) {
+    for (const line of entry.supplies ?? []) {
+      totals.set(line.supplyTypeId, (totals.get(line.supplyTypeId) ?? 0) + Number(line.quantity || 0));
+    }
+  }
+  return [...totals].map(([supplyTypeId, quantity]) => ({ supplyTypeId, quantity }));
+}
+
 function createBlankForm(palletTypes: PalletType[], employeeList: Employee[]): EntryForm {
   const firstRepairer =
     employeeList.find((employee) => employee.active && !isManager(employee)) ??
@@ -487,7 +501,8 @@ function createBlankForm(palletTypes: PalletType[], employeeList: Employee[]): E
     clockOut: "3:30 PM",
     manualHours: 8.5,
     breakProfile: "standard",
-    notes: ""
+    notes: "",
+    supplies: []
   };
 }
 
@@ -1030,6 +1045,9 @@ export default function Home() {
   const deletedEntryIdsRef = useRef<Set<string>>(new Set());
   const [countSheets, setCountSheets] = useState<CountSheet[]>([]);
   const [palletTypes, setPalletTypes] = useState<PalletType[]>(defaultPalletTypes);
+  // Fixed list for now. Kept in state so an admin screen can manage it later
+  // without the entry form changing.
+  const [supplyTypes] = useState<SupplyType[]>(defaultSupplyTypes);
   const [employeeList, setEmployeeList] = useState<Employee[]>(defaultEmployees);
   const [employeeAliases, setEmployeeAliases] = useState<Map<string, string>>(new Map());
   // Names an admin has deleted. Held in a ref because the roster reconcile
@@ -1737,7 +1755,7 @@ export default function Home() {
     if (!entriesLoaded) return;
     const data = entryFormData(form.employeeId, form.date, form.locationId);
     setEditingEntryId(data.existingId);
-    setForm((current) => ({ ...current, lines: data.lines, phases: data.phases }));
+    setForm((current) => ({ ...current, lines: data.lines, phases: data.phases, supplies: data.supplies }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entriesLoaded]);
 
@@ -1751,7 +1769,7 @@ export default function Home() {
     if (!employeeId) return;
     const data = entryFormData(employeeId, date, locationId);
     setEditingEntryId(data.existingId);
-    setForm((current) => ({ ...current, lines: data.lines, phases: data.phases }));
+    setForm((current) => ({ ...current, lines: data.lines, phases: data.phases, supplies: data.supplies }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entries, entriesLoaded]);
 
@@ -1829,7 +1847,8 @@ export default function Home() {
     return {
       existingId: primary?.id ?? null,
       lines: aggregatePhaseLines(phases),
-      phases
+      phases,
+      supplies: sumSupplyLines(matching)
     };
   }
 
@@ -1851,7 +1870,7 @@ export default function Home() {
     const data = entryFormData(form.employeeId, date, form.locationId);
     formDirtyRef.current = false;
     setEditingEntryId(data.existingId);
-    setForm((current) => ({ ...current, date, lines: data.lines, phases: data.phases }));
+    setForm((current) => ({ ...current, date, lines: data.lines, phases: data.phases, supplies: data.supplies }));
   }
 
   function handleYardChange(locationId: string) {
@@ -1902,6 +1921,19 @@ export default function Home() {
     });
   }
 
+  // Supplies are a day total rather than a phase total, so this writes straight
+  // to the form instead of going through the phases. A zero drops the line —
+  // absent and zero mean the same thing, and not storing it keeps the saved
+  // entry to what was actually used.
+  function updateSupplyQuantity(supplyTypeId: string, quantity: number) {
+    formDirtyRef.current = true;
+    setForm((current) => {
+      const qty = Math.max(0, Number(quantity) || 0);
+      const without = (current.supplies ?? []).filter((line) => line.supplyTypeId !== supplyTypeId);
+      return { ...current, supplies: qty === 0 ? without : [...without, { supplyTypeId, quantity: qty }] };
+    });
+  }
+
   // Notes are kept per repairer per phase: this updates only the given phase's
   // note on the current form, so it never leaks to other phases or repairers.
   function updatePhaseNotes(phaseIndex: number, value: string) {
@@ -1934,6 +1966,8 @@ export default function Home() {
       manualHours: Number(form.manualHours),
       phases: cleanPhases,
       lines: aggregatePhaseLines(cleanPhases),
+      // Absent means none used, so an untouched supply isn't worth storing.
+      supplies: (form.supplies ?? []).filter((line) => line.quantity !== 0),
       createdAt: new Date().toISOString(),
       submittedBy: profile?.fullName || profile?.username || undefined,
       submittedById: profile?.id
@@ -3050,6 +3084,8 @@ export default function Home() {
               onDateChange={handleDateChange}
               onFormChange={updateForm}
               onQuantityChange={updatePhaseLineQuantity}
+              supplyTypes={supplyTypes}
+              onSupplyChange={updateSupplyQuantity}
               onPhaseNotesChange={updatePhaseNotes}
               onStationChange={(employeeId, patch) => updateEmployee(employeeId, patch)}
               onSave={saveEntry}
@@ -3801,6 +3837,8 @@ function ProductionEntry({
   onDateChange,
   onFormChange,
   onQuantityChange,
+  supplyTypes,
+  onSupplyChange,
   onPhaseNotesChange,
   onStationChange,
   onSave,
@@ -3826,6 +3864,9 @@ function ProductionEntry({
   onDateChange: (date: string) => void;
   onFormChange: <T extends keyof EntryForm>(key: T, value: EntryForm[T]) => void;
   onQuantityChange: (phaseIndex: number, palletTypeId: string, quantity: number, parts?: number[]) => void;
+  // Consumables logged against the whole day rather than a phase.
+  supplyTypes: SupplyType[];
+  onSupplyChange: (supplyTypeId: string, quantity: number) => void;
   // Updates the note for a single phase (kept per repairer per phase).
   onPhaseNotesChange: (phaseIndex: number, value: string) => void;
   // Updates a repairer's station assignment (persisted on the roster).
@@ -4033,6 +4074,12 @@ function ProductionEntry({
   // Manager view drops the price columns and uses compact cells so the table
   // fits a phone screen with no sideways scroll.
   const cellPad = hidePricing ? "p-2" : "p-3";
+
+  // Supplies are keyed by id on the entry but rendered in list order, so the
+  // rows stay put as counts change. A supply with no line is simply zero.
+  const activeSupplyTypes = supplyTypes.filter((supply) => supply.active);
+  const supplyQuantities = new Map((form.supplies ?? []).map((line) => [line.supplyTypeId, line.quantity]));
+  const supplyTotal = activeSupplyTypes.reduce((total, supply) => total + (supplyQuantities.get(supply.id) ?? 0), 0);
 
   // Each repairer's phase check-ins for the selected day + yard. Saved entries
   // are the source of truth; the repairer being edited reflects the live form.
@@ -4353,6 +4400,60 @@ function ProductionEntry({
             </tbody>
           </table>
         </div>
+      </div>
+
+      {/* Supplies: a day total, not a phase total. The table above changes when
+          you switch phases and this one does not, so it sits below a heavier
+          divider with the day spelled out — otherwise the same blades get
+          logged again in Phase 2. */}
+      <div className="mt-1 border-t-2 border-dashed border-steel-200 pt-4">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <p className="text-sm font-black text-steel-900">
+            {t("Supplies used today")}
+            <span className="ml-1 font-bold text-steel-500">
+              {t("— for the whole day, not per phase")}
+            </span>
+          </p>
+          <span className="rounded bg-workshop-100 px-2.5 py-1 text-xs font-black text-workshop-700">
+            {t("{n} items", { n: supplyTotal })}
+          </span>
+        </div>
+
+        <div className="mt-2 overflow-hidden rounded border border-steel-100 bg-white text-steel-900">
+          <table className="w-full table-fixed text-left text-sm">
+            <thead className="bg-steel-900 text-white">
+              <tr>
+                <th className="p-2">{t("Supply")}</th>
+                <th className="w-[190px] p-2">{t("Quantity")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {activeSupplyTypes.map((supply) => {
+                const quantity = supplyQuantities.get(supply.id) ?? 0;
+                return (
+                  <tr key={supply.id} className="border-t border-steel-100">
+                    <td className="p-2">
+                      <span className="block font-black">{t(supply.name)}</span>
+                      <span className="block text-xs font-bold text-steel-500">{t("per {unit}", { unit: t(supply.unit) })}</span>
+                    </td>
+                    <td className="p-2">
+                      <div className="flex justify-end">
+                        <QuantityInput
+                          className="w-20 rounded border border-steel-200 bg-white px-1 py-2.5 text-center font-black text-steel-900 outline-none focus:border-workshop-500"
+                          value={quantity}
+                          onCommit={(sum) => onSupplyChange(supply.id, sum)}
+                        />
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <p className="mt-2 text-xs font-bold text-steel-500">
+          {t("Leave a supply blank if none were used — it counts as zero.")}
+        </p>
       </div>
 
       {/* Pay-rate breakdown is hidden from managers. */}
