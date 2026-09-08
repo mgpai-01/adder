@@ -441,11 +441,15 @@ export async function authedFetch(url: string, options: RequestInit = {}): Promi
   });
 }
 
-// Which app views each role may open. Admin sees everything; Manager runs
-// production and reports; Counter only handles count sheets.
+// Which app views each role may open. Admin sees everything; Manager enters
+// the day's production; Counter only handles count sheets.
+//
+// The Production Grid is admin-only: it carries pay figures and supply costs,
+// and a manager has no reason to see either. Managers enter the numbers on the
+// Entry screen, which already hides pricing from them.
 export const roleViews: Record<AppRole, string[]> = {
   admin: ["entry", "count-sheets", "production-grid", "dashboard", "live-yards", "payroll", "cloud", "users", "settings"],
-  supervisor: ["entry", "count-sheets", "production-grid"],
+  supervisor: ["entry", "count-sheets"],
   employee: ["count-sheets"]
 };
 
