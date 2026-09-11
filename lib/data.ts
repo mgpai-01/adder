@@ -66,7 +66,9 @@ export const shifts: Shift[] = ["AM", "PM", "Swing"];
 // per unit; managers never see them, only admins.
 export const defaultSupplyTypes: SupplyType[] = [
   // HUB sells 500 for $608.00, but the price we get is $1.00 each.
-  { id: "sawzall-blades", name: "Sawzall blades", unit: "blade", active: true, unitCost: 1.0 },
+  // The id stays "sawzall-blades" — it's internal, and any counts already
+  // logged are stored against it. Only the label the yard reads changed.
+  { id: "sawzall-blades", name: "Saw saw blades", unit: "blade", active: true, unitCost: 1.0 },
   // Bauer framing blade, Home Depot.
   { id: "skill-saw-blades", name: "Skill saw blades", unit: "blade", active: true, unitCost: 8.92 },
   // $0.865 a roll, rounded to the cent we price at. 300 nails to a roll,

@@ -61,7 +61,7 @@ export const esDict: Record<string, string> = {
   "Leave a supply blank if none were used — it counts as zero.":
     "Deje un suministro en blanco si no se usó ninguno — cuenta como cero.",
   // Supply names and units, so the whole table reads in Spanish
-  "Sawzall blades": "Hojas de sierra recíproca",
+  "Saw saw blades": "Hojas de sierra recíproca",
   "Skill saw blades": "Hojas de sierra circular",
   "Rolls of nails": "Rollos de clavos",
   blade: "hoja",
