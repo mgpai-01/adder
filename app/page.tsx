@@ -6552,8 +6552,12 @@ function ProductionGrid({
         };
       });
     const subtotal = lines.reduce((total, line) => total + line.cost, 0);
-    const tax = subtotal * supplySalesTaxRate;
-    return { lines, subtotal, tax, total: subtotal + tax };
+    // Only the Home Depot items are taxed, so the tax comes off those lines
+    // rather than the whole subtotal.
+    const taxedCost = lines.reduce((total, line) => total + (line.supply.taxable ? line.cost : 0), 0);
+    const taxedNames = lines.filter((line) => line.supply.taxable).map((line) => line.supply.name);
+    const tax = taxedCost * supplySalesTaxRate;
+    return { lines, subtotal, taxedNames, tax, total: subtotal + tax };
   })();
 
   return (
@@ -6763,7 +6767,9 @@ function ProductionGrid({
                 Sales tax {(supplySalesTaxRate * 100).toFixed(2).replace(/\.?0+$/, "")}%
               </p>
               <p className="mt-1 text-2xl font-black text-steel-900">{currency(spend.tax)}</p>
-              <p className="text-xs font-bold text-steel-500">Fontana, CA</p>
+              <p className="text-xs font-bold text-steel-500">
+                {spend.taxedNames.length > 0 ? `${spend.taxedNames.join(", ")} only` : "nothing taxable this week"}
+              </p>
             </div>
             <div className="rounded border border-workshop-500 bg-workshop-100 p-3">
               <p className="text-xs font-black uppercase tracking-wide text-workshop-700">Total with tax</p>

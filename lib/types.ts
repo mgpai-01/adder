@@ -82,6 +82,10 @@ export type SupplyType = {
   pieceUnit?: string;
   // How many units come in a purchase box, where they're bought that way.
   unitsPerBox?: number;
+  // Whether sales tax applies. Not everything is bought from the same place:
+  // the Home Depot items are taxed, the HUB blades are not, so the tax can't
+  // be a flat rate over the whole supply subtotal.
+  taxable?: boolean;
 };
 
 // How many of one supply a repairer used on a day. No line means none used:
