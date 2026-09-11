@@ -53,6 +53,7 @@ import {
 import {
   defaultPalletTypes,
   defaultSupplyTypes,
+  supplySalesTaxRate,
   employees as defaultEmployees,
   locations as defaultLocations,
   palletCategories,
@@ -6531,6 +6532,30 @@ function ProductionGrid({
     void calculateBonuses(pending, selectedWeek);
   }, [crewIdsKey, selectedWeek, calculateBonuses]);
 
+  // Supplies spend for everyone currently shown — so narrowing to one yard or
+  // searching a name narrows this too, rather than quietly reporting the whole
+  // company while the cards below show one person.
+  const spend = (() => {
+    const visibleEntries = visibleCrew.flatMap((row) => row.employeeEntries);
+    const lines = supplyTypes
+      .filter((supply) => supply.active)
+      .map((supply) => {
+        const units = supplyCount(visibleEntries, supply.id);
+        return {
+          supply,
+          units,
+          cost: units * (supply.unitCost ?? 0),
+          // A part-used box is the useful number for reordering: "1.5 boxes"
+          // says more than "750 blades" when you're deciding what to buy.
+          boxes: supply.unitsPerBox ? units / supply.unitsPerBox : null,
+          pieces: supply.piecesPerUnit ? units * supply.piecesPerUnit : null
+        };
+      });
+    const subtotal = lines.reduce((total, line) => total + line.cost, 0);
+    const tax = subtotal * supplySalesTaxRate;
+    return { lines, subtotal, tax, total: subtotal + tax };
+  })();
+
   return (
     <div className="grid gap-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -6683,6 +6708,71 @@ function ProductionGrid({
             </div>
           </div>
         ))}
+
+      {/* What the week's supplies cost. Admin-only: it's all money, and
+          managers can open this screen. Counts and box figures sit with the
+          cost rather than in a second place, so the boss reads one panel. */}
+      {showSupplyCost && (
+        <div className="rounded border border-steel-100 bg-white p-4">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <p className="text-sm font-black uppercase tracking-wide text-steel-900">Supplies spend</p>
+            <p className="text-xs font-bold text-steel-500">
+              Week of {formatDayHeader(selectedWeek)}
+              {searchActive || yardFilter !== "all" ? " · matching the cards below" : ""}
+            </p>
+          </div>
+
+          <div className="mt-3 grid gap-2 sm:grid-cols-3">
+            {spend.lines.map(({ supply, units, cost, boxes, pieces }) => (
+              <div key={supply.id} className="rounded border border-steel-100 bg-steel-50 p-3">
+                <p className="text-xs font-black uppercase tracking-wide text-steel-500">{supply.name}</p>
+                <p className="mt-1 text-2xl font-black text-steel-900">{currency(cost)}</p>
+                <p className="text-sm font-bold text-steel-700">
+                  {wholeNumber(units)} {units === 1 ? supply.unit : `${supply.unit}s`}
+                </p>
+                {pieces != null && (
+                  <p className="text-xs font-bold text-steel-500">
+                    {wholeNumber(pieces)} {supply.pieceUnit ? `${supply.pieceUnit}s` : "pieces"}
+                  </p>
+                )}
+                {boxes != null && (
+                  <p className="text-xs font-bold text-steel-500">
+                    {/* Two decimals, because a third of a box matters when
+                        you're deciding whether to reorder. */}
+                    {/* 2 blades out of a 500-box is 0.004 — trimmed to "0"
+                        that reads as none used, sitting right under "2
+                        blades". Anything above nothing shows as at least
+                        0.01. */}
+                    {boxes > 0 && boxes < 0.01 ? "<0.01" : boxes.toFixed(2).replace(/\.?0+$/, "")}{" "}
+                    {boxes === 1 ? "box" : "boxes"}
+                    <span className="text-steel-400"> · {wholeNumber(supply.unitsPerBox ?? 0)} per box</span>
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-2 grid gap-2 sm:grid-cols-3">
+            <div className="rounded border border-steel-100 bg-steel-50 p-3">
+              <p className="text-xs font-black uppercase tracking-wide text-steel-500">Subtotal</p>
+              <p className="mt-1 text-2xl font-black text-steel-900">{currency(spend.subtotal)}</p>
+              <p className="text-xs font-bold text-steel-500">before tax</p>
+            </div>
+            <div className="rounded border border-steel-200 bg-white p-3">
+              <p className="text-xs font-black uppercase tracking-wide text-steel-500">
+                Sales tax {(supplySalesTaxRate * 100).toFixed(2).replace(/\.?0+$/, "")}%
+              </p>
+              <p className="mt-1 text-2xl font-black text-steel-900">{currency(spend.tax)}</p>
+              <p className="text-xs font-bold text-steel-500">Fontana, CA</p>
+            </div>
+            <div className="rounded border border-workshop-500 bg-workshop-100 p-3">
+              <p className="text-xs font-black uppercase tracking-wide text-workshop-700">Total with tax</p>
+              <p className="mt-1 text-2xl font-black text-workshop-700">{currency(spend.total)}</p>
+              <p className="text-xs font-bold text-workshop-700/70">subtotal + tax</p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Bonuses load themselves; the button is only there to pull fresh hours
           if someone's AMG punches changed since the page opened. */}

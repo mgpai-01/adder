@@ -64,11 +64,15 @@ export const shifts: Shift[] = ["AM", "PM", "Swing"];
 
 // Consumables logged against a repairer's day. Costs are what we actually pay
 // per unit; managers never see them, only admins.
+// Sales tax at the Fontana, CA Home Depot. Broken out on the supplies spend
+// summary so the tax is visible on its own rather than buried in a total.
+export const supplySalesTaxRate = 0.0875;
+
 export const defaultSupplyTypes: SupplyType[] = [
   // HUB sells 500 for $608.00, but the price we get is $1.00 each.
   // The id stays "sawzall-blades" — it's internal, and any counts already
   // logged are stored against it. Only the label the yard reads changed.
-  { id: "sawzall-blades", name: "Saw saw blades", unit: "blade", active: true, unitCost: 1.0 },
+  { id: "sawzall-blades", name: "Saw saw blades", unit: "blade", active: true, unitCost: 1.0, unitsPerBox: 500 },
   // Bauer framing blade, Home Depot.
   { id: "skill-saw-blades", name: "Skill saw blades", unit: "blade", active: true, unitCost: 8.92 },
   // $0.865 a roll, rounded to the cent we price at. 300 nails to a roll,
