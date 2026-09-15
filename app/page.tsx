@@ -1060,6 +1060,10 @@ export default function Home() {
   // Fixed list for now. Kept in state so an admin screen can manage it later
   // without the entry form changing.
   const [supplyTypes] = useState<SupplyType[]>(defaultSupplyTypes);
+  // Supply money is admin-only. Managers can open the Production Grid and run
+  // its exports, so every report has to ask this too — not just the on-screen
+  // grid.
+  const canSeeSupplyCost = !configured || profile?.role === "admin";
   const [employeeList, setEmployeeList] = useState<Employee[]>(defaultEmployees);
   const [employeeAliases, setEmployeeAliases] = useState<Map<string, string>>(new Map());
   // Names an admin has deleted. Held in a ref because the roster reconcile
@@ -1767,7 +1771,7 @@ export default function Home() {
     if (!entriesLoaded) return;
     const data = entryFormData(form.employeeId, form.date, form.locationId);
     setEditingEntryId(data.existingId);
-    setForm((current) => ({ ...current, lines: data.lines, phases: data.phases, supplies: data.supplies }));
+    setForm((current) => ({ ...current, ...dayFields(data) }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entriesLoaded]);
 
@@ -1781,7 +1785,7 @@ export default function Home() {
     if (!employeeId) return;
     const data = entryFormData(employeeId, date, locationId);
     setEditingEntryId(data.existingId);
-    setForm((current) => ({ ...current, lines: data.lines, phases: data.phases, supplies: data.supplies }));
+    setForm((current) => ({ ...current, ...dayFields(data) }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entries, entriesLoaded]);
 
@@ -1864,6 +1868,14 @@ export default function Home() {
     };
   }
 
+  // Every field entryFormData owns. Spread this instead of naming fields at
+  // each call site: `supplies` was added later and two of the five sites were
+  // missed, which left the previous repairer's counts sitting in the form and
+  // saved them against whoever was selected next.
+  function dayFields(data: ReturnType<typeof entryFormData>) {
+    return { lines: data.lines, phases: data.phases, supplies: data.supplies };
+  }
+
   function handleEmployeeChange(employeeId: string) {
     const employee = employeeList.find((item) => item.id === employeeId);
     const data = entryFormData(employeeId, form.date, form.locationId);
@@ -1873,8 +1885,7 @@ export default function Home() {
       ...current,
       employeeId,
       shift: employee?.shift ?? current.shift,
-      lines: data.lines,
-      phases: data.phases
+      ...dayFields(data)
     }));
   }
 
@@ -1882,7 +1893,7 @@ export default function Home() {
     const data = entryFormData(form.employeeId, date, form.locationId);
     formDirtyRef.current = false;
     setEditingEntryId(data.existingId);
-    setForm((current) => ({ ...current, date, lines: data.lines, phases: data.phases, supplies: data.supplies }));
+    setForm((current) => ({ ...current, date, ...dayFields(data) }));
   }
 
   function handleYardChange(locationId: string) {
@@ -1908,8 +1919,7 @@ export default function Home() {
       employeeId,
       yardManagerId,
       shift: selectedRepairer?.shift ?? current.shift,
-      lines: data.lines,
-      phases: data.phases
+      ...dayFields(data)
     }));
   }
 
@@ -2323,7 +2333,10 @@ export default function Home() {
       "Compliance Minimum Wage",
       "Daily OT Hours",
       "Total Pay",
-      "Photos"
+      "Photos",
+      // Appended rather than reusing "Line Earned": that column is pay, and a
+      // cost summed into it would quietly inflate the payroll figure.
+      "Supply Cost"
     ];
     const rows = filteredEntries.flatMap((entry) => {
       const employee = employeeList.find((item) => item.id === entry.employeeId)?.name ?? entry.employeeId;
@@ -2335,7 +2348,7 @@ export default function Home() {
         .flatMap((sheet) => sheet.photos.map((photo) => photoCellText(photo.url)))
         .join(" ; ");
 
-      return entry.lines.map((line) => {
+      const palletRows = entry.lines.map((line) => {
         const pallet = findPalletType(palletTypes, line.palletTypeId);
         return [
           entry.date,
@@ -2353,9 +2366,37 @@ export default function Home() {
           settings.minimumWage.toFixed(2),
           calc.overtimeHours.toFixed(2),
           calc.totalPay.toFixed(2),
-          photos
+          photos,
+          ""
         ];
       });
+
+      // Supplies are a day total, not a per-pallet figure, so they get their
+      // own rows. Repeating them on every pallet line would multiply the count
+      // by however many pallet types that person touched.
+      const supplyRows = (entry.supplies ?? [])
+        .filter((line) => line.quantity > 0)
+        .map((line) => {
+          const supply = supplyTypes.find((item) => item.id === line.supplyTypeId);
+          const cost = line.quantity * (supply?.unitCost ?? 0);
+          return [
+            entry.date,
+            getWeekKey(entry.date),
+            employee,
+            location,
+            entry.shift,
+            "Supplies",
+            supply?.name ?? line.supplyTypeId,
+            canSeeSupplyCost ? (supply?.unitCost ?? 0) : "",
+            line.quantity,
+            // Pay columns stay empty on a supply row: this is money out, and
+            // anything summing them should not pick it up.
+            "", "", "", "", "", "", "",
+            canSeeSupplyCost ? cost.toFixed(2) : ""
+          ];
+        });
+
+      return [...palletRows, ...supplyRows];
     });
 
     const csv = [header, ...rows]
@@ -2520,6 +2561,26 @@ export default function Home() {
         currency(person.report.summary.totalPay)
       ]);
 
+      // Supplies sit below the gross-paid line, styled apart from it. They're
+      // money out, not earnings, and must never read as part of what the
+      // person was paid.
+      const supplyRowStart = body.length;
+      for (const supply of supplyTypes.filter((item) => item.active)) {
+        const units = supplyCount(person.personEntries, supply.id);
+        if (units === 0) continue;
+        body.push([
+          "",
+          "",
+          "",
+          `Supplies — ${supply.name}`,
+          canSeeSupplyCost && supply.unitCost != null ? currency(supply.unitCost) : "",
+          wholeNumber(units),
+          "",
+          canSeeSupplyCost && supply.unitCost != null ? currency(units * supply.unitCost) : ""
+        ]);
+      }
+      const hasSupplyRows = body.length > supplyRowStart;
+
       autoTable(doc, {
         head: [["Date", "Day", "Yard", "Pallet", "Rate", "Qty", "Hours", "Amount"]],
         body,
@@ -2547,6 +2608,13 @@ export default function Home() {
             data.cell.styles.fontStyle = "bold";
             data.cell.styles.fillColor = [255, 236, 130];
             if (data.row.index === totalRowStart + (anyHours ? 2 : 0)) data.cell.styles.fontSize = 9;
+          }
+          // Applied last so it wins over the gold total styling above.
+          if (hasSupplyRows && data.row.index >= supplyRowStart) {
+            data.cell.styles.fontStyle = "normal";
+            data.cell.styles.fillColor = [242, 245, 247];
+            data.cell.styles.textColor = [70, 70, 70];
+            data.cell.styles.fontSize = 8;
           }
         }
       });
@@ -2659,6 +2727,38 @@ export default function Home() {
       [15, 34, 14, 15],
       true
     );
+
+    // Supplies get their own tab rather than columns on the pallet tabs: they
+    // are a day total per person, so repeating them beside each pallet line
+    // would multiply the count by however many pallet types were touched.
+    {
+      const activeSupplies = supplyTypes.filter((supply) => supply.active);
+      const supplyRows: (string | number)[][] = [];
+      for (const entry of filteredEntries) {
+        for (const line of entry.supplies ?? []) {
+          if (line.quantity <= 0) continue;
+          const supply = activeSupplies.find((item) => item.id === line.supplyTypeId);
+          if (!supply) continue;
+          supplyRows.push([
+            entry.date,
+            employeeList.find((item) => item.id === entry.employeeId)?.name ?? entry.employeeId,
+            locName(entry.locationId),
+            supply.name,
+            line.quantity,
+            supply.unit,
+            canSeeSupplyCost && supply.unitCost != null ? money(supply.unitCost) : "",
+            canSeeSupplyCost && supply.unitCost != null ? money(line.quantity * supply.unitCost) : ""
+          ]);
+        }
+      }
+      addSheet(
+        "Supplies",
+        ["Date", "Repairer", "Yard", "Supply", "Quantity", "Unit", "Unit Cost", "Cost"],
+        supplyRows,
+        [12, 26, 14, 22, 11, 10, 12, 12],
+        true
+      );
+    }
 
     // One tab per repairer, named "Last name, First — Yard" and ordered
     // alphabetically by last name, each holding that person's week in the same
@@ -3134,7 +3234,7 @@ export default function Home() {
               supplyTypes={supplyTypes}
               // Managers can open this screen too, so supply cost is gated on
               // the role rather than on being here at all.
-              showSupplyCost={!configured || profile?.role === "admin"}
+              showSupplyCost={canSeeSupplyCost}
               settings={settings}
               selectedWeek={selectedWeek}
               onWeekChange={setSelectedWeek}
