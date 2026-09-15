@@ -2983,6 +2983,69 @@ export default function Home() {
       totalsRow.getCell(weeklyCol + 2).numFmt = moneyFormat;
       shadeRow(totalsRow, "FFFFF2CC");
       outline(totalsRow);
+
+      // Supplies sit under the TOTAL row on the person's own tab, the same
+      // place the Production Grid puts them. A separate tab alone meant
+      // reading someone's week in one place and what they burned through in
+      // another; this keeps a repairer's numbers together.
+      const activeSupplies = supplyTypes.filter((supply) => supply.active);
+      if (activeSupplies.length > 0) {
+        const supplyHeader = gridSheet.addRow(["SUPPLIES"]);
+        supplyHeader.font = { bold: true };
+        shadeRow(supplyHeader, "FFE8EEF3");
+        outline(supplyHeader);
+
+        const supplyDayCost = gridDays.map(() => 0);
+        let supplyBand = 0;
+        for (const supply of activeSupplies) {
+          const unitCost = supply.unitCost ?? 0;
+          const perDay = gridDays.map((day) => supplyCount(employeeEntries.filter((entry) => entry.date === day), supply.id));
+          const weeklyQty = perDay.reduce((total, quantity) => total + quantity, 0);
+          const row = gridSheet.addRow([
+            "",
+            supply.name,
+            canSeeSupplyCost ? unitCost : "",
+            ...perDay.flatMap((quantity, index) => {
+              const amount = money(quantity * unitCost);
+              supplyDayCost[index] += amount;
+              // Cost columns stay empty for a manager; the counts do not.
+              return [quantity, canSeeSupplyCost ? amount : ""];
+            }),
+            `per ${supply.unit}`,
+            weeklyQty,
+            canSeeSupplyCost ? money(weeklyQty * unitCost) : ""
+          ]);
+          if (canSeeSupplyCost) {
+            row.getCell(3).numFmt = moneyFormat;
+            gridDays.forEach((_day, index) => {
+              row.getCell(firstDayCol + index * 2 + 1).numFmt = moneyFormat;
+            });
+            row.getCell(weeklyCol + 2).numFmt = moneyFormat;
+          }
+          outline(row);
+          if (supplyBand % 2 === 1) shadeRow(row, "FFF3F7FA");
+          supplyBand += 1;
+        }
+
+        if (canSeeSupplyCost) {
+          const supplyTotalRow = gridSheet.addRow([
+            "SUPPLIES COST",
+            "",
+            "",
+            ...supplyDayCost.flatMap((amount) => ["", money(amount)]),
+            "",
+            "",
+            money(supplyDayCost.reduce((total, amount) => total + amount, 0))
+          ]);
+          supplyTotalRow.font = { bold: true };
+          gridDays.forEach((_day, index) => {
+            supplyTotalRow.getCell(firstDayCol + index * 2 + 1).numFmt = moneyFormat;
+          });
+          supplyTotalRow.getCell(weeklyCol + 2).numFmt = moneyFormat;
+          shadeRow(supplyTotalRow, "FFE8EEF3");
+          outline(supplyTotalRow);
+        }
+      }
     }
 
     // Credited to the yard each entry was worked at, so a repairer covering a
