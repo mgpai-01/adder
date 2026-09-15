@@ -24,6 +24,12 @@ export type Employee = {
   // re-created by the next device that runs it. Like deactivatedByAdmin, this
   // is a manual choice that sticks on every device.
   deletedByAdmin?: boolean;
+  // Fields an admin has set by hand. The roster reconcile rebuilds people from
+  // lib/data.ts and would otherwise put a moved yard, a corrected name or a
+  // new photo straight back to the built-in value on the next device that runs
+  // it. Anything listed here is left alone — same principle as
+  // deactivatedByAdmin, applied per field.
+  adminEdited?: string[];
   role?: Role;
   notes?: string;
   photoDataUrl?: string;

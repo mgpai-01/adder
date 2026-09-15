@@ -38,7 +38,7 @@ export async function readCloudEmployeesSummary(): Promise<Employee[]> {
     // deletedByAdmin has to travel with the summary: this feeds the roster
     // poll, and without it a deleted repairer reappears as merely inactive.
     .select(
-      "id, name:data->>name, location_id:data->>locationId, role:data->>role, active:data->>active, shift:data->>shift, deleted_by_admin:data->>deletedByAdmin"
+      "id, name:data->>name, location_id:data->>locationId, role:data->>role, active:data->>active, shift:data->>shift, deleted_by_admin:data->>deletedByAdmin, admin_edited:data->adminEdited"
     );
   if (error || !data) return [];
   return (
@@ -50,6 +50,7 @@ export async function readCloudEmployeesSummary(): Promise<Employee[]> {
       active: string | null;
       shift: string | null;
       deleted_by_admin: string | null;
+      admin_edited: string[] | null;
     }>
   ).map(
     (row) =>
@@ -60,7 +61,11 @@ export async function readCloudEmployeesSummary(): Promise<Employee[]> {
         role: (row.role ?? undefined) as Employee["role"],
         active: row.active !== "false",
         shift: (row.shift ?? "AM") as Employee["shift"],
-        deletedByAdmin: row.deleted_by_admin === "true"
+        deletedByAdmin: row.deleted_by_admin === "true",
+        // Travels with the summary for the same reason deletedByAdmin does:
+        // this feeds the roster poll, and a manual edit the poll doesn't know
+        // about is a manual edit the reconcile will happily overwrite.
+        ...(Array.isArray(row.admin_edited) ? { adminEdited: row.admin_edited } : {})
       }) as Employee
   );
 }

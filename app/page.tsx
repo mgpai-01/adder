@@ -1205,13 +1205,29 @@ export default function Home() {
       const target = targetByName.get(norm(employee.name));
       if (target) {
         matched.add(norm(employee.name));
-        return { ...employee, locationId: target.locationId, role: target.role, active };
+        // An admin who moved someone's yard or changed their role meant it.
+        // The built-in list is a starting point, not an authority over a
+        // deliberate change.
+        const edited = new Set(employee.adminEdited ?? []);
+        return {
+          ...employee,
+          locationId: edited.has("locationId") ? employee.locationId : target.locationId,
+          role: edited.has("role") ? employee.role : target.role,
+          active
+        };
       }
       return { ...employee, active };
     });
 
+    const existingIds = new Set(employeeList.map((employee) => employee.id));
     for (const target of defaultEmployees) {
       if (matched.has(norm(target.name))) continue;
+      // Matching on name alone missed the rename case: give someone their
+      // surname and the built-in name no longer matches, so a second copy was
+      // pushed carrying the SAME id, the old first-name-only name and no
+      // photo. preferredEmployee scores built-in ids +4, so that copy won and
+      // the rename and picture were written back over in the cloud.
+      if (existingIds.has(target.id)) continue;
       // Deleting a repairer used to be undone by this line: the built-in list
       // still had them, so the next device to run this re-added them and saved
       // it back to the cloud, and they reappeared for everyone. A deletion is a
@@ -2292,7 +2308,16 @@ export default function Home() {
     const before = employeeList.find((employee) => employee.id === id);
     // When an admin flips Active/Inactive, record that it was a manual choice so
     // the automatic roster sync never overrides it (on any device, ever).
-    const fullPatch = patch.active !== undefined ? { ...patch, deactivatedByAdmin: !patch.active } : patch;
+    const withActive = patch.active !== undefined ? { ...patch, deactivatedByAdmin: !patch.active } : patch;
+    // Remember which fields were set by hand so the roster reconcile leaves
+    // them alone. Without this an admin's change is undone by the built-in
+    // roster on the next browser that loads the app.
+    const manualFields = ["locationId", "role", "name", "photoDataUrl", "photoPath", "shift"] as const;
+    const touched = manualFields.filter((field) => patch[field] !== undefined);
+    const fullPatch =
+      touched.length > 0
+        ? { ...withActive, adminEdited: Array.from(new Set([...(before?.adminEdited ?? []), ...touched])) }
+        : withActive;
     setEmployeeList((current) => current.map((employee) => (employee.id === id ? { ...employee, ...fullPatch } : employee)));
     setAdminStatus("Repairer updated in the cloud.");
     if (before) {
