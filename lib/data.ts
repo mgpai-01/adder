@@ -75,9 +75,9 @@ export const defaultSupplyTypes: SupplyType[] = [
   // The id stays "sawzall-blades" — it's internal, and any counts already
   // logged are stored against it. Only the label the yard reads changed.
   { id: "sawzall-blades", name: "Saw saw blades", unit: "blade", active: true, unitCost: 1.0, unitsPerBox: 500 },
-  // Bauer framing blade, Home Depot — the only one of the three that carries
-  // sales tax.
-  { id: "skill-saw-blades", name: "Skill saw blades", unit: "blade", active: true, unitCost: 8.92, taxable: true },
+  // Bauer framing blade, Home Depot. Bought tax-free, so no sales tax here —
+  // the taxable flag stays available on SupplyType if that ever changes.
+  { id: "skill-saw-blades", name: "Skill saw blades", unit: "blade", active: true, unitCost: 8.92 },
   // $0.865 a roll, rounded to the cent we price at. 300 nails to a roll,
   // 30 rolls to a box.
   {

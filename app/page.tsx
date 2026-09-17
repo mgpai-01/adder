@@ -6770,11 +6770,12 @@ function ProductionGrid({
         };
       });
     const subtotal = lines.reduce((total, line) => total + line.cost, 0);
-    // Only the Home Depot items are taxed, so the tax comes off those lines
-    // rather than the whole subtotal.
+    // Tax only ever comes off lines whose supply is flagged taxable — with
+    // none flagged (the current setup), tax is zero and the panel hides it.
+    const anyTaxable = lines.some((line) => line.supply.taxable);
     const taxedCost = lines.reduce((total, line) => total + (line.supply.taxable ? line.cost : 0), 0);
     const tax = taxedCost * supplySalesTaxRate;
-    return { lines, subtotal, taxedCost, tax, total: subtotal + tax };
+    return { lines, subtotal, taxedCost, tax, total: subtotal + tax, anyTaxable };
   })();
 
   return (
@@ -6973,27 +6974,39 @@ function ProductionGrid({
             ))}
           </div>
 
-          <div className="mt-2 grid gap-2 sm:grid-cols-3">
-            <div className="rounded border border-steel-100 bg-steel-50 p-3">
-              <p className="text-xs font-black uppercase tracking-wide text-steel-500">Subtotal</p>
-              <p className="mt-1 text-2xl font-black text-steel-900">{currency(spend.subtotal)}</p>
-              <p className="text-xs font-bold text-steel-500">before tax</p>
+          {/* The tax tiles only exist while some supply actually carries tax.
+              With nothing taxable the panel ends in one clean total. */}
+          {spend.anyTaxable ? (
+            <div className="mt-2 grid gap-2 sm:grid-cols-3">
+              <div className="rounded border border-steel-100 bg-steel-50 p-3">
+                <p className="text-xs font-black uppercase tracking-wide text-steel-500">Subtotal</p>
+                <p className="mt-1 text-2xl font-black text-steel-900">{currency(spend.subtotal)}</p>
+                <p className="text-xs font-bold text-steel-500">before tax</p>
+              </div>
+              <div className="rounded border border-steel-200 bg-white p-3">
+                <p className="text-xs font-black uppercase tracking-wide text-steel-500">
+                  Skill saw sales tax {(supplySalesTaxRate * 100).toFixed(2).replace(/\.?0+$/, "")}%
+                </p>
+                <p className="mt-1 text-2xl font-black text-steel-900">{currency(spend.tax)}</p>
+                <p className="text-xs font-bold text-steel-500">
+                  {spend.taxedCost > 0 ? `on ${currency(spend.taxedCost)} of blades` : "no skill saw blades this week"}
+                </p>
+              </div>
+              <div className="rounded border border-workshop-500 bg-workshop-100 p-3">
+                <p className="text-xs font-black uppercase tracking-wide text-workshop-700">Total with tax</p>
+                <p className="mt-1 text-2xl font-black text-workshop-700">{currency(spend.total)}</p>
+                <p className="text-xs font-bold text-workshop-700/70">subtotal + tax</p>
+              </div>
             </div>
-            <div className="rounded border border-steel-200 bg-white p-3">
-              <p className="text-xs font-black uppercase tracking-wide text-steel-500">
-                Skill saw sales tax {(supplySalesTaxRate * 100).toFixed(2).replace(/\.?0+$/, "")}%
-              </p>
-              <p className="mt-1 text-2xl font-black text-steel-900">{currency(spend.tax)}</p>
-              <p className="text-xs font-bold text-steel-500">
-                {spend.taxedCost > 0 ? `on ${currency(spend.taxedCost)} of blades` : "no skill saw blades this week"}
-              </p>
+          ) : (
+            <div className="mt-2 grid gap-2 sm:grid-cols-3">
+              <div className="rounded border border-workshop-500 bg-workshop-100 p-3 sm:col-start-3">
+                <p className="text-xs font-black uppercase tracking-wide text-workshop-700">Week total</p>
+                <p className="mt-1 text-2xl font-black text-workshop-700">{currency(spend.total)}</p>
+                <p className="text-xs font-bold text-workshop-700/70">no sales tax on supplies</p>
+              </div>
             </div>
-            <div className="rounded border border-workshop-500 bg-workshop-100 p-3">
-              <p className="text-xs font-black uppercase tracking-wide text-workshop-700">Total with tax</p>
-              <p className="mt-1 text-2xl font-black text-workshop-700">{currency(spend.total)}</p>
-              <p className="text-xs font-bold text-workshop-700/70">subtotal + tax</p>
-            </div>
-          </div>
+          )}
         </div>
       )}
 
