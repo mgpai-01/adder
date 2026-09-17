@@ -3348,6 +3348,8 @@ export default function Home() {
               locations={locationList}
               shifts={shiftList}
               palletTypes={palletTypes}
+              supplyTypes={supplyTypes}
+              showSupplyCost={canSeeSupplyCost}
               settings={settings}
               exportCsv={exportCsv}
               exportExcel={exportExcel}
@@ -5702,6 +5704,8 @@ function Payroll({
   locations,
   shifts,
   palletTypes,
+  supplyTypes,
+  showSupplyCost,
   settings,
   exportCsv,
   exportExcel,
@@ -5720,6 +5724,9 @@ function Payroll({
   locations: Location[];
   shifts: Shift[];
   palletTypes: PalletType[];
+  supplyTypes: SupplyType[];
+  // Costs are admin-only; managers see counts.
+  showSupplyCost: boolean;
   settings: PayrollSettings;
   exportCsv: (entries: DailyEntry[]) => void;
   exportExcel: (entries: DailyEntry[]) => void;
@@ -6103,6 +6110,7 @@ function Payroll({
 
       <EmployeeTable rows={report.byEmployee} onSelectEmployee={onSelectEmployee} />
       <BreakdownTable title="Quantities by Type" rows={report.byPallet} />
+      <SuppliesBreakdown entries={filteredEntries} employees={employees} supplyTypes={supplyTypes} showCost={showSupplyCost} />
       <EntryHistory
         entries={filteredEntries}
         countSheets={countSheets}
@@ -9740,8 +9748,99 @@ function EmployeeTable({ rows, onSelectEmployee }: { rows: ReturnType<typeof bui
   );
 }
 
-function BreakdownTable({ title, rows }: { title: string; rows: Array<{ id?: string; palletTypeId?: string; label: string; category?: string; quantity: number; piecePay: number }> }) {
+// Supplies used over the filtered range — nails and blades on the on-screen
+// payroll report, so it shows everything the Pay PDF does. Counts show for
+// everyone allowed here; the money columns are admin-only.
+function SuppliesBreakdown({
+  entries,
+  employees,
+  supplyTypes,
+  showCost
+}: {
+  entries: DailyEntry[];
+  employees: Employee[];
+  supplyTypes: SupplyType[];
+  showCost: boolean;
+}) {
+  const active = supplyTypes.filter((supply) => supply.active);
+  if (active.length === 0) return null;
+
+  // Group by the person's NAME (like the rest of payroll) so entries saved
+  // under an older employee id still land on the right row.
+  const byPerson = new Map<string, { name: string; counts: number[] }>();
+  for (const entry of entries) {
+    if (!entry.supplies?.length) continue;
+    const name = employees.find((employee) => employee.id === entry.employeeId)?.name ?? entry.employeeId;
+    const key = normName(name);
+    const row = byPerson.get(key) ?? { name, counts: active.map(() => 0) };
+    active.forEach((supply, index) => {
+      row.counts[index] += (entry.supplies ?? [])
+        .filter((line) => line.supplyTypeId === supply.id)
+        .reduce((total, line) => total + Number(line.quantity || 0), 0);
+    });
+    byPerson.set(key, row);
+  }
+  const people = [...byPerson.values()].sort((a, b) => compareByLastName(a.name, b.name));
+  const totals = active.map((supply) => supplyCount(entries, supply.id));
+  const rowCost = (counts: number[]) => counts.reduce((sum, count, index) => sum + count * (active[index].unitCost ?? 0), 0);
+
   return (
+    <div className="overflow-hidden rounded border border-steel-100 bg-white text-steel-900">
+      <div className="border-b border-steel-100 p-3">
+        <h3 className="text-lg font-black">Supplies Used</h3>
+        <p className="text-xs font-bold text-steel-500">Nails and blades logged on the entries in this selection.</p>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[620px] text-left text-sm">
+          <thead className="bg-steel-50">
+            <tr>
+              <th className="p-3">Repairer</th>
+              {active.map((supply) => (
+                <th key={supply.id} className="p-3">
+                  {supply.name}
+                  {showCost && supply.unitCost != null && (
+                    <span className="block text-xs font-bold normal-case text-steel-400">{currency(supply.unitCost)} per {supply.unit}</span>
+                  )}
+                </th>
+              ))}
+              {showCost && <th className="p-3">Cost</th>}
+            </tr>
+          </thead>
+          <tbody>
+            {people.length === 0 ? (
+              <tr className="border-t border-steel-100">
+                <td className="p-3 text-steel-400" colSpan={active.length + (showCost ? 2 : 1)}>
+                  No supplies logged for this selection.
+                </td>
+              </tr>
+            ) : (
+              people.map((person) => (
+                <tr key={person.name} className="border-t border-steel-100 even:bg-steel-50">
+                  <td className="p-3 font-black">{person.name}</td>
+                  {person.counts.map((count, index) => (
+                    <td key={active[index].id} className="p-3">{count === 0 ? <span className="text-steel-300">—</span> : wholeNumber(count)}</td>
+                  ))}
+                  {showCost && <td className="p-3 font-black">{currency(rowCost(person.counts))}</td>}
+                </tr>
+              ))
+            )}
+            {people.length > 0 && (
+              <tr className="border-t-2 border-steel-900 bg-workshop-100 font-black">
+                <td className="p-3">Total</td>
+                {totals.map((count, index) => (
+                  <td key={active[index].id} className="p-3">{wholeNumber(count)}</td>
+                ))}
+                {showCost && <td className="p-3">{currency(rowCost(totals))}</td>}
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function BreakdownTable({ title, rows }: { title: string; rows: Array<{ id?: string; palletTypeId?: string; label: string; category?: string; quantity: number; piecePay: number }> }) {  return (
     <div className="overflow-hidden rounded border border-steel-100 bg-white text-steel-900">
       <div className="border-b border-steel-100 p-3">
         <h3 className="text-lg font-black">{title}</h3>
