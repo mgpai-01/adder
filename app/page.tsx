@@ -3408,6 +3408,7 @@ export default function Home() {
           locations={locationList}
           shifts={shiftList}
           palletTypes={palletTypes}
+          supplyTypes={supplyTypes}
           settings={settings}
           onClose={() => {
             setEditingEntry(null);
@@ -6165,6 +6166,7 @@ function entryToForm(entry: DailyEntry, palletTypes: PalletType[]): EntryForm {
       };
     }),
     phases: normalizePhases(entry.phases),
+    supplies: (entry.supplies ?? []).filter((line) => line.quantity !== 0),
     clockIn: entry.clockIn,
     clockOut: entry.clockOut,
     manualHours: entry.manualHours,
@@ -6519,6 +6521,34 @@ function ProductionGrid({
   const [editCell, setEditCell] = useState<{ employeeId: string; palletId: string; day: string } | null>(null);
   const [editValue, setEditValue] = useState("");
   const cancelEditRef = useRef(false);
+  // Same in-place editing for the Supplies rows: double-click a day's count,
+  // type the right number, and it saves for everyone — identical to how the
+  // pallet cells above work.
+  const [editSupplyCell, setEditSupplyCell] = useState<{ employeeId: string; supplyId: string; day: string } | null>(null);
+
+  function commitSupplyCellEdit(employeeEntries: DailyEntry[], supplyTypeId: string, day: string) {
+    setEditSupplyCell(null);
+    const parsed = Number(editValue.trim());
+    if (editValue.trim() === "" || Number.isNaN(parsed) || parsed < 0) return;
+    const nextQty = Math.round(parsed);
+    const dayEntries = employeeEntries
+      .filter((entry) => entry.date === day)
+      .sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
+    if (dayEntries.length === 0) return;
+    if (supplyCount(dayEntries, supplyTypeId) === nextQty) return;
+    // The typed number lands on one entry — the one already carrying this
+    // supply, else the day's newest — and is cleared from any others, so the
+    // cell ends up showing exactly what was typed.
+    const target =
+      dayEntries.find((entry) => (entry.supplies ?? []).some((line) => line.supplyTypeId === supplyTypeId)) ?? dayEntries[0];
+    for (const entry of dayEntries) {
+      const without = (entry.supplies ?? []).filter((line) => line.supplyTypeId !== supplyTypeId);
+      const isTarget = entry.id === target.id;
+      const touched = isTarget || without.length !== (entry.supplies ?? []).length;
+      if (!touched) continue;
+      onUpdateEntry({ ...entry, supplies: isTarget && nextQty > 0 ? [...without, { supplyTypeId, quantity: nextQty }] : without });
+    }
+  }
 
   function commitCellEdit(employeeEntries: DailyEntry[], pallet: PalletType, day: string) {
     setEditCell(null);
@@ -7408,17 +7438,64 @@ function ProductionGrid({
                                   employeeEntries.filter((entry) => entry.date === day),
                                   supply.id
                                 );
+                                const isEditing =
+                                  editSupplyCell !== null &&
+                                  editSupplyCell.employeeId === employee.id &&
+                                  editSupplyCell.supplyId === supply.id &&
+                                  editSupplyCell.day === day;
+                                // Same rule as the pallet cells: only days with
+                                // a saved entry can be edited.
+                                const editable = employeeEntries.some((entry) => entry.date === day);
                                 return (
-                                  <td key={day} className="p-2 text-center">
-                                    {dayQty === 0 ? (
-                                      <span className="block text-steel-300">—</span>
+                                  <td key={day} className={classNames("text-center", isEditing ? "p-1" : "p-2")}>
+                                    {isEditing ? (
+                                      <input
+                                        autoFocus
+                                        type="number"
+                                        inputMode="numeric"
+                                        min={0}
+                                        className="w-16 rounded border-2 border-workshop-500 p-1 text-center text-sm font-black"
+                                        value={editValue}
+                                        onChange={(event) => setEditValue(event.target.value)}
+                                        onFocus={(event) => event.target.select()}
+                                        onBlur={() => {
+                                          if (cancelEditRef.current) {
+                                            cancelEditRef.current = false;
+                                            setEditSupplyCell(null);
+                                            return;
+                                          }
+                                          commitSupplyCellEdit(employeeEntries, supply.id, day);
+                                        }}
+                                        onKeyDown={(event) => {
+                                          if (event.key === "Enter") event.currentTarget.blur();
+                                          if (event.key === "Escape") {
+                                            cancelEditRef.current = true;
+                                            event.currentTarget.blur();
+                                          }
+                                        }}
+                                      />
                                     ) : (
-                                      <>
-                                        <span className="block font-black">{wholeNumber(dayQty)}</span>
-                                        {showSupplyCost && supply.unitCost != null && (
-                                          <span className="block text-steel-500">{currency(dayQty * supply.unitCost)}</span>
+                                      <div
+                                        className={classNames(editable && "cursor-cell rounded transition-colors hover:bg-safety-400/20")}
+                                        title={editable ? "Double-click to edit" : undefined}
+                                        onDoubleClick={() => {
+                                          if (!editable) return;
+                                          cancelEditRef.current = false;
+                                          setEditValue(String(dayQty));
+                                          setEditSupplyCell({ employeeId: employee.id, supplyId: supply.id, day });
+                                        }}
+                                      >
+                                        {dayQty === 0 ? (
+                                          <span className="block text-steel-300">—</span>
+                                        ) : (
+                                          <>
+                                            <span className="block font-black">{wholeNumber(dayQty)}</span>
+                                            {showSupplyCost && supply.unitCost != null && (
+                                              <span className="block text-steel-500">{currency(dayQty * supply.unitCost)}</span>
+                                            )}
+                                          </>
                                         )}
-                                      </>
+                                      </div>
                                     )}
                                   </td>
                                 );
@@ -9110,6 +9187,7 @@ function EntryEditorModal({
   locations,
   shifts,
   palletTypes,
+  supplyTypes,
   settings,
   onClose,
   onSave
@@ -9120,6 +9198,7 @@ function EntryEditorModal({
   locations: Location[];
   shifts: Shift[];
   palletTypes: PalletType[];
+  supplyTypes: SupplyType[];
   settings: PayrollSettings;
   onClose: () => void;
   onSave: (entry: DailyEntry) => void;
@@ -9143,6 +9222,15 @@ function EntryEditorModal({
     });
   }
 
+  // Supplies edit the same way pallets do here — a day-total count per type.
+  function updateSupply(supplyTypeId: string, quantity: number) {
+    setDraft((current) => {
+      const qty = Math.max(0, Number(quantity) || 0);
+      const without = (current.supplies ?? []).filter((line) => line.supplyTypeId !== supplyTypeId);
+      return { ...current, supplies: qty === 0 ? without : [...without, { supplyTypeId, quantity: qty }] };
+    });
+  }
+
   function save() {
     const cleanLines = draft.lines.filter((line) => line.quantity !== 0);
     // Keep the flat `lines` and the per-phase `phases` in sync so the edit reads
@@ -9158,7 +9246,8 @@ function EntryEditorModal({
       ...draft,
       manualHours: Number(draft.manualHours),
       lines: cleanLines,
-      phases
+      phases,
+      supplies: (draft.supplies ?? []).filter((line) => line.quantity !== 0)
     });
   }
 
@@ -9263,6 +9352,46 @@ function EntryEditorModal({
             </table>
           </div>
         </div>
+        {/* Supplies used that day, editable like the pallet quantities above. */}
+        {supplyTypes.filter((supply) => supply.active).length > 0 && (
+          <div className="overflow-hidden rounded border border-steel-100">
+            <table className="w-full text-left text-sm">
+              <thead className="bg-steel-900 text-white">
+                <tr>
+                  <th className="p-3">Supply — whole day</th>
+                  <th className="w-[160px] p-3">Quantity</th>
+                </tr>
+              </thead>
+              <tbody>
+                {supplyTypes
+                  .filter((supply) => supply.active)
+                  .map((supply) => {
+                    const quantity = (draft.supplies ?? []).find((line) => line.supplyTypeId === supply.id)?.quantity ?? 0;
+                    return (
+                      <tr key={supply.id} className="border-t border-steel-100 even:bg-steel-50">
+                        <td className="p-3">
+                          <span className="block font-black">{supply.name}</span>
+                          <span className="block text-xs font-bold text-steel-500">per {supply.unit}</span>
+                        </td>
+                        <td className="p-3">
+                          <input
+                            disabled={readOnly}
+                            type="number"
+                            inputMode="numeric"
+                            min={0}
+                            className="w-24 rounded border border-steel-200 bg-white px-1 py-2 text-center font-black text-steel-900 outline-none focus:border-workshop-500 disabled:bg-steel-50"
+                            value={quantity === 0 ? "" : quantity}
+                            placeholder="0"
+                            onChange={(event) => updateSupply(supply.id, Number(event.target.value))}
+                          />
+                        </td>
+                      </tr>
+                    );
+                  })}
+              </tbody>
+            </table>
+          </div>
+        )}
         <Label title="Notes" icon={<FileSpreadsheet size={17} />}>
           <textarea disabled={readOnly} className="field min-h-24 resize-none" value={draft.notes ?? ""} onChange={(event) => updateDraft("notes", event.target.value)} />
         </Label>
