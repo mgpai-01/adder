@@ -3,7 +3,7 @@
 import { Crown, Expand, LogIn, Maximize2, MapPin, RefreshCw, Target, Trophy, X } from "lucide-react";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { employees, locations, palletTypes, payrollSettings, shifts, yardPalletIds, yardRank } from "@/lib/data";
+import { employees, locations, palletTypes, palletTypes as defaultPalletTypeList, payrollSettings, shifts, yardPalletIds, yardRank } from "@/lib/data";
 import { findPalletType } from "@/lib/payroll";
 import { getWeekKey, wholeNumber, withCorrectedDate } from "@/lib/payroll";
 import { LanguageProvider, translate, useT, type Language } from "@/lib/i18n";
@@ -88,7 +88,13 @@ function yardPalletMenu(yardId: string, palletTypes: PalletType[]) {
   const base = allowed
     ? allowed.map((id) => findPalletType(palletTypes, id)).filter((pallet): pallet is PalletType => Boolean(pallet))
     : palletTypes;
-  const customs = palletTypes.filter((pallet) => pallet.active && pallet.category === "Custom");
+  // Same rule as the entry grid: anything admin-added (not a built-in, not on
+  // a yard's fixed list) shows for every yard, whatever its category.
+  const builtInIds = new Set(defaultPalletTypeList.map((pallet) => pallet.id));
+  const fixedListIds = new Set(Object.values(yardPalletIds).flat());
+  const customs = palletTypes.filter(
+    (pallet) => pallet.active && (pallet.category === "Custom" || (!builtInIds.has(pallet.id) && !fixedListIds.has(pallet.id)))
+  );
   const seen = new Set<string>();
   const menu: { id: string; name: string; label: string }[] = [];
   for (const pallet of [...base, ...customs]) {

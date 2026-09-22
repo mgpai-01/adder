@@ -388,7 +388,16 @@ const SHOW_TIME_FIELDS = false;
 // aren't part of any yard's fixed PDF list, so they're appended to every yard
 // — add a Custom pallet once and it shows up everywhere for entry.
 function palletsForYard(palletTypes: PalletType[], locationId: string): PalletType[] {
-  const customPallets = palletTypes.filter((pallet) => pallet.active && pallet.category === "Custom");
+  // Anything an admin added shows for EVERY yard, whatever category was picked
+  // when it was created. Custom-category pallets keep their old behavior, and
+  // any pallet that is neither a built-in nor on a yard's fixed PDF list is by
+  // definition admin-added — before this, picking a category like "Repair" on
+  // a new item quietly kept it Sultana-only.
+  const builtInIds = new Set(defaultPalletTypes.map((pallet) => pallet.id));
+  const fixedListIds = new Set(Object.values(yardPalletIds).flat());
+  const everywherePallets = palletTypes.filter(
+    (pallet) => pallet.active && (pallet.category === "Custom" || (!builtInIds.has(pallet.id) && !fixedListIds.has(pallet.id)))
+  );
   const allowed = yardPalletIds[locationId];
   let result: PalletType[];
   if (!allowed) {
@@ -404,7 +413,7 @@ function palletsForYard(palletTypes: PalletType[], locationId: string): PalletTy
     // If nothing matched (unexpected ID scheme), fall back to showing everything
     // rather than an empty grid.
     const base = matched.length > 0 ? matched : palletTypes;
-    const extras = customPallets.filter((custom) => !base.some((pallet) => pallet.id === custom.id));
+    const extras = everywherePallets.filter((custom) => !base.some((pallet) => pallet.id === custom.id));
     result = [...base, ...extras];
   }
   // Always list OUTSIDE GRADE B #2 before OUTSIDE GRADE A #1 in the grid,
