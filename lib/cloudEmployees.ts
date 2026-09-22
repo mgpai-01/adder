@@ -37,8 +37,10 @@ export async function readCloudEmployeesSummary(): Promise<Employee[]> {
     .from("cloud_employees")
     // deletedByAdmin has to travel with the summary: this feeds the roster
     // poll, and without it a deleted repairer reappears as merely inactive.
+    // deactivatedByAdmin rides along for the same reason — a poll-built record
+    // missing it let the roster reconcile flip the person back to Active.
     .select(
-      "id, name:data->>name, location_id:data->>locationId, role:data->>role, active:data->>active, shift:data->>shift, deleted_by_admin:data->>deletedByAdmin, admin_edited:data->adminEdited"
+      "id, name:data->>name, location_id:data->>locationId, role:data->>role, active:data->>active, shift:data->>shift, deleted_by_admin:data->>deletedByAdmin, deactivated_by_admin:data->>deactivatedByAdmin, admin_edited:data->adminEdited"
     );
   if (error || !data) return [];
   return (
@@ -50,6 +52,7 @@ export async function readCloudEmployeesSummary(): Promise<Employee[]> {
       active: string | null;
       shift: string | null;
       deleted_by_admin: string | null;
+      deactivated_by_admin: string | null;
       admin_edited: string[] | null;
     }>
   ).map(
@@ -62,6 +65,7 @@ export async function readCloudEmployeesSummary(): Promise<Employee[]> {
         active: row.active !== "false",
         shift: (row.shift ?? "AM") as Employee["shift"],
         deletedByAdmin: row.deleted_by_admin === "true",
+        deactivatedByAdmin: row.deactivated_by_admin === "true",
         // Travels with the summary for the same reason deletedByAdmin does:
         // this feeds the roster poll, and a manual edit the poll doesn't know
         // about is a manual edit the reconcile will happily overwrite.
@@ -70,21 +74,95 @@ export async function readCloudEmployeesSummary(): Promise<Employee[]> {
   );
 }
 
+// A name key that survives spelling drift (case, accents, extra spaces), for
+// matching duplicate records of the same person across ids.
+export function cloudNameKey(name: string): string {
+  return name
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 export async function upsertCloudEmployee(employee: Employee): Promise<{ ok: boolean; error?: string }> {
   const supabase = getSupabaseServerClient();
   if (!supabase) return { ok: false, error: "Supabase not configured" };
 
+  // Merge over what the cloud already has instead of replacing it. Devices
+  // sometimes save a thin copy of a person (built from the photo-free summary
+  // poll, or simply stale) — a blind replace let those copies strip photos,
+  // AMG codes, and crucially the deleted/inactive flags, which is how deleted
+  // repairers kept coming back.
+  const { data: existingRow } = await supabase.from("cloud_employees").select("data").eq("id", employee.id).maybeSingle();
+  const existing = (existingRow?.data ?? null) as Employee | null;
+  const next: Employee = { ...(existing ?? {}), ...employee };
+
+  if (existing) {
+    // Sticky flags: an admin's delete or manual-inactive can only be lifted by
+    // a payload that EXPLICITLY carries the flag as false (the UI's undo
+    // paths do). A record that simply doesn't mention the flag — a stale or
+    // summary-built copy — never revives anyone.
+    if (existing.deletedByAdmin && employee.deletedByAdmin !== false) {
+      next.deletedByAdmin = true;
+      next.active = false;
+    }
+    if (existing.deactivatedByAdmin && employee.deactivatedByAdmin !== false) {
+      next.deactivatedByAdmin = true;
+      next.active = false;
+    }
+  }
+
   const { error } = await supabase
     .from("cloud_employees")
-    .upsert({ id: employee.id, data: employee, updated_at: new Date().toISOString() }, { onConflict: "id" });
+    .upsert({ id: next.id, data: next, updated_at: new Date().toISOString() }, { onConflict: "id" });
+  if (error) return { ok: false, error: error.message };
 
-  return error ? { ok: false, error: error.message } : { ok: true };
+  // A delete or manual-inactive applies to the PERSON, not one record: the
+  // cloud can hold duplicate records for the same name under old ids, and
+  // stamping only the visible one let the hidden twin surface again — the
+  // person "kept coming back" no matter how many times they were removed.
+  if (next.deletedByAdmin || next.deactivatedByAdmin) {
+    const key = cloudNameKey(next.name);
+    if (key) {
+      const all = await readCloudEmployees();
+      for (const twin of all) {
+        if (twin.id === next.id || cloudNameKey(twin.name) !== key) continue;
+        const alreadyStamped = next.deletedByAdmin
+          ? twin.deletedByAdmin === true && twin.active === false
+          : twin.deactivatedByAdmin === true && twin.active === false;
+        if (alreadyStamped) continue;
+        await supabase.from("cloud_employees").upsert(
+          {
+            id: twin.id,
+            data: {
+              ...twin,
+              active: false,
+              ...(next.deletedByAdmin ? { deletedByAdmin: true } : {}),
+              ...(next.deactivatedByAdmin ? { deactivatedByAdmin: true } : {})
+            },
+            updated_at: new Date().toISOString()
+          },
+          { onConflict: "id" }
+        );
+      }
+    }
+  }
+
+  return { ok: true };
 }
 
+// Removing a repairer writes a tombstone (deletedByAdmin) rather than dropping
+// the row: a hard delete erased the very marker other devices needed to learn
+// the person was removed, so their stale copies pushed the record straight
+// back. The tombstone spreads to same-name duplicates via upsertCloudEmployee.
 export async function deleteCloudEmployee(id: string): Promise<{ ok: boolean; error?: string }> {
   const supabase = getSupabaseServerClient();
   if (!supabase) return { ok: false, error: "Supabase not configured" };
 
-  const { error } = await supabase.from("cloud_employees").delete().eq("id", id);
-  return error ? { ok: false, error: error.message } : { ok: true };
+  const { data: row } = await supabase.from("cloud_employees").select("data").eq("id", id).maybeSingle();
+  const existing = (row?.data ?? null) as Employee | null;
+  if (!existing) return { ok: true };
+  return upsertCloudEmployee({ ...existing, id, active: false, deletedByAdmin: true });
 }

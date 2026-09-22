@@ -1197,11 +1197,12 @@ export default function Home() {
     const matched = new Set<string>();
 
     const reconciled: Employee[] = employeeList.map((employee) => {
-      // Active is derived purely from the manual flag: a repairer is Inactive
-      // only if an admin turned them off (deactivatedByAdmin). Everyone else is
-      // Active. This is the same on every device, so it never resurrects a
-      // manual Inactive and never leaves an auto-deactivated person turned off.
-      const active = !employee.deactivatedByAdmin;
+      // Respect the stored Active state; the manual flag only ever forces a
+      // person OFF. The old rule (`active = !deactivatedByAdmin`) turned
+      // everyone back on whenever a record was missing the flag — which is
+      // exactly what a summary-built or stale copy looks like — so every new
+      // device resurrected people an admin had turned off.
+      const active = employee.deactivatedByAdmin ? false : employee.active;
       const target = targetByName.get(norm(employee.name));
       if (target) {
         matched.add(norm(employee.name));
