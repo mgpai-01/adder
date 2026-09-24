@@ -491,9 +491,9 @@ function supplyCount(entries: DailyEntry[], supplyTypeId: string): number {
 }
 
 // Nails-per-pallet verdict against the goal of 18: at or under is good,
-// between 18 and 19 is worth watching, over 19 is too high.
+// 18.1–18.9 is worth watching, 19 or more is too high.
 function nppTone(npp: number): "good" | "watch" | "bad" {
-  return npp <= 18 ? "good" : npp <= 19 ? "watch" : "bad";
+  return npp <= 18 ? "good" : npp < 19 ? "watch" : "bad";
 }
 const nppToneText: Record<ReturnType<typeof nppTone>, string> = {
   good: "text-workshop-700",
@@ -6995,8 +6995,8 @@ function ProductionGrid({
             </p>
           </div>
           <p className="text-xs font-black">
-            <span className="text-workshop-700">■ 18 or less: good</span> · <span className="text-amber-700">■ 18–19: watch</span> ·{" "}
-            <span className="text-red-700">■ over 19: too high</span>
+            <span className="text-workshop-700">■ 18 or less: good</span> · <span className="text-amber-700">■ 18.1–18.9: watch</span> ·{" "}
+            <span className="text-red-700">■ 19 or more: too high</span>
           </p>
         </div>
         {nppYards.length === 0 ? (
