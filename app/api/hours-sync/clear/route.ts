@@ -16,13 +16,12 @@ export const maxDuration = 60;
 //   the pre-import defaults. If a person changed the hours after the import,
 //   their number is kept.
 //
-// Gated by CRON_SECRET (same secret as the nightly cron), accepted either as
-// Authorization: Bearer <secret> or ?key=<secret> so it can be run from a
-// browser. Idempotent: a second run finds nothing to clear.
+// Gated by CRON_SECRET (same secret as the nightly cron), Authorization
+// header only — the old ?key= form put the secret in URLs, where it lands in
+// browser history and access logs. Idempotent: a second run finds nothing.
 export async function GET(request: Request) {
   const secret = process.env.CRON_SECRET;
-  const key = new URL(request.url).searchParams.get("key");
-  const authorized = Boolean(secret) && (request.headers.get("authorization") === `Bearer ${secret}` || key === secret);
+  const authorized = Boolean(secret) && request.headers.get("authorization") === `Bearer ${secret}`;
   if (!authorized) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }

@@ -490,6 +490,12 @@ function supplyCount(entries: DailyEntry[], supplyTypeId: string): number {
   return total;
 }
 
+// For the rare places that build raw HTML for a popup tab (document.write):
+// anything user-editable that lands in that string must go through here.
+function escapeHtml(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
 // Nails-per-pallet verdict: at or under the goal is good, at or over the high
 // mark is too high, in between is worth watching. The numbers are adjustable
 // in Admin → Payroll settings (defaults: 18 and 19).
@@ -6504,10 +6510,10 @@ function ProductionGrid({
     const tab = window.open("", "_blank");
     try {
       tab?.document.write(
-        `<title>${employee.name} — time card</title>` +
+        `<title>${escapeHtml(employee.name)} — time card</title>` +
           `<body style="margin:0;display:grid;place-items:center;height:100vh;font-family:-apple-system,sans-serif;background:#f8fafc;color:#334155">` +
           `<div style="text-align:center"><div style="font-size:38px">⏱</div>` +
-          `<p style="font-weight:700">Pulling ${employee.name}&#39;s time card from AMG…</p>` +
+          `<p style="font-weight:700">Pulling ${escapeHtml(employee.name)}&#39;s time card from AMG…</p>` +
           `<p style="color:#94a3b8;font-size:14px">This usually takes a few seconds.</p></div></body>`
       );
       tab?.document.close();
@@ -10133,9 +10139,9 @@ function Modal({ title, children, onClose }: { title: string; children: ReactNod
     win.document.write(
       `<!doctype html><html><head><meta charset="utf-8">` +
         `<meta name="viewport" content="width=device-width, initial-scale=1">` +
-        `<title>${title}</title>${styles}</head>` +
+        `<title>${escapeHtml(title)}</title>${styles}</head>` +
         `<body class="bg-white text-steel-900"><div class="mx-auto max-w-3xl p-6">` +
-        `<h1 class="mb-4 text-2xl font-black">${title}</h1>${node.innerHTML}</div></body></html>`
+        `<h1 class="mb-4 text-2xl font-black">${escapeHtml(title)}</h1>${node.innerHTML}</div></body></html>`
     );
     win.document.close();
   }
