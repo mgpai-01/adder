@@ -490,8 +490,33 @@ function supplyCount(entries: DailyEntry[], supplyTypeId: string): number {
   return total;
 }
 
-function sumSupplyLines(entries: DailyEntry[]): SupplyLine[] {
-  const totals = new Map<string, number>();
+// Nails-per-pallet verdict against the goal of 18: at or under is good,
+// between 18 and 19 is worth watching, over 19 is too high.
+function nppTone(npp: number): "good" | "watch" | "bad" {
+  return npp <= 18 ? "good" : npp <= 19 ? "watch" : "bad";
+}
+const nppToneText: Record<ReturnType<typeof nppTone>, string> = {
+  good: "text-workshop-700",
+  watch: "text-amber-700",
+  bad: "text-red-700"
+};
+const nppToneChip: Record<ReturnType<typeof nppTone>, string> = {
+  good: "bg-workshop-100 text-workshop-700",
+  watch: "bg-amber-100 text-amber-700",
+  bad: "bg-red-100 text-red-700"
+};
+const nppToneBar: Record<ReturnType<typeof nppTone>, string> = {
+  good: "bg-workshop-500",
+  watch: "bg-amber-500",
+  bad: "bg-red-600"
+};
+const nppToneLabel: Record<ReturnType<typeof nppTone>, string> = {
+  good: "Good",
+  watch: "Watch",
+  bad: "Too high"
+};
+
+function sumSupplyLines(entries: DailyEntry[]): SupplyLine[] {  const totals = new Map<string, number>();
   for (const entry of entries) {
     for (const line of entry.supplies ?? []) {
       totals.set(line.supplyTypeId, (totals.get(line.supplyTypeId) ?? 0) + Number(line.quantity || 0));
@@ -6796,6 +6821,34 @@ function ProductionGrid({
     return { lines, subtotal, taxedCost, tax, total: subtotal + tax, anyTaxable };
   })();
 
+  // ===== Nails per pallet (goal 18) =====
+  // Rolls logged × nails-per-roll ÷ pallets repaired, for the week/yard on
+  // screen. The tile up top shows everyone's average; the panel breaks it out
+  // per yard; each card carries the person's own figure.
+  const nailsPerRoll = supplyTypes.find((supply) => supply.id === "nail-rolls")?.piecesPerUnit ?? 300;
+  const nppByPerson = new Map(
+    visibleCrew.map((row) => {
+      const nails = supplyCount(row.employeeEntries, "nail-rolls") * nailsPerRoll;
+      const pallets = row.employeeReport.summary.quantity;
+      return [row.employee.id, { nails, pallets, npp: nails > 0 && pallets > 0 ? nails / pallets : null }] as const;
+    })
+  );
+  const nppYards = [...locations]
+    .sort((a, b) => yardRank(a.id) - yardRank(b.id))
+    .map((location) => {
+      const rows = visibleCrew.filter((row) => row.employee.locationId === location.id);
+      const nails = rows.reduce((total, row) => total + (nppByPerson.get(row.employee.id)?.nails ?? 0), 0);
+      const pallets = rows.reduce((total, row) => total + row.employeeReport.summary.quantity, 0);
+      return { location, crew: rows.length, nails, pallets, npp: nails > 0 && pallets > 0 ? nails / pallets : null };
+    })
+    .filter((yard) => yard.nails > 0);
+  const nppTotal = (() => {
+    const nails = [...nppByPerson.values()].reduce((total, row) => total + row.nails, 0);
+    const pallets = visibleCrew.reduce((total, row) => total + row.employeeReport.summary.quantity, 0);
+    return { nails, pallets, npp: nails > 0 && pallets > 0 ? nails / pallets : null };
+  })();
+  const nppPanelRef = useRef<HTMLDivElement>(null);
+
   return (
     <div className="grid gap-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -6902,12 +6955,92 @@ function ProductionGrid({
           ))}
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
         <Metric label="Week Quantity" value={wholeNumber(weekReport.summary.quantity)} />
         <Metric label="Piece Pay" value={currency(weekReport.summary.piecePay)} />
         <Metric label="Make-up Pay" value={currency(weekReport.summary.makeup)} />
         <Metric label="Overtime" value={`${weekReport.summary.dailyOvertime.toFixed(2)} hrs`} />
         <Metric label="Weekly Total" value={currency(weekReport.summary.totalPay)} />
+        {/* Everyone's nails-per-pallet for the week on screen. Colored by the
+            goal (18), and a tap jumps to the per-yard breakdown below. */}
+        <button
+          type="button"
+          className={classNames(
+            "rounded border-2 p-3 text-left transition-transform hover:scale-[1.02]",
+            nppTotal.npp === null
+              ? "border-steel-200 bg-white"
+              : nppTone(nppTotal.npp) === "good"
+                ? "border-workshop-500 bg-workshop-100"
+                : nppTone(nppTotal.npp) === "watch"
+                  ? "border-amber-500 bg-amber-50"
+                  : "border-red-600 bg-red-50"
+          )}
+          onClick={() => nppPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
+        >
+          <p className="text-xs font-black uppercase tracking-wide text-steel-500">Avg Nails / Pallet ↓</p>
+          <p className={classNames("mt-1 text-2xl font-black", nppTotal.npp === null ? "text-steel-400" : nppToneText[nppTone(nppTotal.npp)])}>
+            {nppTotal.npp === null ? "—" : nppTotal.npp.toFixed(1)}
+          </p>
+          <p className="text-xs font-bold text-steel-500">goal 18 — tap for yard breakdown</p>
+        </button>
+      </div>
+
+      {/* Nails per pallet by yard. Each person's own figure sits on their card. */}
+      <div ref={nppPanelRef} className="overflow-hidden rounded border border-steel-100 bg-white text-steel-900">
+        <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-steel-100 p-3">
+          <div>
+            <p className="text-sm font-black uppercase tracking-wide">Nails per pallet — by yard</p>
+            <p className="text-xs font-bold text-steel-500">
+              Rolls logged × {wholeNumber(nailsPerRoll)} nails ÷ pallets repaired · goal 18 · each person&apos;s own number is on their card below
+            </p>
+          </div>
+          <p className="text-xs font-black">
+            <span className="text-workshop-700">■ 18 or less: good</span> · <span className="text-amber-700">■ 18–19: watch</span> ·{" "}
+            <span className="text-red-700">■ over 19: too high</span>
+          </p>
+        </div>
+        {nppYards.length === 0 ? (
+          <p className="p-3 text-sm font-bold text-steel-400">No nail rolls logged for this week yet.</p>
+        ) : (
+          <>
+            {nppYards.map((yard) => (
+              <div key={yard.location.id} className="flex flex-wrap items-center justify-between gap-2 border-t border-steel-100 p-3">
+                <div>
+                  <p className="font-black uppercase">{yard.location.name}</p>
+                  <p className="text-xs font-bold text-steel-500">
+                    {yard.crew} repairer{yard.crew === 1 ? "" : "s"} · {wholeNumber(yard.nails)} nails · {wholeNumber(yard.pallets)} pallets
+                  </p>
+                </div>
+                {yard.npp === null ? (
+                  <span className="text-steel-400">—</span>
+                ) : (
+                  <div className="flex items-center gap-2.5">
+                    <div className="h-2.5 w-36 overflow-hidden rounded-full bg-steel-100">
+                      <div
+                        className={classNames("h-full rounded-full", nppToneBar[nppTone(yard.npp)])}
+                        style={{ width: `${Math.min(100, (yard.npp / 24) * 100)}%` }}
+                      />
+                    </div>
+                    <span className={classNames("min-w-[52px] text-right text-xl font-black", nppToneText[nppTone(yard.npp)])}>
+                      {yard.npp.toFixed(1)}
+                    </span>
+                    <span className={classNames("rounded-full px-2.5 py-0.5 text-[11px] font-black uppercase", nppToneChip[nppTone(yard.npp)])}>
+                      {nppToneLabel[nppTone(yard.npp)]}
+                    </span>
+                  </div>
+                )}
+              </div>
+            ))}
+            {nppTotal.npp !== null && (
+              <div className="flex flex-wrap items-center justify-between gap-2 border-t-2 border-steel-900 bg-workshop-100 p-3 font-black">
+                <span>
+                  EVERYONE — {wholeNumber(nppTotal.nails)} nails · {wholeNumber(nppTotal.pallets)} pallets
+                </span>
+                <span className={nppToneText[nppTone(nppTotal.npp)]}>{nppTotal.npp.toFixed(1)} per pallet</span>
+              </div>
+            )}
+          </>
+        )}
       </div>
 
       {/* A yard can receive production without hosting a card: everyone who
@@ -7109,7 +7242,11 @@ function ProductionGrid({
               {/* min-h keeps all four the same height whether the bonus box is
                   showing its spinner or a figure, so the card doesn't jump when
                   the AMG hours land. */}
-              <div className="grid grid-cols-2 gap-2 text-center text-sm md:grid-cols-4">
+              {(() => {
+                const npp = nppByPerson.get(employee.id);
+                const hasNpp = npp != null && npp.npp !== null;
+                return (
+              <div className={classNames("grid grid-cols-2 gap-2 text-center text-sm", hasNpp ? "md:grid-cols-5" : "md:grid-cols-4")}>
                 <strong className="flex min-h-[42px] items-center justify-center rounded bg-safety-400 px-3 py-2">{wholeNumber(employeeReport.summary.quantity)} qty</strong>
                 <strong className="flex min-h-[42px] items-center justify-center rounded bg-safety-400 px-3 py-2">{currency(employeeReport.summary.piecePay)}</strong>
                 <strong className="flex min-h-[42px] items-center justify-center rounded bg-safety-400 px-3 py-2">{currency(employeeReport.summary.totalPay)} total</strong>
@@ -7139,7 +7276,22 @@ function ProductionGrid({
                     </strong>
                   );
                 })()}
+                {/* This person's own nails-per-pallet for the shown week, so
+                    the figure is visible right on their profile card. */}
+                {hasNpp && (
+                  <strong
+                    className={classNames(
+                      "flex min-h-[42px] items-center justify-center gap-1 rounded px-3 py-2",
+                      nppToneChip[nppTone(npp.npp as number)]
+                    )}
+                    title={`${wholeNumber(npp.nails)} nails ÷ ${wholeNumber(npp.pallets)} pallets · goal 18`}
+                  >
+                    🔨 {(npp.npp as number).toFixed(1)} nails/pallet
+                  </strong>
+                )}
               </div>
+                );
+              })()}
               {/* Time card: upload a photo of the physical card for this week,
                   with thumbnails of the ones already on file. */}
               {(() => {
