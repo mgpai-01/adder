@@ -490,10 +490,11 @@ function supplyCount(entries: DailyEntry[], supplyTypeId: string): number {
   return total;
 }
 
-// Nails-per-pallet verdict against the goal of 18: at or under is good,
-// 18.1–18.9 is worth watching, 19 or more is too high.
-function nppTone(npp: number): "good" | "watch" | "bad" {
-  return npp <= 18 ? "good" : npp < 19 ? "watch" : "bad";
+// Nails-per-pallet verdict: at or under the goal is good, at or over the high
+// mark is too high, in between is worth watching. The numbers are adjustable
+// in Admin → Payroll settings (defaults: 18 and 19).
+function nppTone(npp: number, goal: number, high: number): "good" | "watch" | "bad" {
+  return npp <= goal ? "good" : npp < high ? "watch" : "bad";
 }
 const nppToneText: Record<ReturnType<typeof nppTone>, string> = {
   good: "text-workshop-700",
@@ -6826,6 +6827,8 @@ function ProductionGrid({
   // screen. The tile up top shows everyone's average; the panel breaks it out
   // per yard; each card carries the person's own figure.
   const nailsPerRoll = supplyTypes.find((supply) => supply.id === "nail-rolls")?.piecesPerUnit ?? 300;
+  const nppGoal = settings.nailsPerPalletGoal ?? 18;
+  const nppHigh = settings.nailsPerPalletHigh ?? 19;
   const nppByPerson = new Map(
     visibleCrew.map((row) => {
       const nails = supplyCount(row.employeeEntries, "nail-rolls") * nailsPerRoll;
@@ -6969,19 +6972,19 @@ function ProductionGrid({
             "rounded border-2 p-3 text-left transition-transform hover:scale-[1.02]",
             nppTotal.npp === null
               ? "border-steel-200 bg-white"
-              : nppTone(nppTotal.npp) === "good"
+              : nppTone(nppTotal.npp, nppGoal, nppHigh) === "good"
                 ? "border-workshop-500 bg-workshop-100"
-                : nppTone(nppTotal.npp) === "watch"
+                : nppTone(nppTotal.npp, nppGoal, nppHigh) === "watch"
                   ? "border-amber-500 bg-amber-50"
                   : "border-red-600 bg-red-50"
           )}
           onClick={() => nppPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
         >
           <p className="text-xs font-black uppercase tracking-wide text-steel-500">Avg Nails / Pallet ↓</p>
-          <p className={classNames("mt-1 text-2xl font-black", nppTotal.npp === null ? "text-steel-400" : nppToneText[nppTone(nppTotal.npp)])}>
+          <p className={classNames("mt-1 text-2xl font-black", nppTotal.npp === null ? "text-steel-400" : nppToneText[nppTone(nppTotal.npp, nppGoal, nppHigh)])}>
             {nppTotal.npp === null ? "—" : nppTotal.npp.toFixed(1)}
           </p>
-          <p className="text-xs font-bold text-steel-500">goal 18 — tap for yard breakdown</p>
+          <p className="text-xs font-bold text-steel-500">goal {nppGoal} — tap for yard breakdown</p>
         </button>
       </div>
 
@@ -6991,12 +6994,12 @@ function ProductionGrid({
           <div>
             <p className="text-sm font-black uppercase tracking-wide">Nails per pallet — by yard</p>
             <p className="text-xs font-bold text-steel-500">
-              Rolls logged × {wholeNumber(nailsPerRoll)} nails ÷ pallets repaired · goal 18 · each person&apos;s own number is on their card below
+              Rolls logged × {wholeNumber(nailsPerRoll)} nails ÷ pallets repaired · goal {nppGoal} · each person&apos;s own number is on their card below
             </p>
           </div>
           <p className="text-xs font-black">
-            <span className="text-workshop-700">■ 18 or less: good</span> · <span className="text-amber-700">■ 18.1–18.9: watch</span> ·{" "}
-            <span className="text-red-700">■ 19 or more: too high</span>
+            <span className="text-workshop-700">■ {nppGoal} or less: good</span> · <span className="text-amber-700">■ between: watch</span> ·{" "}
+            <span className="text-red-700">■ {nppHigh} or more: too high</span>
           </p>
         </div>
         {nppYards.length === 0 ? (
@@ -7017,15 +7020,15 @@ function ProductionGrid({
                   <div className="flex items-center gap-2.5">
                     <div className="h-2.5 w-36 overflow-hidden rounded-full bg-steel-100">
                       <div
-                        className={classNames("h-full rounded-full", nppToneBar[nppTone(yard.npp)])}
+                        className={classNames("h-full rounded-full", nppToneBar[nppTone(yard.npp, nppGoal, nppHigh)])}
                         style={{ width: `${Math.min(100, (yard.npp / 24) * 100)}%` }}
                       />
                     </div>
-                    <span className={classNames("min-w-[52px] text-right text-xl font-black", nppToneText[nppTone(yard.npp)])}>
+                    <span className={classNames("min-w-[52px] text-right text-xl font-black", nppToneText[nppTone(yard.npp, nppGoal, nppHigh)])}>
                       {yard.npp.toFixed(1)}
                     </span>
-                    <span className={classNames("rounded-full px-2.5 py-0.5 text-[11px] font-black uppercase", nppToneChip[nppTone(yard.npp)])}>
-                      {nppToneLabel[nppTone(yard.npp)]}
+                    <span className={classNames("rounded-full px-2.5 py-0.5 text-[11px] font-black uppercase", nppToneChip[nppTone(yard.npp, nppGoal, nppHigh)])}>
+                      {nppToneLabel[nppTone(yard.npp, nppGoal, nppHigh)]}
                     </span>
                   </div>
                 )}
@@ -7036,7 +7039,7 @@ function ProductionGrid({
                 <span>
                   EVERYONE — {wholeNumber(nppTotal.nails)} nails · {wholeNumber(nppTotal.pallets)} pallets
                 </span>
-                <span className={nppToneText[nppTone(nppTotal.npp)]}>{nppTotal.npp.toFixed(1)} per pallet</span>
+                <span className={nppToneText[nppTone(nppTotal.npp, nppGoal, nppHigh)]}>{nppTotal.npp.toFixed(1)} per pallet</span>
               </div>
             )}
           </>
@@ -7282,9 +7285,9 @@ function ProductionGrid({
                   <strong
                     className={classNames(
                       "flex min-h-[42px] items-center justify-center gap-1 rounded px-3 py-2",
-                      nppToneChip[nppTone(npp.npp as number)]
+                      nppToneChip[nppTone(npp.npp as number, nppGoal, nppHigh)]
                     )}
-                    title={`${wholeNumber(npp.nails)} nails ÷ ${wholeNumber(npp.pallets)} pallets · goal 18`}
+                    title={`${wholeNumber(npp.nails)} nails ÷ ${wholeNumber(npp.pallets)} pallets · goal ${nppGoal}`}
                   >
                     🔨 {(npp.npp as number).toFixed(1)} nails/pallet
                   </strong>
@@ -8583,6 +8586,8 @@ function MisdatedEntriesRepair({
 function PayrollSettingsAdmin({ settings, onSettingsChange }: { settings: PayrollSettings; onSettingsChange: (settings: PayrollSettings) => void }) {
   const [minimumWageInput, setMinimumWageInput] = useState(settings.minimumWage.toFixed(2));
   const [dailyGoalInput, setDailyGoalInput] = useState(String(settings.dailyProductionGoal));
+  const [nailsGoalInput, setNailsGoalInput] = useState(String(settings.nailsPerPalletGoal ?? 18));
+  const [nailsHighInput, setNailsHighInput] = useState(String(settings.nailsPerPalletHigh ?? 19));
   const [message, setMessage] = useState(`Current California Minimum Wage: ${currency(settings.minimumWage)}/hr`);
   const [error, setError] = useState("");
   const [isSaving, setIsSaving] = useState(false);
@@ -8591,7 +8596,26 @@ function PayrollSettingsAdmin({ settings, onSettingsChange }: { settings: Payrol
   useEffect(() => {
     setMinimumWageInput(settings.minimumWage.toFixed(2));
     setDailyGoalInput(String(settings.dailyProductionGoal));
-  }, [settings.dailyProductionGoal, settings.minimumWage]);
+    setNailsGoalInput(String(settings.nailsPerPalletGoal ?? 18));
+    setNailsHighInput(String(settings.nailsPerPalletHigh ?? 19));
+  }, [settings.dailyProductionGoal, settings.minimumWage, settings.nailsPerPalletGoal, settings.nailsPerPalletHigh]);
+
+  function saveNailsSettings() {
+    const goal = Number(nailsGoalInput);
+    const high = Number(nailsHighInput);
+    if (!nailsGoalInput.trim() || Number.isNaN(goal) || goal <= 0) {
+      setError("Nails goal must be a number above zero.");
+      return;
+    }
+    if (!nailsHighInput.trim() || Number.isNaN(high) || high <= goal) {
+      setError("The too-high mark must be a number above the goal.");
+      return;
+    }
+    setError("");
+    const next = { ...settings, nailsPerPalletGoal: goal, nailsPerPalletHigh: high };
+    onSettingsChange(next);
+    setMessage(`Nails per pallet saved: ${goal} or less is good, ${high} or more is too high.`);
+  }
 
   function saveSettings() {
     const parsed = Number(minimumWageInput);
@@ -8664,6 +8688,51 @@ function PayrollSettingsAdmin({ settings, onSettingsChange }: { settings: Payrol
           <button type="button" disabled={isSaving} className="touch-target flex items-center justify-center gap-2 rounded bg-workshop-500 px-4 py-2 font-black text-white disabled:bg-steel-500" onClick={saveSettings}>
             <Save size={19} />
             {isSaving ? "Saving..." : "Save"}
+          </button>
+        </div>
+      </div>
+      {/* Nails-per-pallet bands for the Production Grid tracker: at or under
+          the goal is good (green), at or over the high mark is too high (red),
+          anything between is watch (orange). */}
+      <div className="rounded border border-steel-100 bg-white p-4 text-steel-900">
+        <div className="grid gap-3 md:grid-cols-[1fr_220px_220px_auto] md:items-end">
+          <div>
+            <h3 className="text-xl font-black">Nails Per Pallet Goal</h3>
+            <p className="mt-1 text-sm text-steel-500">
+              Drives the Production Grid tracker: at or under the goal shows green, at or over the too-high mark shows red, in between shows orange.
+            </p>
+          </div>
+          <Label title="Goal (good at or under)" icon={<BarChart3 size={17} />}>
+            <input
+              className="field"
+              inputMode="decimal"
+              min="1"
+              step="0.1"
+              type="number"
+              value={nailsGoalInput}
+              onChange={(event) => {
+                setNailsGoalInput(event.target.value);
+                setError("");
+              }}
+            />
+          </Label>
+          <Label title="Too high (red at or over)" icon={<BarChart3 size={17} />}>
+            <input
+              className="field"
+              inputMode="decimal"
+              min="1"
+              step="0.1"
+              type="number"
+              value={nailsHighInput}
+              onChange={(event) => {
+                setNailsHighInput(event.target.value);
+                setError("");
+              }}
+            />
+          </Label>
+          <button type="button" className="touch-target flex items-center justify-center gap-2 rounded bg-workshop-500 px-4 py-2 font-black text-white" onClick={saveNailsSettings}>
+            <Save size={19} />
+            Save
           </button>
         </div>
       </div>

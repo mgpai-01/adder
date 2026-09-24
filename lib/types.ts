@@ -165,6 +165,11 @@ export type PayrollSettings = {
   overtimeMultiplier: number;
   dailyOvertimeThreshold: number;
   dailyProductionGoal: number;
+  // Nails-per-pallet bands (Production Grid tracker): at or under the goal is
+  // good, at or over the high mark is too high, in between is worth watching.
+  // Optional so settings saved before the tracker existed keep loading.
+  nailsPerPalletGoal?: number;
+  nailsPerPalletHigh?: number;
 };
 
 export type EntryCalculation = {

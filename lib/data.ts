@@ -5,7 +5,9 @@ export const payrollSettings: PayrollSettings = {
   minimumWage: 16.9,
   overtimeMultiplier: 1.5,
   dailyOvertimeThreshold: 8,
-  dailyProductionGoal: 4500
+  dailyProductionGoal: 4500,
+  nailsPerPalletGoal: 18,
+  nailsPerPalletHigh: 19
 };
 
 export const locations: Location[] = [
