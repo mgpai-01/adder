@@ -72,6 +72,7 @@ import AuthGate from "@/components/AuthGate";
 import DropZone from "@/components/DropZone";
 import CalendarField, { type DateSelection } from "@/components/CalendarField";
 import { LoadingSeal } from "@/components/LoadingLogo";
+import type { TimecardSheet } from "@/lib/amgTime";
 import type { BreakProfile, CountSheet, CountSheetStatus, DailyEntry, Employee, EntryPhase, Location, PalletCategory, PalletType, PayrollSettings, ProductionLine, Role, Shift, SupplyLine, SupplyType } from "@/lib/types";
 
 // The AMG hours sync/import buttons on Payroll are parked until the team is
@@ -2482,7 +2483,10 @@ export default function Home() {
   // section per repairer with each day's pallet lines (code, rate, qty, $),
   // a subtotal per day, the person's weekly totals, and a grand total at the
   // end. Same numbers as the grid (calculateEntry/buildReport).
-  async function exportPdf(filteredEntries = entries, fileLabel?: string) {
+  // amgSheets: each person's live AMG week (by employee id), when the caller
+  // has it. With it, every person gets hours worked, hourly pay, bonus and
+  // pay + bonus under their table; without it the report is pallets only.
+  async function exportPdf(filteredEntries = entries, fileLabel?: string, amgSheets?: Record<string, TimecardSheet | undefined>) {
     const { jsPDF } = await import("jspdf");
     const autoTable = (await import("jspdf-autotable")).default;
 
@@ -2513,7 +2517,7 @@ export default function Home() {
         });
         const primaryYard = Array.from(perYard.entries()).sort((a, b) => b[1] - a[1])[0]?.[0] ?? "";
         const yards = Array.from(perYard.keys()).sort((a, b) => yardRank(a) - yardRank(b));
-        return { name, personEntries, report, primaryYard, yards };
+        return { employeeId, name, personEntries, report, primaryYard, yards };
       })
       .sort((a, b) => yardRank(a.primaryYard) - yardRank(b.primaryYard) || compareByLastName(a.name, b.name));
 
@@ -2554,6 +2558,8 @@ export default function Home() {
 
     let cursorY = 100;
     const grid = { lineColor: [140, 140, 140] as [number, number, number], lineWidth: 0.5 };
+    // Running totals of the AMG pay block, for the closing line.
+    const payTotals = { people: 0, missing: 0, hours: 0, pay: 0, bonus: 0 };
 
     for (const person of people) {
       // Keep the person's header with their table: start a fresh page when
@@ -2621,7 +2627,9 @@ export default function Home() {
         "",
         "",
         "",
-        "TOTAL GROSS PAID",
+        // With AMG pay shown below, the pallet total isn't what was paid —
+        // AMG paid the hours — so it's labeled as what the pallets earned.
+        amgSheets ? "PALLET EARNINGS" : "TOTAL GROSS PAID",
         person.report.summary.makeup > 0 ? `incl. make-up ${currency(person.report.summary.makeup)}` : "",
         wholeNumber(person.report.summary.quantity),
         anyHours ? personHours.toFixed(2) : "",
@@ -2686,6 +2694,69 @@ export default function Home() {
         }
       });
       cursorY = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 24;
+
+      // Hours → pay → bonus → pay + bonus, from AMG. Pay is what AMG paid
+      // for the hours (not the pallet total above): the bonus is pallets
+      // minus those wages, so pay + bonus is what the person takes home.
+      if (amgSheets) {
+        const sheet = amgSheets[person.employeeId];
+        const wage = sheet?.wage ?? null;
+        const bonus = sheet ? calculateWeeklyBonus(person.report.summary.totalPay, sheet) : null;
+        const payBody: string[][] = [];
+        if (!sheet || !wage || !bonus) {
+          payTotals.missing += 1;
+          payBody.push([
+            "Hours / pay / bonus",
+            !sheet ? "AMG hours not loaded — refresh bonuses and export again" : "No hourly wage on file in AMG for this week",
+            ""
+          ]);
+        } else {
+          const hours = sheet.totals.total;
+          const tiers = [
+            `${sheet.totals.reg.toFixed(2)} reg × ${currency(wage.rate)}`,
+            sheet.totals.ot1 > 0 ? `${sheet.totals.ot1.toFixed(2)} OT × ${currency(wage.ot1Rate)}` : "",
+            sheet.totals.ot2 > 0 ? `${sheet.totals.ot2.toFixed(2)} DT × ${currency(wage.ot2Rate)}` : ""
+          ].filter(Boolean);
+          const takeHome = Math.round((wage.gross + bonus.bonus) * 100) / 100;
+          payTotals.people += 1;
+          payTotals.hours += hours;
+          payTotals.pay += wage.gross;
+          payTotals.bonus += bonus.bonus;
+          payBody.push(["Hours worked", `Reg ${sheet.totals.reg.toFixed(2)} · OT ${sheet.totals.ot1.toFixed(2)} · DT ${sheet.totals.ot2.toFixed(2)}`, `${hours.toFixed(2)} hrs`]);
+          payBody.push(["Pay", tiers.join(" + "), currency(wage.gross)]);
+          payBody.push([
+            "Bonus",
+            `Pallets ${currency(bonus.pieceRate)} - productive wages ${currency(bonus.productiveWages)}` +
+              (bonus.breakPay > 0 ? ` (pay ${currency(bonus.gross)} less breaks ${currency(bonus.breakPay)})` : "") +
+              (bonus.atFloor ? " = below $0, so $0" : ""),
+            currency(bonus.bonus)
+          ]);
+          payBody.push(["PAY + BONUS", `${currency(wage.gross)} + ${currency(bonus.bonus)}`, currency(takeHome)]);
+        }
+        if (cursorY > pageHeight - 110) {
+          doc.addPage();
+          cursorY = 50;
+        }
+        autoTable(doc, {
+          body: payBody,
+          startY: cursorY - 16,
+          margin: { left: margin, right: margin },
+          theme: "grid",
+          styles: { font: "helvetica", fontSize: 8, textColor: [20, 20, 20], cellPadding: 3, lineColor: grid.lineColor, lineWidth: grid.lineWidth },
+          columnStyles: {
+            0: { cellWidth: 110, fontStyle: "bold" },
+            2: { halign: "right", cellWidth: 80, fontStyle: "bold" }
+          },
+          didParseCell: (data) => {
+            if (data.row.index === payBody.length - 1 && payBody.length > 1) {
+              data.cell.styles.fontStyle = "bold";
+              data.cell.styles.fontSize = 9;
+              data.cell.styles.fillColor = [206, 234, 214];
+            }
+          }
+        });
+        cursorY = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 24;
+      }
     }
 
     // Grand total across everyone, like the report's closing gross line.
@@ -2696,10 +2767,23 @@ export default function Home() {
     }
     doc.setFont("helvetica", "bold").setFontSize(11);
     doc.text(
-      `TOTAL — ${wholeNumber(totalReport.summary.quantity)} pallets — Gross Paid ${currency(totalReport.summary.totalPay)}`,
+      `TOTAL — ${wholeNumber(totalReport.summary.quantity)} pallets — ${amgSheets ? "Pallet Earnings" : "Gross Paid"} ${currency(totalReport.summary.totalPay)}`,
       margin,
       cursorY
     );
+    if (amgSheets && payTotals.people > 0) {
+      cursorY += 16;
+      doc.text(
+        `${payTotals.hours.toFixed(2)} hrs — Pay ${currency(payTotals.pay)} + Bonus ${currency(payTotals.bonus)} = Pay + Bonus ${currency(payTotals.pay + payTotals.bonus)}`,
+        margin,
+        cursorY
+      );
+      if (payTotals.missing > 0) {
+        cursorY += 13;
+        doc.setFont("helvetica", "normal").setFontSize(8);
+        doc.text(`${payTotals.missing} ${payTotals.missing === 1 ? "person" : "people"} not included — no AMG hours or wage for the week.`, margin, cursorY);
+      }
+    }
 
     // Page numbers.
     const pages = doc.getNumberOfPages();
@@ -5772,7 +5856,7 @@ function Payroll({
   settings: PayrollSettings;
   exportCsv: (entries: DailyEntry[]) => void;
   exportExcel: (entries: DailyEntry[]) => void;
-  exportPdf: (entries: DailyEntry[], fileLabel?: string) => void;
+  exportPdf: (entries: DailyEntry[], fileLabel?: string, amgSheets?: Record<string, TimecardSheet | undefined>) => void;
   darkMode: boolean;
   onEditEntry: (entry: DailyEntry) => void;
   onViewEntry: (entry: DailyEntry) => void;
@@ -6296,7 +6380,7 @@ function ProductionGrid({
   // Export the currently-shown week's entries as CSV / multi-sheet Excel.
   exportCsv: (entries: DailyEntry[]) => void;
   exportExcel: (entries: DailyEntry[]) => void;
-  exportPdf: (entries: DailyEntry[], fileLabel?: string) => void;
+  exportPdf: (entries: DailyEntry[], fileLabel?: string, amgSheets?: Record<string, TimecardSheet | undefined>) => void;
 }) {
   const weekDays = getWeekDays(selectedWeek);
   const weekEntries = entries.filter((entry) => weekDays.includes(entry.date));
@@ -6482,6 +6566,11 @@ function ProductionGrid({
   function refreshBonuses(employeeIds: string[]) {
     bonusLoaded.current = { week: selectedWeek, ids: new Set(employeeIds) };
     void calculateBonuses(employeeIds, selectedWeek);
+  }
+
+  // Everyone's loaded AMG week, for the Pay PDF's hours / pay / bonus lines.
+  function amgSheetsById(): Record<string, TimecardSheet | undefined> {
+    return Object.fromEntries(Object.entries(amgRowData).map(([id, state]) => [id, state.sheet]));
   }
 
   async function handleAmgReportUpload(file: File) {
@@ -6984,7 +7073,7 @@ function ProductionGrid({
             type="button"
             disabled={gridEntries.length === 0}
             className="touch-target flex items-center gap-2 rounded bg-workshop-500 px-4 py-2 font-black text-white disabled:cursor-not-allowed disabled:opacity-50"
-            onClick={() => exportPdf(gridEntries)}
+            onClick={() => exportPdf(gridEntries, undefined, amgSheetsById())}
           >
             <Download size={19} />
             Pay PDF
@@ -7386,7 +7475,7 @@ function ProductionGrid({
                     <button
                       type="button"
                       className="touch-target flex items-center gap-2 rounded border border-steel-200 bg-white px-3 py-2 text-sm font-black text-steel-700 transition-colors hover:border-workshop-500 hover:text-workshop-700"
-                      onClick={() => exportPdf(employeeEntries, employee.name)}
+                      onClick={() => exportPdf(employeeEntries, employee.name, amgSheetsById())}
                     >
                       <Download size={17} />
                       Pay PDF
