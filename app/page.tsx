@@ -2558,21 +2558,35 @@ export default function Home() {
 
     let cursorY = 100;
     const grid = { lineColor: [140, 140, 140] as [number, number, number], lineWidth: 0.5 };
-    // Running totals of the AMG pay block, for the closing line.
-    const payTotals = { people: 0, missing: 0, hours: 0, pay: 0, bonus: 0 };
 
-    for (const person of people) {
-      // Keep the person's header with their table: start a fresh page when
-      // there is no room left for a header plus a few rows.
-      if (cursorY > pageHeight - 130) {
+    // Every table leaves room at the top of a page for the "(continued)"
+    // label, so a person's section that runs onto a second page still says
+    // whose it is.
+    const tableMargin = { top: 52, left: margin, right: margin, bottom: 40 };
+    const finalY = () => (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY;
+    const h2 = (value: number) => value.toFixed(2);
+    // -0 (a reject line with no rejects) would print as "-$0.00".
+    const cash = (value: number) => currency(value || 0);
+    const summaryRows: Array<{ name: string; yard: string; pallets: number; earnings: number; sheet?: TimecardSheet; bonus: ReturnType<typeof calculateWeeklyBonus> }> = [];
+
+    people.forEach((person, personIndex) => {
+      // With AMG data each person gets their own pages; without it the old
+      // flowing layout is kept, starting a page only when out of room.
+      if (amgSheets ? personIndex > 0 : cursorY > pageHeight - 130) {
         doc.addPage();
-        cursorY = 50;
+        cursorY = 60;
       }
-      doc.setFont("helvetica", "bold").setFontSize(11);
-      doc.text(`${person.name.toUpperCase()} — ${person.yards.map(locName).join(" / ")}`, margin, cursorY);
+      const firstPage = doc.getNumberOfPages();
+      const personTitle = `${person.name.toUpperCase()} — ${person.yards.map(locName).join(" / ")}`;
+      doc.setFont("helvetica", "bold").setFontSize(12);
+      doc.text(personTitle, margin, cursorY);
+
+      const sheet = amgSheets?.[person.employeeId];
+      // Paid hours per day straight from AMG, when it's loaded.
+      const amgDayHours = new Map<string, number>((sheet?.days ?? []).map((day) => [day.date, day.summary.total]));
 
       // Day-by-day pallet lines with a bold subtotal row per day. Hours come
-      // from the AMG Time import when present; days without imported hours
+      // from AMG when loaded, else from the hours import; days with neither
       // show a dash rather than a guessed number.
       const body: (string | number)[][] = [];
       const subtotalRows: number[] = [];
@@ -2591,16 +2605,16 @@ export default function Home() {
               dayName(day),
               locName(entry.locationId),
               `${pallet?.code ?? line.palletTypeId} ${pallet?.description ?? ""}`.trim(),
-              currency(rate),
+              cash(rate),
               line.quantity,
               "",
-              currency(rate * line.quantity)
+              cash(rate * line.quantity)
             ]);
           }
         }
         const dayReport = buildReport(dayEntries, palletTypes, employeeList, locationList, settings);
-        const dayHours = dayEntries.reduce((total, entry) => total + (entry.importedHours ?? 0), 0);
-        if (dayHours > 0) {
+        const dayHours = sheet ? amgDayHours.get(day) ?? 0 : dayEntries.reduce((total, entry) => total + (entry.importedHours ?? 0), 0);
+        if (!sheet && dayHours > 0) {
           anyHours = true;
           personHours += dayHours;
           personOvertime += Math.max(0, dayHours - settings.dailyOvertimeThreshold);
@@ -2613,15 +2627,15 @@ export default function Home() {
           "Day total",
           "",
           wholeNumber(dayReport.summary.quantity),
-          dayHours > 0 ? dayHours.toFixed(2) : "—",
-          currency(dayReport.summary.totalPay)
+          sheet ? h2(dayHours) : dayHours > 0 ? h2(dayHours) : "—",
+          cash(dayReport.summary.totalPay)
         ]);
       }
       const totalRowStart = body.length;
       if (anyHours) {
         const hourlyEquivalent = personHours > 0 ? person.report.summary.totalPay / personHours : 0;
         body.push(["", "", "", "Payroll — hourly equivalent", "", "", "", `${currency(hourlyEquivalent)}/hr`]);
-        body.push(["", "", "", "Payroll — overtime hours", "", "", personOvertime.toFixed(2), ""]);
+        body.push(["", "", "", "Payroll — overtime hours", "", "", h2(personOvertime), ""]);
       }
       body.push([
         "",
@@ -2632,8 +2646,8 @@ export default function Home() {
         amgSheets ? "PALLET EARNINGS" : "TOTAL GROSS PAID",
         person.report.summary.makeup > 0 ? `incl. make-up ${currency(person.report.summary.makeup)}` : "",
         wholeNumber(person.report.summary.quantity),
-        anyHours ? personHours.toFixed(2) : "",
-        currency(person.report.summary.totalPay)
+        sheet ? h2(sheet.totals.total) : anyHours ? h2(personHours) : "",
+        cash(person.report.summary.totalPay)
       ]);
 
       // Supplies sit below the gross-paid line, styled apart from it. They're
@@ -2660,7 +2674,7 @@ export default function Home() {
         head: [["Date", "Day", "Yard", "Pallet", "Rate", "Qty", "Hours", "Amount"]],
         body,
         startY: cursorY + 8,
-        margin: { left: margin, right: margin },
+        margin: tableMargin,
         theme: "grid",
         styles: { font: "helvetica", fontSize: 8, textColor: [20, 20, 20], cellPadding: 3, lineColor: grid.lineColor, lineWidth: grid.lineWidth },
         headStyles: { fillColor: [34, 48, 61], textColor: 255, fontStyle: "bold" },
@@ -2693,22 +2707,27 @@ export default function Home() {
           }
         }
       });
-      cursorY = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 24;
+      cursorY = finalY() + 18;
 
-      // Hours → pay → bonus → pay + bonus, from AMG. Pay is what AMG paid
-      // for the hours (not the pallet total above): the bonus is pallets
-      // minus those wages, so pay + bonus is what the person takes home.
       if (amgSheets) {
-        const sheet = amgSheets[person.employeeId];
         const wage = sheet?.wage ?? null;
         const bonus = sheet ? calculateWeeklyBonus(person.report.summary.totalPay, sheet) : null;
+        summaryRows.push({
+          name: person.name,
+          yard: person.yards.map(locName).join(" / "),
+          pallets: person.report.summary.quantity,
+          earnings: person.report.summary.totalPay,
+          sheet,
+          bonus
+        });
 
         // Their AMG time clock for the week, laid out like AMG's Timecard:
         // every WORK / BRK / LUNCH segment with its in and out, a shaded day
-        // total under each day, and the week's totals at the end. Sits
-        // between the pallets and the pay block so Pay + Bonus stays last.
+        // total under each day, and the week's totals at the end. The title
+        // is part of the table so it can never be stranded on another page,
+        // and the table moves whole to the next page rather than splitting
+        // when it would fit there.
         if (sheet && sheet.days.length > 0) {
-          const h2 = (value: number) => value.toFixed(2);
           const clockBody: string[][] = [];
           const clockDayRows = new Set<number>();
           for (const day of sheet.days) {
@@ -2748,35 +2767,35 @@ export default function Home() {
             ]);
           }
           const clockTotalRow = clockBody.length;
-          clockBody.push([
-            "",
-            "",
-            "WEEK TOTAL",
-            "",
-            "",
-            h2(sheet.totals.hours),
-            h2(sheet.totals.reg),
-            h2(sheet.totals.ot1),
-            h2(sheet.totals.ot2),
-            h2(sheet.totals.unpaid),
-            h2(sheet.totals.total)
-          ]);
+          clockBody.push(["", "", "WEEK TOTAL", "", "", h2(sheet.totals.hours), h2(sheet.totals.reg), h2(sheet.totals.ot1), h2(sheet.totals.ot2), h2(sheet.totals.unpaid), h2(sheet.totals.total)]);
 
-          if (cursorY > pageHeight - 130) {
-            doc.addPage();
-            cursorY = 50;
-          }
-          doc.setFont("helvetica", "bold").setFontSize(9);
-          doc.text(`AMG TIME CLOCK${sheet.jobLabel ? ` — ${sheet.jobLabel}` : ""}`, margin, cursorY - 8);
           autoTable(doc, {
-            head: [["Date", "Day", "Cat", "In", "Out", "Hours", "REG", "OT1", "OT2", "Unpaid", "Total"]],
+            head: [
+              [
+                {
+                  content: `AMG TIME CLOCK${sheet.jobLabel ? ` — ${sheet.jobLabel}` : ""}`,
+                  colSpan: 11,
+                  styles: { halign: "left", fillColor: [255, 255, 255], textColor: [20, 20, 20], fontSize: 9, cellPadding: { top: 0, bottom: 4, left: 0, right: 0 }, lineWidth: 0 }
+                }
+              ],
+              ["Date", "Day", "Cat", "In", "Out", "Hours", "REG", "OT1", "OT2", "Unpaid", "Total"]
+            ],
             body: clockBody,
-            startY: cursorY - 2,
-            margin: { left: margin, right: margin },
+            startY: cursorY,
+            margin: tableMargin,
+            pageBreak: "avoid",
+            rowPageBreak: "avoid",
+            showHead: "everyPage",
             theme: "grid",
-            styles: { font: "helvetica", fontSize: 7.5, textColor: [20, 20, 20], cellPadding: 2.5, lineColor: grid.lineColor, lineWidth: grid.lineWidth, halign: "right" },
+            styles: { font: "helvetica", fontSize: 7.5, textColor: [20, 20, 20], cellPadding: 2.4, lineColor: grid.lineColor, lineWidth: grid.lineWidth, halign: "right" },
             headStyles: { fillColor: [34, 48, 61], textColor: 255, fontStyle: "bold", halign: "center" },
-            columnStyles: { 0: { halign: "left", cellWidth: 56 }, 1: { halign: "left", cellWidth: 34 }, 2: { halign: "left" }, 3: { halign: "center" }, 4: { halign: "center" } },
+            columnStyles: {
+              0: { halign: "left", cellWidth: 58 },
+              1: { halign: "left", cellWidth: 34 },
+              2: { halign: "left", cellWidth: 56 },
+              3: { halign: "center", cellWidth: 56 },
+              4: { halign: "center", cellWidth: 56 }
+            },
             didParseCell: (data) => {
               if (data.section !== "body") return;
               if (clockDayRows.has(data.row.index)) {
@@ -2785,94 +2804,140 @@ export default function Home() {
               }
               if (data.row.index === clockTotalRow) {
                 data.cell.styles.fontStyle = "bold";
-                data.cell.styles.fillColor = [229, 229, 229];
+                data.cell.styles.fillColor = [226, 229, 233];
               }
             }
           });
-          cursorY = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 24;
+          cursorY = finalY() + 14;
         }
 
+        // Hours → pay → bonus → pay + bonus, from AMG. Pay is what AMG paid
+        // for the hours (not the pallet total above): the bonus is pallets
+        // minus those wages, so pay + bonus is what the person takes home.
         const payBody: string[][] = [];
         if (!sheet || !wage || !bonus) {
-          payTotals.missing += 1;
-          payBody.push([
-            "Hours / pay / bonus",
-            !sheet ? "AMG hours not loaded — refresh bonuses and export again" : "No hourly wage on file in AMG for this week",
-            ""
-          ]);
+          payBody.push(["Hours / pay / bonus", !sheet ? "AMG hours not loaded — refresh bonuses and export again" : "No hourly wage on file in AMG for this week", ""]);
         } else {
-          const hours = sheet.totals.total;
           const tiers = [
-            `${sheet.totals.reg.toFixed(2)} reg × ${currency(wage.rate)}`,
-            sheet.totals.ot1 > 0 ? `${sheet.totals.ot1.toFixed(2)} OT × ${currency(wage.ot1Rate)}` : "",
-            sheet.totals.ot2 > 0 ? `${sheet.totals.ot2.toFixed(2)} DT × ${currency(wage.ot2Rate)}` : ""
+            `${h2(sheet.totals.reg)} reg × ${currency(wage.rate)}`,
+            sheet.totals.ot1 > 0 ? `${h2(sheet.totals.ot1)} OT × ${currency(wage.ot1Rate)}` : "",
+            sheet.totals.ot2 > 0 ? `${h2(sheet.totals.ot2)} DT × ${currency(wage.ot2Rate)}` : ""
           ].filter(Boolean);
-          const takeHome = Math.round((wage.gross + bonus.bonus) * 100) / 100;
-          payTotals.people += 1;
-          payTotals.hours += hours;
-          payTotals.pay += wage.gross;
-          payTotals.bonus += bonus.bonus;
-          payBody.push(["Hours worked", `Reg ${sheet.totals.reg.toFixed(2)} · OT ${sheet.totals.ot1.toFixed(2)} · DT ${sheet.totals.ot2.toFixed(2)}`, `${hours.toFixed(2)} hrs`]);
-          payBody.push(["Pay", tiers.join(" + "), currency(wage.gross)]);
+          payBody.push(["Hours worked", `Reg ${h2(sheet.totals.reg)}  ·  OT ${h2(sheet.totals.ot1)}  ·  DT ${h2(sheet.totals.ot2)}`, `${h2(sheet.totals.total)} hrs`]);
+          payBody.push(["Pay", tiers.join("  +  "), currency(wage.gross)]);
           payBody.push([
             "Bonus",
             `Pallets ${currency(bonus.pieceRate)} - productive wages ${currency(bonus.productiveWages)}` +
-              (bonus.breakPay > 0 ? ` (pay ${currency(bonus.gross)} less breaks ${currency(bonus.breakPay)})` : "") +
-              (bonus.atFloor ? " = below $0, so $0" : ""),
+              (bonus.breakPay > 0 ? `  (pay less ${currency(bonus.breakPay)} breaks)` : "") +
+              (bonus.atFloor ? ", floored at $0" : ""),
             currency(bonus.bonus)
           ]);
-          payBody.push(["PAY + BONUS", `${currency(wage.gross)} + ${currency(bonus.bonus)}`, currency(takeHome)]);
-        }
-        if (cursorY > pageHeight - 110) {
-          doc.addPage();
-          cursorY = 50;
+          payBody.push(["PAY + BONUS", `${currency(wage.gross)}  +  ${currency(bonus.bonus)}`, currency(wage.gross + bonus.bonus)]);
         }
         autoTable(doc, {
           body: payBody,
-          startY: cursorY - 16,
-          margin: { left: margin, right: margin },
+          startY: cursorY,
+          margin: tableMargin,
+          pageBreak: "avoid",
           theme: "grid",
-          styles: { font: "helvetica", fontSize: 8, textColor: [20, 20, 20], cellPadding: 3, lineColor: grid.lineColor, lineWidth: grid.lineWidth },
+          styles: { font: "helvetica", fontSize: 8.5, textColor: [20, 20, 20], cellPadding: 4, lineColor: grid.lineColor, lineWidth: grid.lineWidth },
           columnStyles: {
-            0: { cellWidth: 110, fontStyle: "bold" },
-            2: { halign: "right", cellWidth: 80, fontStyle: "bold" }
+            0: { cellWidth: 100, fontStyle: "bold" },
+            2: { halign: "right", cellWidth: 84, fontStyle: "bold" }
           },
           didParseCell: (data) => {
-            if (data.row.index === payBody.length - 1 && payBody.length > 1) {
+            if (payBody.length > 1 && data.row.index === payBody.length - 1) {
               data.cell.styles.fontStyle = "bold";
-              data.cell.styles.fontSize = 9;
+              data.cell.styles.fontSize = 10;
               data.cell.styles.fillColor = [206, 234, 214];
             }
           }
         });
-        cursorY = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 24;
+        cursorY = finalY() + 24;
+
+        // Any page this person ran onto says whose it is.
+        const lastPage = doc.getNumberOfPages();
+        for (let page = firstPage + 1; page <= lastPage; page++) {
+          doc.setPage(page);
+          doc.setFont("helvetica", "bold").setFontSize(10).setTextColor(90);
+          doc.text(`${personTitle} (continued)`, margin, 36);
+          doc.setTextColor(0);
+        }
+        doc.setPage(lastPage);
+      } else {
+        cursorY += 6;
       }
-    }
+    });
 
     // Grand total across everyone, like the report's closing gross line.
     const totalReport = buildReport(filteredEntries, palletTypes, employeeList, locationList, settings);
-    if (cursorY > pageHeight - 70) {
+    if (amgSheets) {
+      // A closing page with everyone side by side: pallets, hours, pay,
+      // bonus and pay + bonus, and the totals across the crew.
       doc.addPage();
-      cursorY = 50;
-    }
-    doc.setFont("helvetica", "bold").setFontSize(11);
-    doc.text(
-      `TOTAL — ${wholeNumber(totalReport.summary.quantity)} pallets — ${amgSheets ? "Pallet Earnings" : "Gross Paid"} ${currency(totalReport.summary.totalPay)}`,
-      margin,
-      cursorY
-    );
-    if (amgSheets && payTotals.people > 0) {
-      cursorY += 16;
-      doc.text(
-        `${payTotals.hours.toFixed(2)} hrs — Pay ${currency(payTotals.pay)} + Bonus ${currency(payTotals.bonus)} = Pay + Bonus ${currency(payTotals.pay + payTotals.bonus)}`,
-        margin,
-        cursorY
-      );
-      if (payTotals.missing > 0) {
-        cursorY += 13;
-        doc.setFont("helvetica", "normal").setFontSize(8);
-        doc.text(`${payTotals.missing} ${payTotals.missing === 1 ? "person" : "people"} not included — no AMG hours or wage for the week.`, margin, cursorY);
+      doc.setFont("helvetica", "bold").setFontSize(13).text("Week Summary", margin, 50);
+      doc.setFont("helvetica", "normal").setFontSize(9).text(rangeLabel, pageWidth - margin, 50, { align: "right" });
+      const total = { pallets: 0, earnings: 0, hours: 0, pay: 0, bonus: 0 };
+      const missingRows = new Set<number>();
+      const body: (string | { content: string; colSpan: number; styles: { halign: "left"; textColor: [number, number, number] } })[][] = [];
+      summaryRows.forEach((row) => {
+        total.pallets += row.pallets;
+        total.earnings += row.earnings;
+        const wage = row.sheet?.wage;
+        if (!row.sheet || !wage || !row.bonus) {
+          missingRows.add(body.length);
+          body.push([
+            row.name,
+            row.yard,
+            wholeNumber(row.pallets),
+            cash(row.earnings),
+            { content: !row.sheet ? "AMG hours not loaded" : "No hourly wage in AMG", colSpan: 4, styles: { halign: "left", textColor: [150, 60, 40] } }
+          ]);
+          return;
+        }
+        total.hours += row.sheet.totals.total;
+        total.pay += wage.gross;
+        total.bonus += row.bonus.bonus;
+        body.push([row.name, row.yard, wholeNumber(row.pallets), cash(row.earnings), h2(row.sheet.totals.total), currency(wage.gross), currency(row.bonus.bonus), currency(wage.gross + row.bonus.bonus)]);
+      });
+      const totalRow = body.length;
+      body.push(["TOTAL", "", wholeNumber(total.pallets), cash(total.earnings), h2(total.hours), currency(total.pay), currency(total.bonus), currency(total.pay + total.bonus)]);
+      autoTable(doc, {
+        head: [["Employee", "Yard", "Pallets", "Pallet Earnings", "Hours", "Pay", "Bonus", "Pay + Bonus"]],
+        body,
+        startY: 62,
+        margin: tableMargin,
+        theme: "grid",
+        styles: { font: "helvetica", fontSize: 8.5, textColor: [20, 20, 20], cellPadding: 4, lineColor: grid.lineColor, lineWidth: grid.lineWidth, halign: "right" },
+        headStyles: { fillColor: [34, 48, 61], textColor: 255, fontStyle: "bold", halign: "center" },
+        columnStyles: { 0: { halign: "left", fontStyle: "bold" }, 1: { halign: "left" }, 7: { fontStyle: "bold" } },
+        didParseCell: (data) => {
+          if (data.section !== "body") return;
+          if (data.row.index === totalRow) {
+            data.cell.styles.fontStyle = "bold";
+            data.cell.styles.fontSize = 9.5;
+            data.cell.styles.fillColor = [206, 234, 214];
+          } else if (data.row.index % 2 === 1) {
+            data.cell.styles.fillColor = [246, 248, 250];
+          }
+        }
+      });
+      if (missingRows.size > 0) {
+        doc.setFont("helvetica", "normal").setFontSize(8).setTextColor(90);
+        doc.text(
+          `Hours, pay and bonus totals leave out ${missingRows.size} ${missingRows.size === 1 ? "person" : "people"} with no AMG hours or wage for the week.`,
+          margin,
+          finalY() + 14
+        );
+        doc.setTextColor(0);
       }
+    } else {
+      if (cursorY > pageHeight - 70) {
+        doc.addPage();
+        cursorY = 50;
+      }
+      doc.setFont("helvetica", "bold").setFontSize(11);
+      doc.text(`TOTAL — ${wholeNumber(totalReport.summary.quantity)} pallets — Gross Paid ${cash(totalReport.summary.totalPay)}`, margin, cursorY);
     }
 
     // Page numbers.
@@ -2951,30 +3016,53 @@ export default function Home() {
         })
         .sort((a, b) => compareByLastName(a.name, b.name));
       const paySheet = workbook.addWorksheet("Pay & Bonus");
-      paySheet.columns = [22, 12, 11, 9, 9, 9, 9, 12, 13, 11, 13, 12, 13, 40].map((width) => ({ width }));
+      paySheet.columns = [22, 12, 11, 10, 10, 10, 10, 12, 13, 11, 13, 12, 14, 56].map((width) => ({ width }));
+      const payBorder = { style: "thin" as const, color: { argb: "FFB9C2CC" } };
+      const boxRow = (row: ReturnType<typeof paySheet.addRow>, columns: number) => {
+        for (let column = 1; column <= columns; column += 1) {
+          row.getCell(column).border = { top: payBorder, left: payBorder, bottom: payBorder, right: payBorder };
+        }
+      };
+      const title = paySheet.addRow([`Pay & Bonus — ${rangeLabel}`]);
+      title.font = { bold: true, size: 13 };
+      paySheet.addRow([]);
       const header = paySheet.addRow(["Employee", "Yard", "Hours Worked", "Reg Hrs", "OT Hrs", "DT Hrs", "Rate", "Pay (AMG)", "Pallet Earnings", "Break Pay", "Productive Wages", "Bonus", "Pay + Bonus", "Note"]);
-      header.font = { bold: true };
-      header.eachCell((cell) => (cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFDDE7EE" } }));
+      header.height = 32;
+      for (let column = 1; column <= 14; column += 1) {
+        const cell = header.getCell(column);
+        cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF22303D" } };
+        cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
+      }
+      boxRow(header, 14);
       const moneyFmt = '"$"#,##0.00';
       const firstDataRow = paySheet.rowCount + 1;
       for (const person of payPeople) {
         const sheet = amgSheets[person.id];
         const bonus = sheet ? calculateWeeklyBonus(person.pallets, sheet) : null;
+        let row;
         if (!sheet || !sheet.wage || !bonus) {
-          paySheet.addRow([person.name, person.yard, "", "", "", "", "", "", money(person.pallets), "", "", "", "",
+          row = paySheet.addRow([person.name, person.yard, null, null, null, null, null, null, money(person.pallets), null, null, null, null,
             !sheet ? "AMG hours not loaded — refresh bonuses and export again" : "No hourly wage on file in AMG for this week"]);
-          continue;
+          row.getCell(14).font = { color: { argb: "FF963C28" } };
+        } else {
+          row = paySheet.addRow([
+            person.name, person.yard,
+            sheet.totals.total, sheet.totals.reg, sheet.totals.ot1, sheet.totals.ot2,
+            sheet.wage.rate, money(sheet.wage.gross), money(person.pallets), money(bonus.breakPay)
+          ]);
+          const r = row.number;
+          row.getCell(11).value = { formula: `H${r}-J${r}`, result: bonus.productiveWages };
+          row.getCell(12).value = { formula: `MAX(0,I${r}-K${r})`, result: bonus.bonus };
+          row.getCell(13).value = { formula: `H${r}+L${r}`, result: money(sheet.wage.gross + bonus.bonus) };
+          row.getCell(14).value = bonus.atFloor ? "Pallets below productive wages, so bonus floors at $0" : "";
         }
-        const row = paySheet.addRow([
-          person.name, person.yard,
-          sheet.totals.total, sheet.totals.reg, sheet.totals.ot1, sheet.totals.ot2,
-          sheet.wage.rate, money(sheet.wage.gross), money(person.pallets), money(bonus.breakPay)
-        ]);
-        const r = row.number;
-        row.getCell(11).value = { formula: `H${r}-J${r}`, result: bonus.productiveWages };
-        row.getCell(12).value = { formula: `MAX(0,I${r}-K${r})`, result: bonus.bonus };
-        row.getCell(13).value = { formula: `H${r}+L${r}`, result: money(sheet.wage.gross + bonus.bonus) };
-        row.getCell(14).value = bonus.atFloor ? "Pallets below productive wages — bonus floors at $0" : "";
+        row.getCell(1).font = { bold: true };
+        row.getCell(13).font = { bold: true };
+        if ((row.number - firstDataRow) % 2 === 1) {
+          for (let column = 1; column <= 14; column += 1) row.getCell(column).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF3F7FA" } };
+        }
+        boxRow(row, 14);
       }
       const lastDataRow = paySheet.rowCount;
       if (lastDataRow >= firstDataRow) {
@@ -2984,15 +3072,15 @@ export default function Home() {
           totals.getCell(column).value = { formula: `SUM(${letter}${firstDataRow}:${letter}${lastDataRow})` };
         }
         totals.font = { bold: true };
-        totals.eachCell((cell) => (cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFCEEAD6" } }));
+        for (let column = 1; column <= 14; column += 1) totals.getCell(column).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFCEEAD6" } };
+        boxRow(totals, 14);
       }
       for (let r = firstDataRow; r <= paySheet.rowCount; r += 1) {
         const row = paySheet.getRow(r);
         for (const column of [3, 4, 5, 6]) row.getCell(column).numFmt = "0.00";
         for (const column of [7, 8, 9, 10, 11, 12, 13]) row.getCell(column).numFmt = moneyFmt;
       }
-      paySheet.getColumn(13).font = { bold: true };
-      paySheet.views = [{ state: "frozen", ySplit: 1 }];
+      paySheet.views = [{ state: "frozen", ySplit: header.number }];
     }
 
     addSheet(
@@ -3326,108 +3414,125 @@ export default function Home() {
       }
 
       // AMG time clock, then hours → pay → bonus → pay + bonus, same order as
-      // the Pay PDF. Columns 1–11 of this tab, under the pallets and supplies.
+      // the Pay PDF, in columns A–K under the pallets and supplies. Every cell
+      // is boxed and aligned so it reads as a clean table, not loose rows.
       if (amgSheets) {
         const sheet = amgSheets[employee.id];
-        gridSheet.addRow([]);
         const clockWidth = 11;
-        const band = (row: GridRow, argb: string) => {
-          for (let column = 1; column <= clockWidth; column += 1) {
-            row.getCell(column).fill = { type: "pattern", pattern: "solid", fgColor: { argb } };
-          }
+        const thin = { style: "thin" as const, color: { argb: "FFB9C2CC" } };
+        const box = (row: GridRow, from = 1, to = clockWidth) => {
+          for (let column = from; column <= to; column += 1) row.getCell(column).border = { top: thin, left: thin, bottom: thin, right: thin };
         };
+        const fill = (row: GridRow, argb: string, to = clockWidth) => {
+          for (let column = 1; column <= to; column += 1) row.getCell(column).fill = { type: "pattern", pattern: "solid", fgColor: { argb } };
+        };
+        gridSheet.addRow([]);
+        gridSheet.addRow([]);
         const clockTitle = gridSheet.addRow([`AMG TIME CLOCK${sheet?.jobLabel ? ` — ${sheet.jobLabel}` : ""}`]);
         clockTitle.font = { bold: true, size: 12 };
-        if (!sheet) {
-          gridSheet.addRow(["AMG hours not loaded — refresh bonuses and export again"]);
-        } else {
+        if (sheet) {
           const clockHead = gridSheet.addRow(["Date", "Day", "Cat", "In", "Out", "Hours", "REG", "OT1", "OT2", "Unpaid", "Total"]);
-          clockHead.font = { bold: true };
-          band(clockHead, "FFDDE7EE");
+          for (let column = 1; column <= clockWidth; column += 1) {
+            const cell = clockHead.getCell(column);
+            cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
+            cell.alignment = { horizontal: "center" };
+          }
+          fill(clockHead, "FF22303D");
+          box(clockHead);
           const usDay = (iso: string) => {
             const [year, month, day] = iso.split("-").map(Number);
             return `${month}/${day}/${year}`;
           };
           const weekday = (iso: string) => new Date(`${iso}T12:00:00`).toLocaleDateString("en-US", { weekday: "short" });
-          const hoursRow = (values: (string | number)[]) => {
+          const clockRow = (values: (string | number)[], shade?: string) => {
             const row = gridSheet.addRow(values);
-            for (let column = 6; column <= clockWidth; column += 1) row.getCell(column).numFmt = "0.00";
+            row.getCell(1).alignment = { horizontal: "left" };
+            row.getCell(2).alignment = { horizontal: "left" };
+            row.getCell(3).alignment = { horizontal: "left" };
+            row.getCell(4).alignment = { horizontal: "center" };
+            row.getCell(5).alignment = { horizontal: "center" };
+            for (let column = 6; column <= clockWidth; column += 1) {
+              row.getCell(column).numFmt = "0.00";
+              row.getCell(column).alignment = { horizontal: "right" };
+            }
+            if (shade) {
+              row.font = { bold: true };
+              fill(row, shade);
+            }
+            box(row);
             return row;
           };
           for (const day of sheet.days) {
             if (day.absent) {
-              const row = hoursRow([usDay(day.date), weekday(day.date), "Absent", "", "", 0, 0, 0, 0, 0, 0]);
-              row.font = { bold: true };
-              band(row, "FFEDF0F3");
+              clockRow([usDay(day.date), weekday(day.date), "Absent", "", "", 0, 0, 0, 0, 0, 0], "FFEDF0F3");
               continue;
             }
             day.segments.forEach((segment, index) => {
-              hoursRow([
+              clockRow([
                 index === 0 ? usDay(day.date) : "",
                 index === 0 ? weekday(day.date) : "",
                 segment.cat, segment.start, segment.stop,
                 segment.hours, segment.reg, segment.ot1, segment.ot2, segment.unpaid, segment.total
               ]);
             });
-            const dayRow = hoursRow([
-              usDay(day.date), weekday(day.date), "Day total", "", "",
-              day.summary.hours, day.summary.reg, day.summary.ot1, day.summary.ot2, day.summary.unpaid, day.summary.total
-            ]);
-            dayRow.font = { bold: true };
-            band(dayRow, "FFEDF0F3");
+            clockRow(
+              [usDay(day.date), weekday(day.date), "Day total", "", "", day.summary.hours, day.summary.reg, day.summary.ot1, day.summary.ot2, day.summary.unpaid, day.summary.total],
+              "FFEDF0F3"
+            );
           }
-          const weekRow = hoursRow([
-            "", "", "WEEK TOTAL", "", "",
-            sheet.totals.hours, sheet.totals.reg, sheet.totals.ot1, sheet.totals.ot2, sheet.totals.unpaid, sheet.totals.total
-          ]);
-          weekRow.font = { bold: true };
-          band(weekRow, "FFE5E5E5");
+          clockRow(["", "", "WEEK TOTAL", "", "", sheet.totals.hours, sheet.totals.reg, sheet.totals.ot1, sheet.totals.ot2, sheet.totals.unpaid, sheet.totals.total], "FFE2E5E9");
+        } else {
+          gridSheet.addRow(["AMG hours not loaded — refresh bonuses and export again"]).getCell(1).font = { italic: true, color: { argb: "FF963C28" } };
         }
 
-        // Hours → pay → bonus → pay + bonus. Label, the math, then the figure.
+        // Hours → pay → bonus → pay + bonus: the label in A, the figure in B,
+        // the working in C–K (merged, so it reads as one line).
         gridSheet.addRow([]);
         const pallets = buildReport(employeeEntries, palletTypes, employeeList, locationList, settings).summary.totalPay;
         const bonus = sheet ? calculateWeeklyBonus(pallets, sheet) : null;
         const wage = sheet?.wage ?? null;
-        // Figure in the wide column B; the math runs across the empty day
-        // columns from C so the full working stays readable.
-        const amountCol = 2;
+        const payLine = (label: string, value: number | { formula: string; result: number } | string, format: string | null, math: string, shade?: string) => {
+          const row = gridSheet.addRow([label, value, math]);
+          gridSheet.mergeCells(row.number, 3, row.number, clockWidth);
+          row.getCell(1).font = { bold: true };
+          row.getCell(2).font = { bold: true };
+          row.getCell(2).alignment = { horizontal: "right" };
+          if (format) row.getCell(2).numFmt = format;
+          row.getCell(3).alignment = { horizontal: "left", indent: 1 };
+          row.getCell(3).font = { color: { argb: "FF4A5561" } };
+          if (shade) {
+            fill(row, shade);
+            row.getCell(1).font = { bold: true, size: 12 };
+            row.getCell(2).font = { bold: true, size: 12 };
+          }
+          box(row);
+          return row;
+        };
         if (sheet && wage && bonus) {
           const tiers = [
             `${sheet.totals.reg.toFixed(2)} reg × ${currency(wage.rate)}`,
             sheet.totals.ot1 > 0 ? `${sheet.totals.ot1.toFixed(2)} OT × ${currency(wage.ot1Rate)}` : "",
             sheet.totals.ot2 > 0 ? `${sheet.totals.ot2.toFixed(2)} DT × ${currency(wage.ot2Rate)}` : ""
           ].filter(Boolean);
-          const line = (label: string, math: string, value: number, format: string) => {
-            const row = gridSheet.addRow([label]);
-            row.getCell(3).value = math;
-            row.getCell(amountCol).value = value;
-            row.getCell(amountCol).numFmt = format;
-            row.getCell(1).font = { bold: true };
-            row.getCell(amountCol).font = { bold: true };
-            row.getCell(amountCol).alignment = { horizontal: "right" };
-            return row;
-          };
-          line("Hours worked", `Reg ${sheet.totals.reg.toFixed(2)} · OT ${sheet.totals.ot1.toFixed(2)} · DT ${sheet.totals.ot2.toFixed(2)}`, sheet.totals.total, '0.00" hrs"');
-          const payRow = line("Pay", tiers.join(" + "), money(wage.gross), moneyFormat);
-          const bonusRow = line(
+          payLine("Hours worked", sheet.totals.total, '0.00" hrs"', `Reg ${sheet.totals.reg.toFixed(2)}  ·  OT ${sheet.totals.ot1.toFixed(2)}  ·  DT ${sheet.totals.ot2.toFixed(2)}`);
+          const payRow = payLine("Pay", money(wage.gross), moneyFormat, tiers.join("  +  "));
+          const bonusRow = payLine(
             "Bonus",
-            `Pallets ${currency(bonus.pieceRate)} - productive wages ${currency(bonus.productiveWages)}` +
-              (bonus.breakPay > 0 ? ` (pay ${currency(bonus.gross)} less breaks ${currency(bonus.breakPay)})` : "") +
-              (bonus.atFloor ? " = below $0, so $0" : ""),
             bonus.bonus,
-            moneyFormat
+            moneyFormat,
+            `Pallets ${currency(bonus.pieceRate)} - productive wages ${currency(bonus.productiveWages)}` +
+              (bonus.breakPay > 0 ? `  (pay less ${currency(bonus.breakPay)} breaks)` : "") +
+              (bonus.atFloor ? ", floored at $0" : "")
           );
-          const cellRef = (row: GridRow) => row.getCell(amountCol).address;
-          const takeHome = gridSheet.addRow(["PAY + BONUS"]);
-          takeHome.getCell(3).value = `${currency(wage.gross)} + ${currency(bonus.bonus)}`;
-          takeHome.getCell(amountCol).value = { formula: `${cellRef(payRow)}+${cellRef(bonusRow)}`, result: money(wage.gross + bonus.bonus) };
-          takeHome.getCell(amountCol).numFmt = moneyFormat;
-          takeHome.font = { bold: true, size: 12 };
-          takeHome.getCell(amountCol).alignment = { horizontal: "right" };
-          band(takeHome, "FFCEEAD6");
+          payLine(
+            "PAY + BONUS",
+            { formula: `${payRow.getCell(2).address}+${bonusRow.getCell(2).address}`, result: money(wage.gross + bonus.bonus) },
+            moneyFormat,
+            `${currency(wage.gross)}  +  ${currency(bonus.bonus)}`,
+            "FFCEEAD6"
+          );
         } else {
-          gridSheet.addRow(["Hours / pay / bonus", !sheet ? "AMG hours not loaded" : "No hourly wage on file in AMG for this week"]).getCell(1).font = { bold: true };
+          payLine("Hours / pay / bonus", "", null, !sheet ? "AMG hours not loaded" : "No hourly wage on file in AMG for this week");
         }
       }
     }
