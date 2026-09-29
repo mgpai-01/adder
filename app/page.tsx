@@ -2827,9 +2827,8 @@ export default function Home() {
           payBody.push(["Pay", tiers.join("  +  "), currency(wage.gross)]);
           payBody.push([
             "Bonus",
-            `Pallets ${currency(bonus.pieceRate)} - productive wages ${currency(bonus.productiveWages)}` +
-              (bonus.breakPay > 0 ? `  (pay less ${currency(bonus.breakPay)} breaks)` : "") +
-              (bonus.atFloor ? ", floored at $0" : ""),
+            `Pallets ${currency(bonus.pieceRate)}  -  Pay ${currency(bonus.gross)}` +
+              (bonus.atFloor ? `  =  ${currency(bonus.difference)}, so $0` : ""),
             currency(bonus.bonus)
           ]);
           payBody.push(["PAY + BONUS", `${currency(wage.gross)}  +  ${currency(bonus.bonus)}`, currency(wage.gross + bonus.bonus)]);
@@ -3002,7 +3001,7 @@ export default function Home() {
 
     // Everyone's hours → pay → bonus → pay + bonus on one tab. Pay is what AMG
     // paid for the hours; the bonus is pallet earnings less the wages for
-    // productive time (breaks carved out), floored at $0; pay + bonus is what
+    // the week, floored at $0; pay + bonus is what
     // the person takes home. The last three columns are live formulas so the
     // math can be checked (and re-run) in the sheet itself.
     if (amgSheets) {
@@ -3016,7 +3015,7 @@ export default function Home() {
         })
         .sort((a, b) => compareByLastName(a.name, b.name));
       const paySheet = workbook.addWorksheet("Pay & Bonus");
-      paySheet.columns = [22, 12, 11, 10, 10, 10, 10, 12, 13, 11, 13, 12, 14, 56].map((width) => ({ width }));
+      paySheet.columns = [22, 12, 11, 10, 10, 10, 10, 12, 13, 12, 14, 56].map((width) => ({ width }));
       const payBorder = { style: "thin" as const, color: { argb: "FFB9C2CC" } };
       const boxRow = (row: ReturnType<typeof paySheet.addRow>, columns: number) => {
         for (let column = 1; column <= columns; column += 1) {
@@ -3026,15 +3025,16 @@ export default function Home() {
       const title = paySheet.addRow([`Pay & Bonus — ${rangeLabel}`]);
       title.font = { bold: true, size: 13 };
       paySheet.addRow([]);
-      const header = paySheet.addRow(["Employee", "Yard", "Hours Worked", "Reg Hrs", "OT Hrs", "DT Hrs", "Rate", "Pay (AMG)", "Pallet Earnings", "Break Pay", "Productive Wages", "Bonus", "Pay + Bonus", "Note"]);
+      const header = paySheet.addRow(["Employee", "Yard", "Hours Worked", "Reg Hrs", "OT Hrs", "DT Hrs", "Rate", "Pay (AMG)", "Pallet Earnings", "Bonus", "Pay + Bonus", "Note"]);
+      const cols = 12;
       header.height = 32;
-      for (let column = 1; column <= 14; column += 1) {
+      for (let column = 1; column <= cols; column += 1) {
         const cell = header.getCell(column);
         cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
         cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF22303D" } };
         cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
       }
-      boxRow(header, 14);
+      boxRow(header, cols);
       const moneyFmt = '"$"#,##0.00';
       const firstDataRow = paySheet.rowCount + 1;
       for (const person of payPeople) {
@@ -3042,43 +3042,43 @@ export default function Home() {
         const bonus = sheet ? calculateWeeklyBonus(person.pallets, sheet) : null;
         let row;
         if (!sheet || !sheet.wage || !bonus) {
-          row = paySheet.addRow([person.name, person.yard, null, null, null, null, null, null, money(person.pallets), null, null, null, null,
+          row = paySheet.addRow([person.name, person.yard, null, null, null, null, null, null, money(person.pallets), null, null,
             !sheet ? "AMG hours not loaded — refresh bonuses and export again" : "No hourly wage on file in AMG for this week"]);
-          row.getCell(14).font = { color: { argb: "FF963C28" } };
+          row.getCell(12).font = { color: { argb: "FF963C28" } };
         } else {
           row = paySheet.addRow([
             person.name, person.yard,
             sheet.totals.total, sheet.totals.reg, sheet.totals.ot1, sheet.totals.ot2,
-            sheet.wage.rate, money(sheet.wage.gross), money(person.pallets), money(bonus.breakPay)
+            sheet.wage.rate, money(sheet.wage.gross), money(person.pallets)
           ]);
           const r = row.number;
-          row.getCell(11).value = { formula: `H${r}-J${r}`, result: bonus.productiveWages };
-          row.getCell(12).value = { formula: `MAX(0,I${r}-K${r})`, result: bonus.bonus };
-          row.getCell(13).value = { formula: `H${r}+L${r}`, result: money(sheet.wage.gross + bonus.bonus) };
-          row.getCell(14).value = bonus.atFloor ? "Pallets below productive wages, so bonus floors at $0" : "";
+          // Bonus = Pallet earnings - AMG pay, never below $0.
+          row.getCell(10).value = { formula: `MAX(0,I${r}-H${r})`, result: bonus.bonus };
+          row.getCell(11).value = { formula: `H${r}+J${r}`, result: money(sheet.wage.gross + bonus.bonus) };
+          row.getCell(12).value = bonus.atFloor ? "Pallets below AMG pay, so bonus is $0 and AMG pay is kept" : "";
         }
         row.getCell(1).font = { bold: true };
-        row.getCell(13).font = { bold: true };
+        row.getCell(11).font = { bold: true };
         if ((row.number - firstDataRow) % 2 === 1) {
-          for (let column = 1; column <= 14; column += 1) row.getCell(column).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF3F7FA" } };
+          for (let column = 1; column <= cols; column += 1) row.getCell(column).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF3F7FA" } };
         }
-        boxRow(row, 14);
+        boxRow(row, cols);
       }
       const lastDataRow = paySheet.rowCount;
       if (lastDataRow >= firstDataRow) {
         const totals = paySheet.addRow(["TOTAL"]);
-        for (const column of [3, 4, 5, 6, 8, 9, 10, 11, 12, 13]) {
+        for (const column of [3, 4, 5, 6, 8, 9, 10, 11]) {
           const letter = String.fromCharCode(64 + column);
           totals.getCell(column).value = { formula: `SUM(${letter}${firstDataRow}:${letter}${lastDataRow})` };
         }
         totals.font = { bold: true };
-        for (let column = 1; column <= 14; column += 1) totals.getCell(column).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFCEEAD6" } };
-        boxRow(totals, 14);
+        for (let column = 1; column <= cols; column += 1) totals.getCell(column).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFCEEAD6" } };
+        boxRow(totals, cols);
       }
       for (let r = firstDataRow; r <= paySheet.rowCount; r += 1) {
         const row = paySheet.getRow(r);
         for (const column of [3, 4, 5, 6]) row.getCell(column).numFmt = "0.00";
-        for (const column of [7, 8, 9, 10, 11, 12, 13]) row.getCell(column).numFmt = moneyFmt;
+        for (const column of [7, 8, 9, 10, 11]) row.getCell(column).numFmt = moneyFmt;
       }
       paySheet.views = [{ state: "frozen", ySplit: header.number }];
     }
@@ -3520,9 +3520,8 @@ export default function Home() {
             "Bonus",
             bonus.bonus,
             moneyFormat,
-            `Pallets ${currency(bonus.pieceRate)} - productive wages ${currency(bonus.productiveWages)}` +
-              (bonus.breakPay > 0 ? `  (pay less ${currency(bonus.breakPay)} breaks)` : "") +
-              (bonus.atFloor ? ", floored at $0" : "")
+            `Pallets ${currency(bonus.pieceRate)}  -  Pay ${currency(bonus.gross)}` +
+              (bonus.atFloor ? `  =  ${currency(bonus.difference)}, so $0` : "")
           );
           payLine(
             "PAY + BONUS",
@@ -7681,7 +7680,7 @@ function ProductionGrid({
           <div>
             <p className="text-sm font-black uppercase tracking-wide text-steel-900">Weekly bonus</p>
             <p className="text-xs font-bold text-steel-500">
-              Pallet earnings less the AMG wages already paid for productive time. Never below $0.
+              Pallet earnings less the AMG pay for the week. Never below $0.
             </p>
           </div>
           <button
@@ -8051,8 +8050,7 @@ function ProductionGrid({
                     <td className="p-2 text-center">{currency(employeeReport.summary.totalPay)}</td>
                   </tr>
                   {/* Weekly bonus, sitting directly under Daily Totals: this
-                      week's pallet earnings less the AMG wages already paid for
-                      productive time. Only shown once the hours have been
+                      week's pallet earnings less the AMG pay for the week. Only shown once the hours have been
                       pulled, so it never displays a figure it can't stand up. */}
                   {(() => {
                       const state = amgRowData[employee.id];
@@ -8092,7 +8090,7 @@ function ProductionGrid({
                             Weekly Bonus
                             {bonus.atFloor && (
                               <span className="ml-2 text-xs font-bold normal-case tracking-normal">
-                                pallets came in {currency(Math.abs(bonus.difference))} under hourly — full hourly pay kept
+                                pallets came in {currency(Math.abs(bonus.difference))} under AMG pay — full AMG pay kept
                               </span>
                             )}
                           </td>
