@@ -6409,9 +6409,10 @@ function ProductionGrid({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedWeek]);
 
-  // Weekly bonus. Each repairer's hours come live from AMG, so the crew is
-  // pulled in small batches rather than all at once — AMG is an external clock
-  // and a full yard hitting it together is a lot to ask of it.
+  // Weekly bonus. Each repairer's hours come live from AMG. The whole crew is
+  // pulled in ONE request: the server logs into AMG once and asks for everyone
+  // in a single batched call per endpoint, so every row fills in at the same
+  // moment and AMG sees a handful of calls instead of several per person.
   //
   // Counts in-flight batches instead of a boolean: the auto-load effect can
   // fire again (crew changes, week flips) while an earlier batch is still
@@ -6426,16 +6427,60 @@ function ProductionGrid({
     async (employeeIds: string[], week: string) => {
       if (employeeIds.length === 0) return;
       setBonusBatches((count) => count + 1);
+      const ids = Array.from(new Set(employeeIds));
+      setAmgRowData((current) => {
+        const next = { ...current };
+        for (const id of ids) next[id] = { ...current[id], loading: true, error: undefined };
+        return next;
+      });
+      const failAll = (error: string) =>
+        setAmgRowData((current) => {
+          const next = { ...current };
+          for (const id of ids) next[id] = { loading: false, error };
+          return next;
+        });
       try {
-        const batchSize = 3;
-        for (let index = 0; index < employeeIds.length; index += batchSize) {
-          await Promise.all(employeeIds.slice(index, index + batchSize).map((id) => loadAmgRow(id, week)));
+        const response = await authedFetch("/api/timecards/live", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ weekStart: week, employeeIds: ids })
+        });
+        const result = (await response.json()) as {
+          ok?: boolean;
+          error?: string;
+          results?: Record<string, { ok: true; sheet: import("@/lib/amgTime").TimecardSheet } | { ok: false; error: string }>;
+        };
+        if (!response.ok || !result.ok || !result.results) {
+          failAll(result.error || "AMG didn't answer — try again.");
+          return;
         }
+        const rows = result.results;
+        // One state update for the whole crew, so every row appears together.
+        setAmgRowData((current) => {
+          const next = { ...current };
+          for (const id of ids) {
+            const row = rows[id];
+            if (row?.ok) {
+              next[id] = { loading: false, sheet: row.sheet };
+            } else {
+              next[id] = {
+                loading: false,
+                error:
+                  row?.error === "not-matched"
+                    ? "Couldn't find this person in AMG by name — upload one AMG Timecard PDF to match them once."
+                    : row?.error || "AMG didn't answer — try again."
+              };
+            }
+          }
+          return next;
+        });
+      } catch {
+        failAll("AMG didn't answer — check the connection and try again.");
       } finally {
         setBonusBatches((count) => count - 1);
       }
     },
-    [loadAmgRow]
+    []
   );
 
   // Forces a fresh pull for everyone currently shown, ignoring what's cached.

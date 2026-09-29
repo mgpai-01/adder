@@ -20,36 +20,63 @@ export async function checkTimecardAccess(
   request: Request,
   employeeId: string
 ): Promise<{ ok: true; employee: Employee } | { ok: false; status: number; error: string }> {
+  const result = await checkTimecardAccessMany(request, [employeeId]);
+  if (!result.ok) return result;
+  const employee = result.allowed[0];
+  if (employee) return { ok: true, employee };
+  const denied = result.denied[0];
+  return { ok: false, status: denied?.status ?? 404, error: denied?.error ?? "Unknown person" };
+}
+
+// Same rule for a whole crew in one pass: signs the caller in once, reads the
+// roster once, looks their profile up once, then sorts every id into allowed
+// or denied (with the reason the single check would have given).
+export async function checkTimecardAccessMany(
+  request: Request,
+  employeeIds: string[]
+): Promise<
+  | { ok: true; allowed: Employee[]; denied: Array<{ id: string; status: number; error: string }> }
+  | { ok: false; status: number; error: string }
+> {
   const check = await requireCaller(request);
   if (!check.ok) return { ok: false, status: check.status, error: check.error };
 
   const employees = withoutDeleted(await readCloudEmployees());
-  const employee = employees.find((item) => item.id === employeeId);
-  if (!employee) return { ok: false, status: 404, error: "Unknown person" };
+  const byId = new Map(employees.map((item) => [item.id, item]));
 
+  let yards: string[] = [];
+  let ownName = "";
   if (check.role !== "admin") {
     const { data: profile } = await check.supabase
       .from("profiles")
       .select("full_name, manager_yard")
       .eq("id", check.userId)
       .maybeSingle();
-    if (check.role === "supervisor") {
-      const yards = String((profile as { manager_yard?: string } | null)?.manager_yard ?? "")
-        .split(",")
-        .map((item) => item.trim())
-        .filter(Boolean);
-      if (!yards.includes(employee.locationId)) {
-        return { ok: false, status: 403, error: "This person is not in your yard" };
-      }
-    } else {
-      const ownName = normalizePersonName(String((profile as { full_name?: string } | null)?.full_name ?? ""));
-      if (!ownName || ownName !== normalizePersonName(employee.name)) {
-        return { ok: false, status: 403, error: "You can only open your own time card" };
-      }
-    }
+    yards = String((profile as { manager_yard?: string } | null)?.manager_yard ?? "")
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
+    ownName = normalizePersonName(String((profile as { full_name?: string } | null)?.full_name ?? ""));
   }
 
-  return { ok: true, employee };
+  const allowed: Employee[] = [];
+  const denied: Array<{ id: string; status: number; error: string }> = [];
+  for (const id of employeeIds) {
+    const employee = byId.get(id);
+    if (!employee) {
+      denied.push({ id, status: 404, error: "Unknown person" });
+    } else if (check.role === "admin") {
+      allowed.push(employee);
+    } else if (check.role === "supervisor") {
+      if (yards.includes(employee.locationId)) allowed.push(employee);
+      else denied.push({ id, status: 403, error: "This person is not in your yard" });
+    } else if (ownName && ownName === normalizePersonName(employee.name)) {
+      allowed.push(employee);
+    } else {
+      denied.push({ id, status: 403, error: "You can only open your own time card" });
+    }
+  }
+  return { ok: true, allowed, denied };
 }
 
 export function normalizePersonName(name: string): string {
