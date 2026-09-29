@@ -2702,6 +2702,96 @@ export default function Home() {
         const sheet = amgSheets[person.employeeId];
         const wage = sheet?.wage ?? null;
         const bonus = sheet ? calculateWeeklyBonus(person.report.summary.totalPay, sheet) : null;
+
+        // Their AMG time clock for the week, laid out like AMG's Timecard:
+        // every WORK / BRK / LUNCH segment with its in and out, a shaded day
+        // total under each day, and the week's totals at the end. Sits
+        // between the pallets and the pay block so Pay + Bonus stays last.
+        if (sheet && sheet.days.length > 0) {
+          const h2 = (value: number) => value.toFixed(2);
+          const clockBody: string[][] = [];
+          const clockDayRows = new Set<number>();
+          for (const day of sheet.days) {
+            if (day.absent) {
+              clockDayRows.add(clockBody.length);
+              clockBody.push([usDate(day.date), dayName(day.date), "Absent", "", "", "0.00", "0.00", "0.00", "0.00", "0.00", "0.00"]);
+              continue;
+            }
+            day.segments.forEach((segment, index) => {
+              clockBody.push([
+                index === 0 ? usDate(day.date) : "",
+                index === 0 ? dayName(day.date) : "",
+                segment.cat,
+                segment.start,
+                segment.stop,
+                h2(segment.hours),
+                h2(segment.reg),
+                h2(segment.ot1),
+                h2(segment.ot2),
+                h2(segment.unpaid),
+                h2(segment.total)
+              ]);
+            });
+            clockDayRows.add(clockBody.length);
+            clockBody.push([
+              usDate(day.date),
+              dayName(day.date),
+              "Day total",
+              "",
+              "",
+              h2(day.summary.hours),
+              h2(day.summary.reg),
+              h2(day.summary.ot1),
+              h2(day.summary.ot2),
+              h2(day.summary.unpaid),
+              h2(day.summary.total)
+            ]);
+          }
+          const clockTotalRow = clockBody.length;
+          clockBody.push([
+            "",
+            "",
+            "WEEK TOTAL",
+            "",
+            "",
+            h2(sheet.totals.hours),
+            h2(sheet.totals.reg),
+            h2(sheet.totals.ot1),
+            h2(sheet.totals.ot2),
+            h2(sheet.totals.unpaid),
+            h2(sheet.totals.total)
+          ]);
+
+          if (cursorY > pageHeight - 130) {
+            doc.addPage();
+            cursorY = 50;
+          }
+          doc.setFont("helvetica", "bold").setFontSize(9);
+          doc.text(`AMG TIME CLOCK${sheet.jobLabel ? ` — ${sheet.jobLabel}` : ""}`, margin, cursorY - 8);
+          autoTable(doc, {
+            head: [["Date", "Day", "Cat", "In", "Out", "Hours", "REG", "OT1", "OT2", "Unpaid", "Total"]],
+            body: clockBody,
+            startY: cursorY - 2,
+            margin: { left: margin, right: margin },
+            theme: "grid",
+            styles: { font: "helvetica", fontSize: 7.5, textColor: [20, 20, 20], cellPadding: 2.5, lineColor: grid.lineColor, lineWidth: grid.lineWidth, halign: "right" },
+            headStyles: { fillColor: [34, 48, 61], textColor: 255, fontStyle: "bold", halign: "center" },
+            columnStyles: { 0: { halign: "left", cellWidth: 56 }, 1: { halign: "left", cellWidth: 34 }, 2: { halign: "left" }, 3: { halign: "center" }, 4: { halign: "center" } },
+            didParseCell: (data) => {
+              if (data.section !== "body") return;
+              if (clockDayRows.has(data.row.index)) {
+                data.cell.styles.fontStyle = "bold";
+                data.cell.styles.fillColor = [237, 240, 243];
+              }
+              if (data.row.index === clockTotalRow) {
+                data.cell.styles.fontStyle = "bold";
+                data.cell.styles.fillColor = [229, 229, 229];
+              }
+            }
+          });
+          cursorY = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 24;
+        }
+
         const payBody: string[][] = [];
         if (!sheet || !wage || !bonus) {
           payTotals.missing += 1;
