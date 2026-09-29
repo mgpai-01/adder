@@ -6397,17 +6397,12 @@ function ProductionGrid({
     if (opening) void loadAmgRow(employeeId, selectedWeek);
   }
 
-  // Week flipped while some AMG rows are open: pull that week's numbers for
-  // each of them, so the drop-down always mirrors the week on screen.
+  // Open drop-downs follow the week on screen: when the week flips, they're
+  // re-pulled as part of the one crew-wide request below, not one by one.
   const amgOpenIdsKey = Object.keys(amgRowOpen)
     .filter((id) => amgRowOpen[id])
     .sort()
     .join(",");
-  useEffect(() => {
-    if (!amgOpenIdsKey) return;
-    for (const id of amgOpenIdsKey.split(",")) void loadAmgRow(id, selectedWeek);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedWeek]);
 
   // Weekly bonus. Each repairer's hours come live from AMG. The whole crew is
   // pulled in ONE request: the server logs into AMG once and asks for everyone
@@ -6830,19 +6825,31 @@ function ProductionGrid({
     ? sortedCrew.filter((row) => row.employee.name.toLowerCase().includes(searchQuery.trim().toLowerCase()))
     : sortedCrew;
 
-  // Bonus rows fill themselves in. Pulls only the people not already loaded
-  // for the week on screen, so re-renders and narrowing the search don't send
-  // AMG the same request twice; flipping the week resets and pulls again.
+  // Bonus rows fill themselves in, everyone in ONE request. Pulls only the
+  // people not already loaded for the week on screen (plus any open AMG
+  // drop-downs), so re-renders and narrowing the search don't send AMG the
+  // same request twice; flipping the week resets and pulls again.
+  //
+  // Waits a beat for the crew list to settle before pulling: entries can
+  // arrive in waves (cache, then cloud), and pulling on each wave would split
+  // the crew across several requests instead of one.
   const crewIdsKey = visibleCrew.map((row) => row.employee.id).join(",");
   useEffect(() => {
-    if (!crewIdsKey) return;
-    if (bonusLoaded.current.week !== selectedWeek) {
-      bonusLoaded.current = { week: selectedWeek, ids: new Set<string>() };
-    }
-    const pending = crewIdsKey.split(",").filter((id) => !bonusLoaded.current.ids.has(id));
-    if (pending.length === 0) return;
-    for (const id of pending) bonusLoaded.current.ids.add(id);
-    void calculateBonuses(pending, selectedWeek);
+    if (!crewIdsKey && !amgOpenIdsKey) return;
+    const timer = window.setTimeout(() => {
+      if (bonusLoaded.current.week !== selectedWeek) {
+        bonusLoaded.current = { week: selectedWeek, ids: new Set<string>() };
+      }
+      const wanted = new Set([...crewIdsKey.split(","), ...amgOpenIdsKey.split(",")].filter(Boolean));
+      const pending = Array.from(wanted).filter((id) => !bonusLoaded.current.ids.has(id));
+      if (pending.length === 0) return;
+      for (const id of pending) bonusLoaded.current.ids.add(id);
+      void calculateBonuses(pending, selectedWeek);
+    }, 400);
+    return () => window.clearTimeout(timer);
+    // Opening a drop-down pulls that row itself (toggleAmgRow), so only the
+    // week flip needs the open rows here, not every open/close.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [crewIdsKey, selectedWeek, calculateBonuses]);
 
   // Supplies spend for everyone currently shown — so narrowing to one yard or
