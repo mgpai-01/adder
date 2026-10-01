@@ -2811,9 +2811,9 @@ export default function Home() {
           cursorY = finalY() + 14;
         }
 
-        // Hours → pay → bonus → pay + bonus, from AMG. Pay is what AMG paid
-        // for the hours (not the pallet total above): the bonus is pallets
-        // minus those wages, so pay + bonus is what the person takes home.
+        // Hours → total gross paid → bonus → gross + bonus, from AMG. The bonus
+        // is the AMG total gross paid less the pallet earnings, floored at $0
+        // (changed Oct 2026 at MGP's direction).
         const payBody: string[][] = [];
         if (!sheet || !wage || !bonus) {
           payBody.push(["Hours / total gross paid / bonus", !sheet ? "AMG hours not loaded — refresh bonuses and export again" : "No hourly wage on file in AMG for this week", ""]);
@@ -2827,7 +2827,7 @@ export default function Home() {
           payBody.push(["Total gross paid", tiers.join("  +  "), currency(wage.gross)]);
           payBody.push([
             "Bonus",
-            `Pallets ${currency(bonus.pieceRate)}  -  Total gross paid ${currency(bonus.gross)}` +
+            `Total gross paid ${currency(bonus.gross)}  -  Pallets ${currency(bonus.pieceRate)}` +
               (bonus.atFloor ? `  =  ${currency(bonus.difference)}, so $0` : ""),
             currency(bonus.bonus)
           ]);
@@ -3052,10 +3052,10 @@ export default function Home() {
             sheet.wage.rate, money(sheet.wage.gross), money(person.pallets)
           ]);
           const r = row.number;
-          // Bonus = Pallet earnings - AMG pay, never below $0.
-          row.getCell(10).value = { formula: `MAX(0,I${r}-H${r})`, result: bonus.bonus };
+          // Bonus = AMG Total Gross Paid - pallet earnings, never below $0.
+          row.getCell(10).value = { formula: `MAX(0,H${r}-I${r})`, result: bonus.bonus };
           row.getCell(11).value = { formula: `H${r}+J${r}`, result: money(sheet.wage.gross + bonus.bonus) };
-          row.getCell(12).value = bonus.atFloor ? "Pallets below the AMG total gross paid, so bonus is $0 and the full AMG gross is kept" : "";
+          row.getCell(12).value = bonus.atFloor ? "Pallets at or above the AMG total gross paid, so bonus is $0" : "";
         }
         row.getCell(1).font = { bold: true };
         row.getCell(11).font = { bold: true };
@@ -3520,7 +3520,7 @@ export default function Home() {
             "Bonus",
             bonus.bonus,
             moneyFormat,
-            `Pallets ${currency(bonus.pieceRate)}  -  Total gross paid ${currency(bonus.gross)}` +
+            `Total gross paid ${currency(bonus.gross)}  -  Pallets ${currency(bonus.pieceRate)}` +
               (bonus.atFloor ? `  =  ${currency(bonus.difference)}, so $0` : "")
           );
           payLine(
@@ -7680,7 +7680,7 @@ function ProductionGrid({
           <div>
             <p className="text-sm font-black uppercase tracking-wide text-steel-900">Weekly bonus</p>
             <p className="text-xs font-bold text-steel-500">
-              Pallet earnings less the AMG total gross paid for the week. Never below $0.
+              AMG total gross paid less the pallet earnings for the week. Never below $0.
             </p>
           </div>
           <button
@@ -8050,7 +8050,7 @@ function ProductionGrid({
                     <td className="p-2 text-center">{currency(employeeReport.summary.totalPay)}</td>
                   </tr>
                   {/* Weekly bonus, sitting directly under Daily Totals: this
-                      week's pallet earnings less the AMG total gross paid for the week. Only shown once the hours have been
+                      week's AMG total gross paid less the pallet earnings for the week. Only shown once the hours have been
                       pulled, so it never displays a figure it can't stand up. */}
                   {(() => {
                       const state = amgRowData[employee.id];
@@ -8090,7 +8090,7 @@ function ProductionGrid({
                             Weekly Bonus
                             {bonus.atFloor && (
                               <span className="ml-2 text-xs font-bold normal-case tracking-normal">
-                                pallets came in {currency(Math.abs(bonus.difference))} under the AMG total gross paid — full AMG pay kept
+                                pallets came in {currency(Math.abs(bonus.difference))} over the AMG total gross paid — bonus is $0
                               </span>
                             )}
                           </td>

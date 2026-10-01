@@ -185,19 +185,17 @@ export type BonusBreakdown = {
 };
 
 /**
- * Weekly bonus for one repairer: what their pallets earned, less everything
- * AMG already paid them for the week. This matches how MGP figures it on the
- * AMG timecard (e.g. $1,011.00 pallets - $844.58 AMG pay = $166.42 bonus), so
- * AMG pay + bonus comes back to the pallet total.
+ * Weekly bonus for one repairer: the AMG Total Gross Paid for the week, less
+ * what their pallets earned (changed Oct 2026 at MGP's direction — it was the
+ * other way around before: pallets less AMG pay).
  *
  * Note (decided Sep 2026): paid rest breaks are NOT carved out of AMG pay
  * first. Under CA piece-rate rules (Lab. Code 226.2) rest periods must be
- * paid separately from piece-rate pay, and this method lets break pay be
- * absorbed into the pallet earnings whenever pallets beat hourly. MGP chose
- * this method knowing that; revisit with payroll/legal before changing it.
+ * paid separately from piece-rate pay. MGP chose this method knowing that;
+ * revisit with payroll/legal before changing it.
  *
- * The bonus floors at zero — a repairer whose pallets don't cover their hourly
- * pay keeps their full hourly pay, and nothing is clawed back.
+ * The bonus floors at zero — when pallet earnings meet or beat the AMG gross,
+ * the bonus is $0 and nothing is clawed back.
  *
  * Returns null when AMG has no wage data for the week, so the caller can say
  * so instead of showing a bonus computed from a missing rate.
@@ -206,7 +204,7 @@ export function calculateWeeklyBonus(pieceRate: number, sheet: TimecardSheet): B
   const wage = sheet.wage;
   if (!wage) return null;
   const round2 = (value: number) => Math.round(value * 100) / 100;
-  const difference = round2(pieceRate - wage.gross);
+  const difference = round2(wage.gross - pieceRate);
   return {
     pieceRate: round2(pieceRate),
     gross: round2(wage.gross),
