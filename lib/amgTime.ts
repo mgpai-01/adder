@@ -23,6 +23,13 @@ type AmgEmployeeShort = {
 
 type AmgTimecardLine = {
   Date?: string;
+  // Each line is one report segment (a WORK/BRK/LUNCH stretch): AMG's own
+  // start/stop, category and REG/OT/Unpaid split — the same numbers its
+  // printed Timecard shows, so they are ported through untouched.
+  StartDate?: string;
+  StopDate?: string;
+  CategoryId?: number;
+  JobId?: number;
   Reg?: number;
   OT1?: number;
   OT2?: number;
@@ -34,6 +41,10 @@ type AmgTimecardLine = {
   // synced hours match the plain (no-bonus) Timecard report.
   MiscEntry?: { CategoryId?: number; Hours?: number; Amount?: number } | null;
 };
+
+// GetCategories rows — field names vary by AMG version, so every plausible
+// name field is read and the first non-empty one wins.
+type AmgCategory = { Id?: number; Name?: string; Code?: string; Abbreviation?: string; Description?: string };
 
 type AmgEmployeeTimecards = {
   EmployeeId: number;
@@ -107,7 +118,8 @@ type AmgEmployeeWage = {
 type AmgJob = { Id?: number; Code?: string; Name?: string };
 
 export type TimecardSegment = {
-  cat: "WORK" | "BRK" | "LUNCH";
+  // The category text as AMG names it (WORK / BRK / LUNCH on MGP's setup).
+  cat: string;
   start: string;
   stop: string;
   job: string;
@@ -214,6 +226,9 @@ export async function fetchAmgTimecardSheets(
   const sheets = new Map<string, TimecardSheet>();
   if (people.length === 0) return sheets;
   const ids = people.map((person) => person.Id);
+  // Category ids seen on timecard lines, resolved to names (WORK/BRK/LUNCH)
+  // in one call below so segments carry AMG's own labels.
+  const categoryIds = new Set<number>();
 
   const range = `startDate=${encodeURIComponent(amgDate(startDate))}&endDate=${encodeURIComponent(amgDate(endDate))}`;
   const [timecards, transactions, wages] = await Promise.all([
@@ -222,10 +237,13 @@ export async function fetchAmgTimecardSheets(
     amgPost<AmgEmployeeWage[]>(cookie, "/JsonApi/Wage/GetEmployeeWages", ids).catch(() => [])
   ]);
 
-  // Pass 1: each person's day totals, punches and job ids.
+  // Pass 1: each person's day totals, segment lines, punches and job ids.
   const gathered = people.map((employee) => {
-    // AMG's own daily totals (and absence markers), bonus lines excluded.
+    // AMG's own daily totals (and absence markers), bonus lines excluded. The
+    // lines themselves are kept too: each is one WORK/BRK/LUNCH segment with
+    // AMG's exact start/stop and REG/OT split — the printed report's rows.
     const dayTotals = new Map<string, { reg: number; ot1: number; ot2: number; unpaid: number; absent: boolean }>();
+    const linesByDay = new Map<string, AmgTimecardLine[]>();
     const jobIds = new Set<number>();
     for (const line of timecards.find((item) => item.EmployeeId === employee.Id)?.Timecards ?? []) {
       if (!line.Date || line.MiscEntry) continue;
@@ -239,9 +257,13 @@ export async function fetchAmgTimecardSheets(
         bucket.ot2 += (line.OT2 ?? 0) + (line.OT3 ?? 0);
         bucket.unpaid += line.Unpaid ?? 0;
         bucket.absent = false;
+        const list = linesByDay.get(date) ?? [];
+        list.push(line);
+        linesByDay.set(date, list);
+        if (typeof line.CategoryId === "number") categoryIds.add(line.CategoryId);
       }
       dayTotals.set(date, bucket);
-      const jobId = (line as { JobId?: number }).JobId;
+      const jobId = line.JobId;
       if (typeof jobId === "number" && jobId > 0) jobIds.add(jobId);
     }
 
@@ -256,7 +278,7 @@ export async function fetchAmgTimecardSheets(
       punchesByDay.set(date, list);
       if (typeof punch.JobId === "number" && punch.JobId > 0) jobIds.add(punch.JobId);
     }
-    return { employee, dayTotals, punchesByDay, jobIds };
+    return { employee, dayTotals, linesByDay, punchesByDay, jobIds };
   });
 
   // Job labels for everyone in one call, e.g. "(00015) SULTANA-REPAIRER".
@@ -268,8 +290,21 @@ export async function fetchAmgTimecardSheets(
     for (const job of jobs) if (typeof job.Id === "number") jobsById.set(job.Id, job);
   }
 
+  // Category names (WORK / BRK / LUNCH) for the segment rows, AMG's own.
+  const categoryNameById = new Map<number, string>();
+  if (categoryIds.size > 0) {
+    const categories = await amgPost<AmgCategory[]>(cookie, "/JsonApi/TimeCard/GetCategories", Array.from(categoryIds)).catch(
+      () => [] as AmgCategory[]
+    );
+    for (const category of categories) {
+      if (typeof category.Id !== "number") continue;
+      const label = (category.Name ?? category.Code ?? category.Abbreviation ?? category.Description ?? "").trim();
+      if (label) categoryNameById.set(category.Id, label.toUpperCase());
+    }
+  }
+
   // Pass 2: lay out each person's sheet.
-  for (const { employee, dayTotals, punchesByDay, jobIds } of gathered) {
+  for (const { employee, dayTotals, linesByDay, punchesByDay, jobIds } of gathered) {
     let jobLabel = "";
     let jobCode = "";
     const first = Array.from(jobIds).map((id) => jobsById.get(id)).find(Boolean);
@@ -283,28 +318,62 @@ export async function fetchAmgTimecardSheets(
     const dates = Array.from(new Set([...dayTotals.keys(), ...punchesByDay.keys()])).sort();
     for (const date of dates) {
       const totals = dayTotals.get(date) ?? { reg: 0, ot1: 0, ot2: 0, unpaid: 0, absent: false };
-      const punches = (punchesByDay.get(date) ?? []).sort((a, b) => (a.ClockDate ?? "").localeCompare(b.ClockDate ?? ""));
 
-      const segments: TimecardSegment[] = [];
-      let regLeft = totals.reg;
-      let ot1Left = totals.ot1;
-      for (let index = 0; index < punches.length - 1; index++) {
-        const punch = punches[index];
-        const next = punches[index + 1];
-        if (punch.Action === 7) continue; // clocked out — no segment until the next clock-in
-        const cat: TimecardSegment["cat"] = punch.Action === 2 ? "LUNCH" : punch.Action === 4 ? "BRK" : "WORK";
-        const hours = hoursBetween(punch.ClockDate as string, next.ClockDate as string);
-        if (hours <= 0) continue;
-        if (cat === "LUNCH") {
-          segments.push({ cat, start: clockLabel(punch.ClockDate as string), stop: clockLabel(next.ClockDate as string), job: jobCode, hours, reg: 0, ot1: 0, ot2: 0, unpaid: hours, total: 0 });
-          continue;
+      // AMG's own lines ARE the report's segment rows: exact start/stop,
+      // category, and REG/OT/Unpaid split, ported through untouched. The
+      // numbers on screen then match the printed Timecard to the digit —
+      // rebuilding segments from raw punches (the old way, kept below as a
+      // fallback for lines without start/stop) drifted by hundredths because
+      // AMG rounds punch times its own way.
+      const lines = (linesByDay.get(date) ?? []).filter((line) => line.StartDate && line.StopDate);
+      let segments: TimecardSegment[] = [];
+      if (lines.length > 0) {
+        segments = [...lines]
+          .sort((a, b) => (a.StartDate as string).localeCompare(b.StartDate as string))
+          .map((line) => {
+            const reg = round2(line.Reg ?? 0);
+            const ot1 = round2(line.OT1 ?? 0);
+            const ot2 = round2((line.OT2 ?? 0) + (line.OT3 ?? 0));
+            const unpaid = round2(line.Unpaid ?? 0);
+            const total = round2(reg + ot1 + ot2);
+            const cat =
+              (typeof line.CategoryId === "number" ? categoryNameById.get(line.CategoryId) : undefined) ??
+              (unpaid > 0 && total === 0 ? "LUNCH" : "WORK");
+            return {
+              cat,
+              start: clockLabel(line.StartDate as string),
+              stop: clockLabel(line.StopDate as string),
+              job: jobCode,
+              hours: round2(total + unpaid),
+              reg,
+              ot1,
+              ot2,
+              unpaid,
+              total
+            };
+          });
+      } else {
+        const punches = (punchesByDay.get(date) ?? []).sort((a, b) => (a.ClockDate ?? "").localeCompare(b.ClockDate ?? ""));
+        let regLeft = totals.reg;
+        let ot1Left = totals.ot1;
+        for (let index = 0; index < punches.length - 1; index++) {
+          const punch = punches[index];
+          const next = punches[index + 1];
+          if (punch.Action === 7) continue; // clocked out — no segment until the next clock-in
+          const cat = punch.Action === 2 ? "LUNCH" : punch.Action === 4 ? "BRK" : "WORK";
+          const hours = hoursBetween(punch.ClockDate as string, next.ClockDate as string);
+          if (hours <= 0) continue;
+          if (cat === "LUNCH") {
+            segments.push({ cat, start: clockLabel(punch.ClockDate as string), stop: clockLabel(next.ClockDate as string), job: jobCode, hours, reg: 0, ot1: 0, ot2: 0, unpaid: hours, total: 0 });
+            continue;
+          }
+          const reg = round2(Math.min(hours, Math.max(0, regLeft)));
+          regLeft = round2(regLeft - reg);
+          const ot1 = round2(Math.min(hours - reg, Math.max(0, ot1Left)));
+          ot1Left = round2(ot1Left - ot1);
+          const ot2 = round2(Math.max(0, hours - reg - ot1));
+          segments.push({ cat, start: clockLabel(punch.ClockDate as string), stop: clockLabel(next.ClockDate as string), job: jobCode, hours, reg, ot1, ot2, unpaid: 0, total: hours });
         }
-        const reg = round2(Math.min(hours, Math.max(0, regLeft)));
-        regLeft = round2(regLeft - reg);
-        const ot1 = round2(Math.min(hours - reg, Math.max(0, ot1Left)));
-        ot1Left = round2(ot1Left - ot1);
-        const ot2 = round2(Math.max(0, hours - reg - ot1));
-        segments.push({ cat, start: clockLabel(punch.ClockDate as string), stop: clockLabel(next.ClockDate as string), job: jobCode, hours, reg, ot1, ot2, unpaid: 0, total: hours });
       }
 
       const paid = round2(totals.reg + totals.ot1 + totals.ot2);
