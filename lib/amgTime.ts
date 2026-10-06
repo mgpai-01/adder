@@ -392,17 +392,27 @@ export async function fetchAmgTimecardSheets(
       });
     }
 
-    const totals = days.reduce(
-      (sum, day) => ({
-        hours: round2(sum.hours + day.summary.hours),
-        reg: round2(sum.reg + day.summary.reg),
-        ot1: round2(sum.ot1 + day.summary.ot1),
-        ot2: round2(sum.ot2 + day.summary.ot2),
-        unpaid: round2(sum.unpaid + day.summary.unpaid),
-        total: round2(sum.total + day.summary.total)
-      }),
-      { hours: 0, reg: 0, ot1: 0, ot2: 0, unpaid: 0, total: 0 }
-    );
+    // Weekly totals sum the RAW (unrounded) day buckets and round once at the
+    // end — exactly how AMG's report does it. Summing the already-rounded day
+    // displays drifted a hundredth (e.g. day OTs reading 0.33+0.38+… = 7.19
+    // while AMG prints 7.20), which then knocked the wage line off by cents.
+    const rawWeek = { reg: 0, ot1: 0, ot2: 0, unpaid: 0 };
+    for (const date of dates) {
+      const raw = dayTotals.get(date);
+      if (!raw) continue;
+      rawWeek.reg += raw.reg;
+      rawWeek.ot1 += raw.ot1;
+      rawWeek.ot2 += raw.ot2;
+      rawWeek.unpaid += raw.unpaid;
+    }
+    const totals = {
+      reg: round2(rawWeek.reg),
+      ot1: round2(rawWeek.ot1),
+      ot2: round2(rawWeek.ot2),
+      unpaid: round2(rawWeek.unpaid),
+      total: round2(rawWeek.reg + rawWeek.ot1 + rawWeek.ot2),
+      hours: round2(rawWeek.reg + rawWeek.ot1 + rawWeek.ot2 + rawWeek.unpaid)
+    };
 
     // Current hourly wage on file → the report's Wage / Total Gross Paid lines.
     let wage: TimecardSheet["wage"] = null;
