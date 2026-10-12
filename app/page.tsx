@@ -491,6 +491,13 @@ function supplyCount(entries: DailyEntry[], supplyTypeId: string): number {
   return total;
 }
 
+// What the Pay PDF / Excel print when a person's AMG week is missing: the
+// reason AMG gave on the grid, or — when it was never pulled — the nudge to
+// refresh.
+function amgMissingNote(error?: string): string {
+  return error ? `AMG hours not loaded — ${error}` : "AMG hours not loaded — refresh bonuses and export again";
+}
+
 // For the rare places that build raw HTML for a popup tab (document.write):
 // anything user-editable that lands in that string must go through here.
 function escapeHtml(value: string): string {
@@ -2486,7 +2493,13 @@ export default function Home() {
   // amgSheets: each person's live AMG week (by employee id), when the caller
   // has it. With it, every person gets hours worked, hourly pay, bonus and
   // pay + bonus under their table; without it the report is pallets only.
-  async function exportPdf(filteredEntries = entries, fileLabel?: string, amgSheets?: Record<string, TimecardSheet | undefined>) {
+  // amgErrors: why a person's AMG week didn't load, printed in place of it.
+  async function exportPdf(
+    filteredEntries = entries,
+    fileLabel?: string,
+    amgSheets?: Record<string, TimecardSheet | undefined>,
+    amgErrors?: Record<string, string | undefined>
+  ) {
     const { jsPDF } = await import("jspdf");
     const autoTable = (await import("jspdf-autotable")).default;
 
@@ -2567,7 +2580,7 @@ export default function Home() {
     const h2 = (value: number) => value.toFixed(2);
     // -0 (a reject line with no rejects) would print as "-$0.00".
     const cash = (value: number) => currency(value || 0);
-    const summaryRows: Array<{ name: string; yard: string; pallets: number; earnings: number; sheet?: TimecardSheet; bonus: ReturnType<typeof calculateWeeklyBonus> }> = [];
+    const summaryRows: Array<{ name: string; yard: string; pallets: number; earnings: number; sheet?: TimecardSheet; bonus: ReturnType<typeof calculateWeeklyBonus>; amgMissing: string }> = [];
 
     people.forEach((person, personIndex) => {
       // With AMG data each person gets their own pages; without it the old
@@ -2582,6 +2595,7 @@ export default function Home() {
       doc.text(personTitle, margin, cursorY);
 
       const sheet = amgSheets?.[person.employeeId];
+      const amgMissing = amgMissingNote(amgErrors?.[person.employeeId]);
       // Paid hours per day straight from AMG, when it's loaded.
       const amgDayHours = new Map<string, number>((sheet?.days ?? []).map((day) => [day.date, day.summary.total]));
 
@@ -2718,7 +2732,8 @@ export default function Home() {
           pallets: person.report.summary.quantity,
           earnings: person.report.summary.totalPay,
           sheet,
-          bonus
+          bonus,
+          amgMissing
         });
 
         // Their AMG time clock for the week, laid out like AMG's Timecard:
@@ -2816,7 +2831,7 @@ export default function Home() {
         // (changed Oct 2026 at MGP's direction).
         const payBody: string[][] = [];
         if (!sheet || !wage || !bonus) {
-          payBody.push(["Hours / total gross paid / bonus", !sheet ? "AMG hours not loaded — refresh bonuses and export again" : "No hourly wage on file in AMG for this week", ""]);
+          payBody.push(["Hours / total gross paid / bonus", !sheet ? amgMissing : "No hourly wage on file in AMG for this week", ""]);
         } else {
           const tiers = [
             `${h2(sheet.totals.reg)} reg × ${currency(wage.rate)}`,
@@ -2890,7 +2905,7 @@ export default function Home() {
             row.yard,
             wholeNumber(row.pallets),
             cash(row.earnings),
-            { content: !row.sheet ? "AMG hours not loaded" : "No hourly wage in AMG", colSpan: 4, styles: { halign: "left", textColor: [150, 60, 40] } }
+            { content: !row.sheet ? row.amgMissing : "No hourly wage in AMG", colSpan: 4, styles: { halign: "left", textColor: [150, 60, 40] } }
           ]);
           return;
         }
@@ -2958,7 +2973,12 @@ export default function Home() {
   // same numbers as calculateEntry/buildReport, so it matches the on-screen totals.
   // amgSheets: each person's live AMG week (by employee id), when the caller
   // has it — adds a Pay & Bonus tab and each person's time clock + pay block.
-  async function exportExcel(filteredEntries = entries, amgSheets?: Record<string, TimecardSheet | undefined>) {
+  // amgErrors: why a person's AMG week didn't load, printed in place of it.
+  async function exportExcel(
+    filteredEntries = entries,
+    amgSheets?: Record<string, TimecardSheet | undefined>,
+    amgErrors?: Record<string, string | undefined>
+  ) {
     const ExcelJSModule = await import("exceljs");
     // The browser build may expose the API on `default` or on the module itself.
     const ExcelJS = ((ExcelJSModule as unknown as { default?: typeof ExcelJSModule }).default ?? ExcelJSModule) as typeof ExcelJSModule;
@@ -3043,7 +3063,7 @@ export default function Home() {
         let row;
         if (!sheet || !sheet.wage || !bonus) {
           row = paySheet.addRow([person.name, person.yard, null, null, null, null, null, null, money(person.pallets), null, null,
-            !sheet ? "AMG hours not loaded — refresh bonuses and export again" : "No hourly wage on file in AMG for this week"]);
+            !sheet ? amgMissingNote(amgErrors?.[person.id]) : "No hourly wage on file in AMG for this week"]);
           row.getCell(12).font = { color: { argb: "FF963C28" } };
         } else {
           row = paySheet.addRow([
@@ -3418,6 +3438,7 @@ export default function Home() {
       // is boxed and aligned so it reads as a clean table, not loose rows.
       if (amgSheets) {
         const sheet = amgSheets[employee.id];
+        const amgMissing = amgMissingNote(amgErrors?.[employee.id]);
         const clockWidth = 11;
         const thin = { style: "thin" as const, color: { argb: "FFB9C2CC" } };
         const box = (row: GridRow, from = 1, to = clockWidth) => {
@@ -3482,7 +3503,7 @@ export default function Home() {
           }
           clockRow(["", "", "WEEK TOTAL", "", "", sheet.totals.hours, sheet.totals.reg, sheet.totals.ot1, sheet.totals.ot2, sheet.totals.unpaid, sheet.totals.total], "FFE2E5E9");
         } else {
-          gridSheet.addRow(["AMG hours not loaded — refresh bonuses and export again"]).getCell(1).font = { italic: true, color: { argb: "FF963C28" } };
+          gridSheet.addRow([amgMissing]).getCell(1).font = { italic: true, color: { argb: "FF963C28" } };
         }
 
         // Hours → pay → bonus → pay + bonus: the label in A, the figure in B,
@@ -3531,7 +3552,7 @@ export default function Home() {
             "FFCEEAD6"
           );
         } else {
-          payLine("Hours / total gross paid / bonus", "", null, !sheet ? "AMG hours not loaded" : "No hourly wage on file in AMG for this week");
+          payLine("Hours / total gross paid / bonus", "", null, !sheet ? amgMissing : "No hourly wage on file in AMG for this week");
         }
       }
     }
@@ -6217,8 +6238,8 @@ function Payroll({
   showSupplyCost: boolean;
   settings: PayrollSettings;
   exportCsv: (entries: DailyEntry[]) => void;
-  exportExcel: (entries: DailyEntry[], amgSheets?: Record<string, TimecardSheet | undefined>) => void;
-  exportPdf: (entries: DailyEntry[], fileLabel?: string, amgSheets?: Record<string, TimecardSheet | undefined>) => void;
+  exportExcel: (entries: DailyEntry[], amgSheets?: Record<string, TimecardSheet | undefined>, amgErrors?: Record<string, string | undefined>) => void;
+  exportPdf: (entries: DailyEntry[], fileLabel?: string, amgSheets?: Record<string, TimecardSheet | undefined>, amgErrors?: Record<string, string | undefined>) => void;
   darkMode: boolean;
   onEditEntry: (entry: DailyEntry) => void;
   onViewEntry: (entry: DailyEntry) => void;
@@ -6741,8 +6762,8 @@ function ProductionGrid({
   palletOrder: string[];
   // Export the currently-shown week's entries as CSV / multi-sheet Excel.
   exportCsv: (entries: DailyEntry[]) => void;
-  exportExcel: (entries: DailyEntry[], amgSheets?: Record<string, TimecardSheet | undefined>) => void;
-  exportPdf: (entries: DailyEntry[], fileLabel?: string, amgSheets?: Record<string, TimecardSheet | undefined>) => void;
+  exportExcel: (entries: DailyEntry[], amgSheets?: Record<string, TimecardSheet | undefined>, amgErrors?: Record<string, string | undefined>) => void;
+  exportPdf: (entries: DailyEntry[], fileLabel?: string, amgSheets?: Record<string, TimecardSheet | undefined>, amgErrors?: Record<string, string | undefined>) => void;
 }) {
   const weekDays = getWeekDays(selectedWeek);
   const weekEntries = entries.filter((entry) => weekDays.includes(entry.date));
@@ -6933,6 +6954,12 @@ function ProductionGrid({
   // Everyone's loaded AMG week, for the Pay PDF's hours / pay / bonus lines.
   function amgSheetsById(): Record<string, TimecardSheet | undefined> {
     return Object.fromEntries(Object.entries(amgRowData).map(([id, state]) => [id, state.sheet]));
+  }
+
+  // Why each person's AMG week didn't load, so the export says so instead of
+  // a generic "not loaded".
+  function amgErrorsById(): Record<string, string | undefined> {
+    return Object.fromEntries(Object.entries(amgRowData).map(([id, state]) => [id, state.error]));
   }
 
   async function handleAmgReportUpload(file: File) {
@@ -7426,7 +7453,7 @@ function ProductionGrid({
             type="button"
             disabled={gridEntries.length === 0}
             className="touch-target flex items-center gap-2 rounded bg-[#1f7a4d] px-4 py-2 font-black text-white disabled:cursor-not-allowed disabled:opacity-50"
-            onClick={() => exportExcel(gridEntries, amgSheetsById())}
+            onClick={() => exportExcel(gridEntries, amgSheetsById(), amgErrorsById())}
           >
             <Download size={19} />
             Export Excel
@@ -7435,7 +7462,7 @@ function ProductionGrid({
             type="button"
             disabled={gridEntries.length === 0}
             className="touch-target flex items-center gap-2 rounded bg-workshop-500 px-4 py-2 font-black text-white disabled:cursor-not-allowed disabled:opacity-50"
-            onClick={() => exportPdf(gridEntries, undefined, amgSheetsById())}
+            onClick={() => exportPdf(gridEntries, undefined, amgSheetsById(), amgErrorsById())}
           >
             <Download size={19} />
             Pay PDF
@@ -7837,7 +7864,7 @@ function ProductionGrid({
                     <button
                       type="button"
                       className="touch-target flex items-center gap-2 rounded border border-steel-200 bg-white px-3 py-2 text-sm font-black text-steel-700 transition-colors hover:border-workshop-500 hover:text-workshop-700"
-                      onClick={() => exportPdf(employeeEntries, employee.name, amgSheetsById())}
+                      onClick={() => exportPdf(employeeEntries, employee.name, amgSheetsById(), amgErrorsById())}
                     >
                       <Download size={17} />
                       Pay PDF

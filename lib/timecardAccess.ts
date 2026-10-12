@@ -13,7 +13,7 @@ export function timecardStoragePath(weekStart: string, code: string): string {
 }
 
 // Who may open a person's time card: admins anyone; managers the people in
-// their yards; everyone else only themself (their account's full name matched
+// their yards (all yards when none are set); everyone else only themself (their account's full name matched
 // against the roster). Shared by the stored-paper and live-AMG endpoints so
 // the rule can never drift between them.
 export async function checkTimecardAccess(
@@ -68,7 +68,9 @@ export async function checkTimecardAccessMany(
     } else if (check.role === "admin") {
       allowed.push(employee);
     } else if (check.role === "supervisor") {
-      if (yards.includes(employee.locationId)) allowed.push(employee);
+      // An empty yard list means "All yards" — the same rule the app uses to
+      // decide which yards a manager sees.
+      if (yards.length === 0 || yards.includes(employee.locationId)) allowed.push(employee);
       else denied.push({ id, status: 403, error: "This person is not in your yard" });
     } else if (ownName && ownName === normalizePersonName(employee.name)) {
       allowed.push(employee);
