@@ -74,6 +74,10 @@ import AuthGate from "@/components/AuthGate";
 import DropZone from "@/components/DropZone";
 import CalendarField, { type DateSelection } from "@/components/CalendarField";
 import { LoadingSeal } from "@/components/LoadingLogo";
+import dynamic from "next/dynamic";
+// Leaflet touches window, so the fleet map only loads in the browser — and only
+// when the Samsara panel is opened.
+const FleetMap = dynamic(() => import("@/components/FleetMap"), { ssr: false });
 import type { TimecardSheet } from "@/lib/amgTime";
 import type { BreakProfile, CountSheet, CountSheetStatus, DailyEntry, Employee, EntryPhase, Location, PalletCategory, PalletType, PayrollSettings, ProductionLine, Role, Shift, SupplyLine, SupplyType } from "@/lib/types";
 
@@ -10787,7 +10791,8 @@ function SamsaraButton({ darkMode, open, onToggle }: { darkMode: boolean; open: 
   );
 }
 
-// Placeholder until the live map is built: where trucks and trailers will show.
+// The Samsara panel: every truck, trailer and tracked piece of equipment on a
+// live map (components/FleetMap), with an Expand to full screen.
 function SamsaraPanel({ darkMode, onClose }: { darkMode: boolean; onClose: () => void }) {
   return (
     <div className={classNames("rounded border p-4", darkMode ? "border-white/10 bg-white/[0.06]" : "border-steel-100 bg-white shadow-panel")}>
@@ -10797,7 +10802,7 @@ function SamsaraPanel({ darkMode, onClose }: { darkMode: boolean; onClose: () =>
           <div>
             <p className="text-lg font-black">Live fleet map</p>
             <p className={classNames("text-sm font-bold", darkMode ? "text-steel-100" : "text-steel-500")}>
-              Trucks and trailers from Samsara will show here.
+              Every truck and trailer from Samsara, refreshed every minute.
             </p>
           </div>
         </div>
@@ -10805,14 +10810,7 @@ function SamsaraPanel({ darkMode, onClose }: { darkMode: boolean; onClose: () =>
           <X size={18} />
         </button>
       </div>
-      <div
-        className={classNames(
-          "mt-4 grid h-48 place-items-center rounded border border-dashed text-sm font-black",
-          darkMode ? "border-white/15 text-steel-100" : "border-steel-100 bg-steel-50 text-steel-500"
-        )}
-      >
-        Map coming soon — preview only you can see
-      </div>
+      <FleetMap darkMode={darkMode} />
     </div>
   );
 }
