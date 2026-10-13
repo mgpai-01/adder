@@ -187,13 +187,15 @@ export async function openAmgSession(): Promise<AmgSession> {
   return { cookie, employees };
 }
 
-// The session's directory as code + name, for matching roster people by name.
-export function amgSessionDirectory(session: AmgSession): Array<{ code: string; name: string }> {
+// The session's directory as code + name (+ active flag), for matching roster
+// people by name.
+export function amgSessionDirectory(session: AmgSession): Array<{ code: string; name: string; active: boolean }> {
   return session.employees
     .filter((employee) => (employee.Code ?? "").trim())
     .map((employee) => ({
       code: (employee.Code ?? "").trim(),
-      name: (employee.FullName ?? employee.Name ?? "").replace(/\s+/g, " ").trim()
+      name: (employee.FullName ?? employee.Name ?? "").replace(/\s+/g, " ").trim(),
+      active: employee.Active !== false
     }));
 }
 

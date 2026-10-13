@@ -25,13 +25,18 @@ function weekEnd(weekStart: string): string {
   return `${end.getFullYear()}-${pad(end.getMonth() + 1)}-${pad(end.getDate())}`;
 }
 
+type DirectoryEntry = { code: string; name: string; active: boolean };
+
 // Not linked yet: match this person to AMG by name (roster "Maria Reyes" vs
-// AMG "MARIA REYES PINEDA"). Needs at least two shared words and no tie. When
-// there's no match, `reason` says why in words a manager can act on.
+// AMG "MARIA REYES PINEDA"). Needs at least two shared words. AMG often keeps
+// more than one record under the same name (an old one left behind, or one
+// per yard), so a tie is narrowed to the ACTIVE records first; whatever is
+// still tied comes back as `candidates` for the caller to settle by hours.
+// With no match at all, `reason` says why in words a manager can act on.
 function matchCodeByName(
   name: string,
-  directory: Array<{ code: string; name: string }>
-): { code: string } | { code: null; reason: string } {
+  directory: DirectoryEntry[]
+): { code: string } | { code: null; candidates: DirectoryEntry[]; reason: string } {
   const target = new Set(normalizePersonName(name).split(" ").filter(Boolean));
   const scored = directory
     .map((block) => ({
@@ -44,14 +49,22 @@ function matchCodeByName(
     .sort((a, b) => b.score - a.score);
   const best = scored[0];
   if (best && best.score >= 2) {
-    const tied = scored.filter((block) => block.score === best.score && block.code !== best.code);
-    if (tied.length === 0) return { code: best.code };
-    const names = [best, ...tied].slice(0, 4).map((block) => `${block.name} (${block.code})`).join(", ");
-    return { code: null, reason: `More than one AMG employee matches "${name}": ${names}. Link the right one by uploading an AMG Timecard PDF.` };
+    let tied = scored.filter((block) => block.score === best.score);
+    tied = tied.filter((block, index) => tied.findIndex((other) => other.code === block.code) === index);
+    const active = tied.filter((block) => block.active);
+    if (active.length > 0) tied = active;
+    if (tied.length === 1) return { code: tied[0].code };
+    const names = tied.slice(0, 4).map((block) => `${block.name} (${block.code})`).join(", ");
+    return {
+      code: null,
+      candidates: tied,
+      reason: `More than one AMG employee matches "${name}": ${names}. Link the right one by uploading an AMG Timecard PDF.`
+    };
   }
   const near = scored.slice(0, 3).map((block) => `${block.name} (${block.code})`).join(", ");
   return {
     code: null,
+    candidates: [],
     reason:
       `AMG's employee list (${directory.length} people) has no one named like "${name}".` +
       (near ? ` Closest: ${near}.` : "") +
@@ -61,6 +74,8 @@ function matchCodeByName(
 
 type RowResult = { ok: true; sheet: TimecardSheet } | { ok: false; error: string; detail?: string };
 
+const paidHours = (sheet: TimecardSheet | undefined) => sheet?.totals.total ?? 0;
+
 // Pulls a set of people's live sheets on ONE AMG session: one login, one
 // directory download, then one batched call per AMG endpoint for everyone.
 // Newly name-matched people get their code remembered on the roster.
@@ -69,6 +84,9 @@ async function pullSheets(employees: Employee[], weekStart: string): Promise<Map
   const directory = amgSessionDirectory(session);
   const knownCodes = new Set(directory.map((block) => block.code));
   const codeFor = new Map<string, string>();
+  // People whose name matches several AMG records equally well: settled below
+  // by which record actually has hours this week.
+  const ambiguous = new Map<string, { codes: string[]; reason: string }>();
   const results = new Map<string, RowResult>();
   const newlyLinked: Employee[] = [];
 
@@ -80,6 +98,10 @@ async function pullSheets(employees: Employee[], weekStart: string): Promise<Map
     if (!code || staleCode) {
       const matched = matchCodeByName(employee.name, directory);
       if (matched.code === null) {
+        if (matched.candidates.length > 1) {
+          ambiguous.set(employee.id, { codes: matched.candidates.map((block) => block.code), reason: matched.reason });
+          continue;
+        }
         const detail = staleCode
           ? `Linked to AMG code ${staleCode}, but AMG has no employee with that code. ${matched.reason}`
           : matched.reason;
@@ -92,8 +114,11 @@ async function pullSheets(employees: Employee[], weekStart: string): Promise<Map
     codeFor.set(employee.id, code);
   }
 
+  const wantedCodes = new Set(codeFor.values());
+  for (const { codes } of ambiguous.values()) for (const code of codes) wantedCodes.add(code);
+
   const [sheets] = await Promise.all([
-    fetchAmgTimecardSheets(session, weekStart, weekEnd(weekStart), Array.from(new Set(codeFor.values()))),
+    fetchAmgTimecardSheets(session, weekStart, weekEnd(weekStart), Array.from(wantedCodes)),
     // Remembered one at a time — each is a read-modify-write of the roster.
     (async () => {
       for (const employee of newlyLinked) await upsertCloudEmployee(employee);
@@ -106,6 +131,15 @@ async function pullSheets(employees: Employee[], weekStart: string): Promise<Map
       employeeId,
       sheet ? { ok: true, sheet } : { ok: false, error: "not-matched", detail: `AMG returned no timecard for code ${code}.` }
     );
+  }
+  // Same-name records: the one with hours this week is the person. Not
+  // remembered on the roster — next week the other record could be the live
+  // one — so it's decided fresh on every pull.
+  for (const [employeeId, { codes, reason }] of ambiguous) {
+    const withHours = codes.filter((code) => paidHours(sheets.get(code)) > 0);
+    const sheet = withHours.length === 1 ? sheets.get(withHours[0]) : undefined;
+    const why = withHours.length === 0 ? "None of them has hours this week." : "More than one of them has hours this week.";
+    results.set(employeeId, sheet ? { ok: true, sheet } : { ok: false, error: "not-matched", detail: `${why} ${reason}` });
   }
   return results;
 }
