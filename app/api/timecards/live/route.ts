@@ -26,26 +26,40 @@ function weekEnd(weekStart: string): string {
 }
 
 // Not linked yet: match this person to AMG by name (roster "Maria Reyes" vs
-// AMG "MARIA REYES PINEDA"). Needs at least two shared words and no tie.
-function matchCodeByName(name: string, directory: Array<{ code: string; name: string }>): string | null {
+// AMG "MARIA REYES PINEDA"). Needs at least two shared words and no tie. When
+// there's no match, `reason` says why in words a manager can act on.
+function matchCodeByName(
+  name: string,
+  directory: Array<{ code: string; name: string }>
+): { code: string } | { code: null; reason: string } {
   const target = new Set(normalizePersonName(name).split(" ").filter(Boolean));
-  let best: { code: string; score: number } | null = null;
-  let tied = false;
-  for (const block of directory) {
-    const words = normalizePersonName(block.name).split(" ").filter(Boolean);
-    const score = words.filter((word) => target.has(word)).length;
-    if (score < 2) continue;
-    if (!best || score > best.score) {
-      best = { code: block.code, score };
-      tied = false;
-    } else if (score === best.score && block.code !== best.code) {
-      tied = true;
-    }
+  const scored = directory
+    .map((block) => ({
+      ...block,
+      score: normalizePersonName(block.name)
+        .split(" ")
+        .filter((word) => target.has(word)).length
+    }))
+    .filter((block) => block.score > 0)
+    .sort((a, b) => b.score - a.score);
+  const best = scored[0];
+  if (best && best.score >= 2) {
+    const tied = scored.filter((block) => block.score === best.score && block.code !== best.code);
+    if (tied.length === 0) return { code: best.code };
+    const names = [best, ...tied].slice(0, 4).map((block) => `${block.name} (${block.code})`).join(", ");
+    return { code: null, reason: `More than one AMG employee matches "${name}": ${names}. Link the right one by uploading an AMG Timecard PDF.` };
   }
-  return best && !tied ? best.code : null;
+  const near = scored.slice(0, 3).map((block) => `${block.name} (${block.code})`).join(", ");
+  return {
+    code: null,
+    reason:
+      `AMG's employee list (${directory.length} people) has no one named like "${name}".` +
+      (near ? ` Closest: ${near}.` : "") +
+      " If they're missing from AMG entirely, the AMG login the app uses can't see their yard."
+  };
 }
 
-type RowResult = { ok: true; sheet: TimecardSheet } | { ok: false; error: string };
+type RowResult = { ok: true; sheet: TimecardSheet } | { ok: false; error: string; detail?: string };
 
 // Pulls a set of people's live sheets on ONE AMG session: one login, one
 // directory download, then one batched call per AMG endpoint for everyone.
@@ -53,19 +67,26 @@ type RowResult = { ok: true; sheet: TimecardSheet } | { ok: false; error: string
 async function pullSheets(employees: Employee[], weekStart: string): Promise<Map<string, RowResult>> {
   const session = await openAmgSession();
   const directory = amgSessionDirectory(session);
+  const knownCodes = new Set(directory.map((block) => block.code));
   const codeFor = new Map<string, string>();
   const results = new Map<string, RowResult>();
   const newlyLinked: Employee[] = [];
 
   for (const employee of employees) {
     let code = (employee.timeclockCode ?? "").trim();
-    if (!code) {
+    // A remembered code AMG no longer has is as good as none: fall back to
+    // the name, and say so if that fails too.
+    const staleCode = code && !knownCodes.has(code) ? code : "";
+    if (!code || staleCode) {
       const matched = matchCodeByName(employee.name, directory);
-      if (!matched) {
-        results.set(employee.id, { ok: false, error: "not-matched" });
+      if (matched.code === null) {
+        const detail = staleCode
+          ? `Linked to AMG code ${staleCode}, but AMG has no employee with that code. ${matched.reason}`
+          : matched.reason;
+        results.set(employee.id, { ok: false, error: "not-matched", detail });
         continue;
       }
-      code = matched;
+      code = matched.code;
       newlyLinked.push({ ...employee, timeclockCode: code });
     }
     codeFor.set(employee.id, code);
@@ -81,7 +102,10 @@ async function pullSheets(employees: Employee[], weekStart: string): Promise<Map
 
   for (const [employeeId, code] of codeFor) {
     const sheet = sheets.get(code);
-    results.set(employeeId, sheet ? { ok: true, sheet } : { ok: false, error: "not-matched" });
+    results.set(
+      employeeId,
+      sheet ? { ok: true, sheet } : { ok: false, error: "not-matched", detail: `AMG returned no timecard for code ${code}.` }
+    );
   }
   return results;
 }
@@ -106,7 +130,9 @@ export async function GET(request: Request) {
 
   try {
     const result = (await pullSheets([access.employee], weekStart)).get(employeeId);
-    if (!result || !result.ok) return NextResponse.json({ error: "not-matched" }, { status: 404 });
+    if (!result || !result.ok) {
+      return NextResponse.json({ error: "not-matched", detail: result && !result.ok ? result.detail : undefined }, { status: 404 });
+    }
     return NextResponse.json({ ok: true, sheet: result.sheet, weekStart, endDate: weekEnd(weekStart) });
   } catch (error) {
     return NextResponse.json(

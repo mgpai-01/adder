@@ -6836,7 +6836,7 @@ function ProductionGrid({
       setAmgRowData((current) => ({ ...current, [employeeId]: { ...current[employeeId], loading: true, error: undefined } }));
       try {
         const response = await authedFetch(`/api/timecards/live?weekStart=${encodeURIComponent(week)}&employeeId=${encodeURIComponent(employeeId)}`);
-        const result = (await response.json()) as { ok?: boolean; sheet?: import("@/lib/amgTime").TimecardSheet; error?: string };
+        const result = (await response.json()) as { ok?: boolean; sheet?: import("@/lib/amgTime").TimecardSheet; error?: string; detail?: string };
         if (response.ok && result.ok && result.sheet) {
           setAmgRowData((current) => ({ ...current, [employeeId]: { loading: false, sheet: result.sheet } }));
         } else {
@@ -6846,7 +6846,7 @@ function ProductionGrid({
               loading: false,
               error:
                 result.error === "not-matched"
-                  ? "Couldn't find this person in AMG by name — upload one AMG Timecard PDF to match them once."
+                  ? result.detail || "Couldn't find this person in AMG by name — upload one AMG Timecard PDF to match them once."
                   : result.error || "AMG didn't answer — try again."
             }
           }));
@@ -6910,7 +6910,7 @@ function ProductionGrid({
         const result = (await response.json()) as {
           ok?: boolean;
           error?: string;
-          results?: Record<string, { ok: true; sheet: import("@/lib/amgTime").TimecardSheet } | { ok: false; error: string }>;
+          results?: Record<string, { ok: true; sheet: import("@/lib/amgTime").TimecardSheet } | { ok: false; error: string; detail?: string }>;
         };
         if (!response.ok || !result.ok || !result.results) {
           failAll(result.error || "AMG didn't answer — try again.");
@@ -6929,7 +6929,7 @@ function ProductionGrid({
                 loading: false,
                 error:
                   row?.error === "not-matched"
-                    ? "Couldn't find this person in AMG by name — upload one AMG Timecard PDF to match them once."
+                    ? row.detail || "Couldn't find this person in AMG by name — upload one AMG Timecard PDF to match them once."
                     : row?.error || "AMG didn't answer — try again."
               };
             }
@@ -7062,6 +7062,7 @@ function ProductionGrid({
         weekStart?: string;
         endDate?: string;
         error?: string;
+        detail?: string;
       };
       if (liveResponse.ok && live.ok && live.sheet) {
         const { renderAmgTimecardPdf } = await import("@/lib/amgTimecardPdf");
@@ -7073,7 +7074,7 @@ function ProductionGrid({
       }
       tab?.close();
       if (live.error === "not-matched") {
-        window.alert(`${employee.name} couldn't be found in AMG by name. Upload the week's AMG Timecard PDF (button up top) and match them once — it's remembered after that.`);
+        window.alert(live.detail || `${employee.name} couldn't be found in AMG by name. Upload the week's AMG Timecard PDF (button up top) and match them once — it's remembered after that.`);
       } else {
         window.alert(live.error || "Couldn't open the time card — try again.");
       }
