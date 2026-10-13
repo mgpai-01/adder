@@ -39,6 +39,34 @@ export function isSamsaraConfigured(): boolean {
 
 type Page<T> = { data?: T[]; pagination?: { endCursor?: string; hasNextPage?: boolean } };
 
+// Samsara's own message for a failed call (it says which parameter it
+// rejected), with a plain-words hint for the common cases.
+async function describeFailure(response: Response): Promise<string> {
+  let message = "";
+  try {
+    const body = (await response.json()) as { message?: string; error?: string };
+    message = (body.message || body.error || "").slice(0, 200);
+  } catch {
+    // not JSON
+  }
+  const hint =
+    response.status === 401
+      ? "the token was rejected — check SAMSARA_API_TOKEN"
+      : response.status === 403
+        ? "the token is missing a read permission for this"
+        : `HTTP ${response.status}`;
+  return message ? `${hint} — ${message}` : hint;
+}
+
+async function samsaraRaw<T>(path: string, params: Record<string, string> = {}): Promise<T> {
+  const response = await fetch(`${SAMSARA_HOST}${path}?${new URLSearchParams(params)}`, {
+    headers: { Authorization: `Bearer ${process.env.SAMSARA_API_TOKEN ?? ""}`, Accept: "application/json" },
+    cache: "no-store"
+  });
+  if (!response.ok) throw new Error(`${path}: ${await describeFailure(response)}`);
+  return (await response.json()) as T;
+}
+
 async function samsaraGet<T>(path: string, params: Record<string, string> = {}): Promise<T[]> {
   const rows: T[] = [];
   let after = "";
@@ -48,15 +76,7 @@ async function samsaraGet<T>(path: string, params: Record<string, string> = {}):
       headers: { Authorization: `Bearer ${process.env.SAMSARA_API_TOKEN ?? ""}`, Accept: "application/json" },
       cache: "no-store"
     });
-    if (!response.ok) {
-      const hint =
-        response.status === 401
-          ? "the token was rejected — check SAMSARA_API_TOKEN"
-          : response.status === 403
-            ? "the token is missing a read permission for this"
-            : `HTTP ${response.status}`;
-      throw new Error(`${path}: ${hint}`);
-    }
+    if (!response.ok) throw new Error(`${path}: ${await describeFailure(response)}`);
     const body = (await response.json()) as Page<T>;
     rows.push(...(body.data ?? []));
     if (!body.pagination?.hasNextPage || !body.pagination.endCursor) break;
@@ -117,16 +137,10 @@ type AssetPoint = {
   speed?: { gpsSpeedMetersPerSecond?: number; ecuSpeedMetersPerSecond?: number };
 };
 
-// Newest point per asset from the location stream.
-async function fetchAssetPoints(): Promise<Map<string, AssetPoint>> {
-  const start = new Date(Date.now() - ASSET_LOOKBACK_HOURS * 3600_000).toISOString();
-  const rows = await samsaraGet<AssetPoint>("/assets/location-and-speed/stream", {
-    startTime: start,
-    endTime: new Date().toISOString(),
-    includeReverseGeo: "true",
-    includeSpeed: "true",
-    limit: "512"
-  });
+// RFC 3339 without milliseconds — some Samsara endpoints reject the ".123".
+const rfc3339 = (ms: number) => new Date(ms).toISOString().replace(/\.\d{3}Z$/, "Z");
+
+function newestPerAsset(rows: AssetPoint[]): Map<string, AssetPoint> {
   const latest = new Map<string, AssetPoint>();
   for (const row of rows) {
     const id = row.asset?.id;
@@ -135,6 +149,83 @@ async function fetchAssetPoints(): Promise<Map<string, AssetPoint>> {
     if (!current || str(row.happenedAtTime) > str(current.happenedAtTime)) latest.set(id, row);
   }
   return latest;
+}
+
+type LegacyAsset = {
+  id?: number | string;
+  name?: string;
+  location?: Array<{ latitude?: number; longitude?: number; location?: string; speedMilesPerHour?: number; timeMs?: number }>;
+};
+
+type EquipmentLocation = {
+  id?: string;
+  name?: string;
+  location?: { latitude?: number; longitude?: number; heading?: number; speed?: number; time?: string; reverseGeo?: { formattedLocation?: string } };
+};
+
+// Newest location per trailer / piece of equipment. Tries the asset location
+// stream first (a few parameter sets, simplest last), then Samsara's older
+// "current asset locations" call, then the equipment snapshot — whichever
+// answers first wins. Names found along the way are returned too.
+async function fetchAssetPoints(): Promise<{ points: Map<string, AssetPoint>; names: Map<string, string>; note: string }> {
+  const now = Date.now();
+  const start = rfc3339(now - ASSET_LOOKBACK_HOURS * 3600_000);
+  const attempts: Array<Record<string, string>> = [
+    { startTime: start, endTime: rfc3339(now), includeReverseGeo: "true", includeSpeed: "true" },
+    { startTime: start, endTime: rfc3339(now) },
+    { startTime: rfc3339(now - 24 * 3600_000) }
+  ];
+  const failures: string[] = [];
+  for (const params of attempts) {
+    try {
+      const rows = await samsaraGet<AssetPoint>("/assets/location-and-speed/stream", params);
+      return { points: newestPerAsset(rows), names: new Map(), note: "" };
+    } catch (error) {
+      failures.push(error instanceof Error ? error.message : "failed");
+    }
+  }
+
+  try {
+    const body = await samsaraRaw<{ assets?: LegacyAsset[] }>("/v1/fleet/assets/locations");
+    const points = new Map<string, AssetPoint>();
+    const names = new Map<string, string>();
+    for (const asset of body.assets ?? []) {
+      const id = asset.id === undefined ? "" : String(asset.id);
+      const fix = [...(asset.location ?? [])].sort((a, b) => (b.timeMs ?? 0) - (a.timeMs ?? 0))[0];
+      if (!id || !fix) continue;
+      if (asset.name) names.set(id, asset.name);
+      points.set(id, {
+        asset: { id },
+        happenedAtTime: fix.timeMs ? new Date(fix.timeMs).toISOString() : "",
+        location: { latitude: fix.latitude, longitude: fix.longitude, address: fix.location ?? "" },
+        speed: fix.speedMilesPerHour === undefined ? undefined : { gpsSpeedMetersPerSecond: fix.speedMilesPerHour / 2.23694 }
+      });
+    }
+    return { points, names, note: `Using Samsara's older asset locations (the newer call said: ${failures[0]})` };
+  } catch (error) {
+    failures.push(error instanceof Error ? error.message : "failed");
+  }
+
+  try {
+    const rows = await samsaraGet<EquipmentLocation>("/fleet/equipment/locations");
+    const points = new Map<string, AssetPoint>();
+    const names = new Map<string, string>();
+    for (const row of rows) {
+      if (!row.id || !row.location) continue;
+      if (row.name) names.set(row.id, row.name);
+      points.set(row.id, {
+        asset: { id: row.id },
+        happenedAtTime: row.location.time,
+        location: { latitude: row.location.latitude, longitude: row.location.longitude, headingDegrees: row.location.heading, address: row.location.reverseGeo?.formattedLocation ?? "" },
+        speed: row.location.speed === undefined ? undefined : { gpsSpeedMetersPerSecond: row.location.speed / 2.23694 }
+      });
+    }
+    return { points, names, note: `Showing equipment only (trailer calls said: ${failures[0]})` };
+  } catch (error) {
+    failures.push(error instanceof Error ? error.message : "failed");
+  }
+
+  throw new Error(failures.join(" | "));
 }
 
 export async function fetchFleetSnapshot(): Promise<FleetSnapshot> {
@@ -148,12 +239,14 @@ export async function fetchFleetSnapshot(): Promise<FleetSnapshot> {
     }
   };
 
-  const [trucks, trailers, equipment, points] = await Promise.all([
+  const [trucks, trailers, equipment, located] = await Promise.all([
     settle("Trucks", fetchTrucks(), [] as FleetItem[]),
     settle("Trailer names", samsaraGet<Named>("/fleet/trailers", { limit: "512" }), [] as Named[]),
     settle("Equipment names", samsaraGet<Named>("/fleet/equipment", { limit: "512" }), [] as Named[]),
-    settle("Trailer & equipment locations", fetchAssetPoints(), new Map<string, AssetPoint>())
+    settle("Trailer & equipment locations", fetchAssetPoints(), { points: new Map<string, AssetPoint>(), names: new Map<string, string>(), note: "" })
   ]);
+  const { points, names: pointNames, note } = located;
+  if (note) warnings.push(note);
 
   const truckIds = new Set(trucks.map((item) => item.id));
   const trailerNames = new Map(trailers.filter((row) => row.id).map((row) => [row.id as string, str(row.name)]));
@@ -167,7 +260,7 @@ export async function fetchFleetSnapshot(): Promise<FleetSnapshot> {
     const lng = num(point.location?.longitude);
     if (lat === null || lng === null) continue;
     const kind: FleetKind = trailerNames.has(id) ? "trailer" : equipmentNames.has(id) ? "equipment" : "asset";
-    const name = trailerNames.get(id) || equipmentNames.get(id) || "";
+    const name = trailerNames.get(id) || equipmentNames.get(id) || pointNames.get(id) || "";
     const address = point.location?.address;
     const metersPerSecond = num(point.speed?.gpsSpeedMetersPerSecond) ?? num(point.speed?.ecuSpeedMetersPerSecond);
     assets.push({
@@ -182,6 +275,11 @@ export async function fetchFleetSnapshot(): Promise<FleetSnapshot> {
       time: str(point.happenedAtTime)
     });
   }
+
+  // Trailers Samsara knows about but that haven't reported a location.
+  const locatedIds = new Set(assets.map((item) => item.id));
+  const silent = Array.from(trailerNames.keys()).filter((id) => !locatedIds.has(id)).length;
+  if (silent > 0 && points.size > 0) warnings.push(`${silent} trailer(s) in Samsara haven't reported a location in the last ${ASSET_LOOKBACK_HOURS} hours`);
 
   const items = [...trucks, ...assets].sort((a, b) => a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name));
   return { items, warnings, fetchedAt: new Date().toISOString() };

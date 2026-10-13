@@ -273,3 +273,8 @@ textarea {
     animation: none;
   }
 }
+
+/* Fleet map: OpenStreetMap has no dark tiles, so dark mode inverts them. */
+.fleet-tiles-dark {
+  filter: invert(1) hue-rotate(180deg) brightness(0.95) contrast(0.9);
+}

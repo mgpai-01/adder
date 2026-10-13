@@ -127,16 +127,17 @@ export default function FleetMap({ darkMode }: { darkMode: boolean }) {
     };
   }, []);
 
-  // Light or dark basemap to match the app.
+  // Basemap, darkened to match the app in dark mode.
   useEffect(() => {
     const L = leafletRef.current;
     const map = mapRef.current;
     if (!L || !map) return;
     tilesRef.current?.remove();
-    tilesRef.current = L.tileLayer(`https://{s}.basemaps.cartocdn.com/${darkMode ? "dark_all" : "rastertiles/voyager"}/{z}/{x}/{y}{r}.png`, {
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
-      subdomains: "abcd",
-      maxZoom: 19
+    // OpenStreetMap's free tiles (no key). Dark mode recolors them in CSS.
+    tilesRef.current = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+      maxZoom: 19,
+      className: darkMode ? "fleet-tiles-dark" : ""
     }).addTo(map);
   }, [darkMode, mapReady]);
 
