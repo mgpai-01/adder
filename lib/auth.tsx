@@ -18,6 +18,8 @@ export type Profile = {
   // Saved UI language preference ("en" | "es"); empty means none saved yet, so
   // the role default applies. Stored in profiles.preferred_language.
   preferredLanguage: "" | "en" | "es";
+  // The sign-in email (staff usernames sign in as <name>@mgp.local).
+  email: string;
 };
 
 type AuthState = {
@@ -163,7 +165,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           .split(",")
           .map((value) => value.trim())
           .filter(Boolean),
-        preferredLanguage: data.preferredLanguage === "en" || data.preferredLanguage === "es" ? data.preferredLanguage : ""
+        preferredLanguage: data.preferredLanguage === "en" || data.preferredLanguage === "es" ? data.preferredLanguage : "",
+        email: (user.email ?? "").toLowerCase()
       };
       setProfile(loaded);
       setError("");

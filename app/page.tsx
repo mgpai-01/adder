@@ -34,6 +34,7 @@ import {
   ShieldCheck,
   Sun,
   Trash2,
+  Truck,
   UserRound,
   X,
   ZoomIn,
@@ -65,6 +66,7 @@ import {
 } from "@/lib/data";
 import { calculateEntry, calculateWeeklyBonus, compareByLastName, correctedEntryDate, currency, findMisdatedEntries, getWeekKey, wholeNumber } from "@/lib/payroll";
 import { authedFetch, getAccessToken, roleLabels, roleViews, useAuth } from "@/lib/auth";
+import { canSeeSamsaraPreview } from "@/lib/previewAccess";
 import { normalizeExcelValue, parseCsvGrid, parseTimecardGrid, type ImportedBlock } from "@/lib/hoursImport";
 import { LanguageProvider, translate, useT, type Language } from "@/lib/i18n";
 import type { ChangeLogEntry } from "@/lib/cloudChangeLog";
@@ -5896,6 +5898,10 @@ function Dashboard({
 }) {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
+  // Samsara fleet map — preview, only for the logins in lib/previewAccess.
+  const { profile } = useAuth();
+  const showSamsara = canSeeSamsaraPreview(profile?.email);
+  const [samsaraOpen, setSamsaraOpen] = useState(false);
 
   const filteredEntries = useMemo(
     () => entries.filter((entry) => (!from || entry.date >= from) && (!to || entry.date <= to)),
@@ -5931,6 +5937,7 @@ function Dashboard({
           <p className={classNames("text-sm", darkMode ? "text-steel-100" : "text-steel-500")}>Showing: {rangeLabel}</p>
         </div>
         <div className="flex flex-wrap items-end gap-2">
+          {showSamsara && <SamsaraButton darkMode={darkMode} open={samsaraOpen} onToggle={() => setSamsaraOpen((value) => !value)} />}
           <Label title="Date range" icon={<CalendarDays size={16} />}>
             <CalendarField
               allowClear
@@ -5955,6 +5962,7 @@ function Dashboard({
           </div>
         </div>
       </div>
+      {showSamsara && samsaraOpen && <SamsaraPanel darkMode={darkMode} onClose={() => setSamsaraOpen(false)} />}
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Metric label="Total Quantity" value={wholeNumber(report.summary.quantity)} />
         <Metric label="Piece Pay" value={currency(report.summary.piecePay)} />
@@ -10742,6 +10750,70 @@ function IconButton({ label, icon, danger, onClick }: { label: string; icon: Rea
     <button type="button" aria-label={label} className={classNames("touch-target flex w-12 items-center justify-center rounded text-white", danger ? "bg-red-700" : "bg-steel-900")} onClick={onClick}>
       {icon}
     </button>
+  );
+}
+
+// Opens the Samsara fleet map. Styled as a brand tile — owl + wordmark — and
+// captioned like the Date range control beside it so the two line up.
+function SamsaraButton({ darkMode, open, onToggle }: { darkMode: boolean; open: boolean; onToggle: () => void }) {
+  const tone = darkMode ? "white" : "black";
+  return (
+    <div className="grid gap-1.5">
+      <span className="flex items-center gap-1.5 text-sm font-black">
+        <Truck size={16} />
+        Live fleet
+      </span>
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        aria-label="Samsara fleet map"
+        className={classNames(
+          "touch-target flex items-center gap-2.5 rounded border px-4 shadow-sm transition duration-150 hover:-translate-y-px hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-workshop-500 active:translate-y-0",
+          darkMode
+            ? open
+              ? "border-white/40 bg-white/[0.16]"
+              : "border-white/15 bg-white/[0.08] hover:bg-white/[0.14]"
+            : open
+              ? "border-steel-900 bg-steel-50"
+              : "border-steel-100 bg-white hover:border-steel-500"
+        )}
+      >
+        <img src={`/brand/samsara-owl-${tone}.png`} alt="" className="h-7 w-auto" />
+        <img src={`/brand/samsara-wordmark-${tone}.png`} alt="Samsara" className="h-3 w-auto" />
+        <ChevronDown size={16} className={classNames("transition-transform", open ? "rotate-180" : "", darkMode ? "text-steel-100" : "text-steel-500")} />
+      </button>
+    </div>
+  );
+}
+
+// Placeholder until the live map is built: where trucks and trailers will show.
+function SamsaraPanel({ darkMode, onClose }: { darkMode: boolean; onClose: () => void }) {
+  return (
+    <div className={classNames("rounded border p-4", darkMode ? "border-white/10 bg-white/[0.06]" : "border-steel-100 bg-white shadow-panel")}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <img src={`/brand/samsara-owl-${darkMode ? "white" : "black"}.png`} alt="" className="h-9 w-auto" />
+          <div>
+            <p className="text-lg font-black">Live fleet map</p>
+            <p className={classNames("text-sm font-bold", darkMode ? "text-steel-100" : "text-steel-500")}>
+              Trucks and trailers from Samsara will show here.
+            </p>
+          </div>
+        </div>
+        <button type="button" onClick={onClose} aria-label="Close" className={classNames("rounded p-2", darkMode ? "hover:bg-white/10" : "hover:bg-steel-100")}>
+          <X size={18} />
+        </button>
+      </div>
+      <div
+        className={classNames(
+          "mt-4 grid h-48 place-items-center rounded border border-dashed text-sm font-black",
+          darkMode ? "border-white/15 text-steel-100" : "border-steel-100 bg-steel-50 text-steel-500"
+        )}
+      >
+        Map coming soon — preview only you can see
+      </div>
+    </div>
   );
 }
 
