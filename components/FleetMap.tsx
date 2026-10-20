@@ -2,7 +2,7 @@
 
 import "leaflet/dist/leaflet.css";
 import type { Map as LeafletMap, Marker as LeafletMarker } from "leaflet";
-import { Loader2, Maximize2, Minimize2, RotateCw, Search } from "lucide-react";
+import { Loader2, Maximize2, Minimize2, RotateCw, Search, TrafficCone } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { authedFetch } from "@/lib/auth";
 import type { FleetItem, FleetKind } from "@/lib/samsara";
@@ -84,6 +84,12 @@ export default function FleetMap({ darkMode }: { darkMode: boolean }) {
   const leafletRef = useRef<typeof import("leaflet") | null>(null);
   const markersRef = useRef<Map<string, LeafletMarker>>(new Map());
   const tilesRef = useRef<import("leaflet").TileLayer | null>(null);
+  // Live traffic (TomTom flow tiles) drawn over the basemap, toggled by the
+  // Traffic button; the key comes from /api/samsara/traffic for allowed logins.
+  const trafficRef = useRef<import("leaflet").TileLayer | null>(null);
+  const [trafficOn, setTrafficOn] = useState(false);
+  const [trafficKey, setTrafficKey] = useState("");
+  const [trafficError, setTrafficError] = useState("");
   const fittedRef = useRef(false);
 
   const load = useCallback(async () => {
@@ -144,6 +150,66 @@ export default function FleetMap({ darkMode }: { darkMode: boolean }) {
       className: darkMode ? "fleet-tiles-dark" : ""
     }).addTo(map);
   }, [darkMode, mapReady]);
+
+  // Remember the Traffic choice in this browser.
+  useEffect(() => {
+    try {
+      if (window.localStorage.getItem("mgp-fleet-traffic-v1") === "on") setTrafficOn(true);
+    } catch {
+      // storage blocked — start with traffic off
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!trafficOn || trafficKey) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await authedFetch("/api/samsara/traffic");
+        const result = (await response.json()) as { ok?: boolean; key?: string; error?: string };
+        if (cancelled) return;
+        if (response.ok && result.ok && result.key) {
+          setTrafficKey(result.key);
+          setTrafficError("");
+        } else {
+          setTrafficError(result.error || "Traffic isn't available right now.");
+          setTrafficOn(false);
+        }
+      } catch {
+        if (!cancelled) {
+          setTrafficError("Couldn't load traffic — check the connection.");
+          setTrafficOn(false);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [trafficOn, trafficKey]);
+
+  useEffect(() => {
+    const L = leafletRef.current;
+    const map = mapRef.current;
+    trafficRef.current?.remove();
+    trafficRef.current = null;
+    if (!L || !map || !trafficOn || !trafficKey) return;
+    // relative0: green = normal speed for that road, orange/red = slower, dark red = stopped.
+    trafficRef.current = L.tileLayer(
+      `https://api.tomtom.com/traffic/map/4/tile/flow/${darkMode ? "relative0-dark" : "relative0"}/{z}/{x}/{y}.png?key=${encodeURIComponent(trafficKey)}&thickness=8`,
+      { opacity: 0.9, zIndex: 5, maxZoom: 19, attribution: 'Traffic &copy; <a href="https://www.tomtom.com">TomTom</a>' }
+    ).addTo(map);
+  }, [trafficOn, trafficKey, darkMode, mapReady]);
+
+  function toggleTraffic() {
+    const next = !trafficOn;
+    setTrafficError("");
+    setTrafficOn(next);
+    try {
+      window.localStorage.setItem("mgp-fleet-traffic-v1", next ? "on" : "off");
+    } catch {
+      // storage blocked — the toggle still works for this visit
+    }
+  }
 
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -268,6 +334,21 @@ export default function FleetMap({ darkMode }: { darkMode: boolean }) {
           </button>
           <button
             type="button"
+            onClick={toggleTraffic}
+            aria-pressed={trafficOn}
+            className={`flex items-center gap-1.5 rounded border px-3 py-2 text-sm font-black transition ${
+              trafficOn
+                ? "border-red-600 bg-red-600 text-white hover:bg-red-700"
+                : darkMode
+                  ? "border-white/15 hover:bg-white/10"
+                  : "border-steel-100 bg-white text-steel-900 hover:bg-steel-50"
+            }`}
+          >
+            <TrafficCone size={16} />
+            Traffic
+          </button>
+          <button
+            type="button"
             onClick={() => setExpanded((value) => !value)}
             className="flex items-center gap-1.5 rounded bg-steel-900 px-3 py-2 text-sm font-black text-white hover:bg-steel-800"
           >
@@ -289,6 +370,10 @@ export default function FleetMap({ darkMode }: { darkMode: boolean }) {
             </button>
           ))}
         </div>
+      )}
+
+      {trafficError && (
+        <div className="rounded border border-amber-200 bg-amber-50 p-3 text-sm font-bold text-amber-900">Traffic: {trafficError}</div>
       )}
 
       {error && (
@@ -317,6 +402,14 @@ export default function FleetMap({ darkMode }: { darkMode: boolean }) {
           >
             Show all
           </button>
+          {trafficOn && trafficKey && (
+            <div className="absolute bottom-3 right-3 z-[500] mb-5 flex items-center gap-2.5 rounded bg-white/95 px-3 py-1.5 text-[11px] font-black text-steel-900 shadow-md">
+              <span className="flex items-center gap-1"><span className="h-1.5 w-4 rounded-full" style={{ background: "#2fb14f" }} />Normal</span>
+              <span className="flex items-center gap-1"><span className="h-1.5 w-4 rounded-full" style={{ background: "#f59e0b" }} />Slow</span>
+              <span className="flex items-center gap-1"><span className="h-1.5 w-4 rounded-full" style={{ background: "#dc2626" }} />Heavy</span>
+              <span className="flex items-center gap-1"><span className="h-1.5 w-4 rounded-full" style={{ background: "#7f1d1d" }} />Stopped</span>
+            </div>
+          )}
           {!loading && !error && items.length === 0 && (
             <div className="absolute inset-0 z-[500] grid place-items-center bg-white/70 text-sm font-black text-steel-500">
               No trucks or trailers reported a location yet.
