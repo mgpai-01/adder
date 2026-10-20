@@ -5,7 +5,8 @@
 //
 // Samsara keeps trucks and other assets apart:
 // - Trucks (vehicle gateways): GET /fleet/vehicles/stats?types=gps — latest GPS.
-// - Trailers / equipment (asset trackers): GET /assets/location-and-speed/stream
+// - Trailers: GET /fleet/trailers/stats?types=gps — latest GPS, same as trucks.
+// - Anything else (equipment): GET /assets/location-and-speed/stream
 //   over a recent window; the newest point per asset is its location. Names
 //   come from GET /fleet/trailers and GET /fleet/equipment.
 // Each source is fetched on its own, so one failing (a missing scope, say)
@@ -101,8 +102,9 @@ type VehicleStat = {
   };
 };
 
-async function fetchTrucks(): Promise<FleetItem[]> {
-  const rows = await samsaraGet<VehicleStat>("/fleet/vehicles/stats", { types: "gps" });
+// Latest GPS for trucks (/fleet/vehicles/stats) or trailers
+// (/fleet/trailers/stats, "Read Trailer Statistics") — same shape for both.
+function gpsItems(rows: VehicleStat[], kind: FleetKind, label: string): FleetItem[] {
   const items: FleetItem[] = [];
   for (const row of rows) {
     const lat = num(row.gps?.latitude);
@@ -110,8 +112,8 @@ async function fetchTrucks(): Promise<FleetItem[]> {
     if (!row.id || lat === null || lng === null) continue;
     items.push({
       id: row.id,
-      name: str(row.name) || `Truck ${row.id}`,
-      kind: "truck",
+      name: str(row.name) || `${label} ${row.id}`,
+      kind,
       lat,
       lng,
       headingDegrees: num(row.gps?.headingDegrees),
@@ -121,6 +123,20 @@ async function fetchTrucks(): Promise<FleetItem[]> {
     });
   }
   return items;
+}
+
+async function fetchTrucks(): Promise<FleetItem[]> {
+  return gpsItems(await samsaraGet<VehicleStat>("/fleet/vehicles/stats", { types: "gps" }), "truck", "Truck");
+}
+
+// Trailer stats is still under /beta on some accounts; try the main path first.
+async function fetchTrailers(): Promise<FleetItem[]> {
+  try {
+    return gpsItems(await samsaraGet<VehicleStat>("/fleet/trailers/stats", { types: "gps" }), "trailer", "Trailer");
+  } catch (error) {
+    if (!(error instanceof Error) || !/HTTP 404/.test(error.message)) throw error;
+    return gpsItems(await samsaraGet<VehicleStat>("/beta/fleet/trailers/stats", { types: "gps" }), "trailer", "Trailer");
+  }
 }
 
 type Named = { id?: string; name?: string };
@@ -239,22 +255,25 @@ export async function fetchFleetSnapshot(): Promise<FleetSnapshot> {
     }
   };
 
-  const [trucks, trailers, equipment, located] = await Promise.all([
+  const [trucks, gpsTrailers, trailers, equipment, located] = await Promise.all([
     settle("Trucks", fetchTrucks(), [] as FleetItem[]),
+    settle("Trailers", fetchTrailers(), [] as FleetItem[]),
     settle("Trailer names", samsaraGet<Named>("/fleet/trailers", { limit: "512" }), [] as Named[]),
     settle("Equipment names", samsaraGet<Named>("/fleet/equipment", { limit: "512" }), [] as Named[]),
-    settle("Trailer & equipment locations", fetchAssetPoints(), { points: new Map<string, AssetPoint>(), names: new Map<string, string>(), note: "" })
+    settle("Other asset locations", fetchAssetPoints(), { points: new Map<string, AssetPoint>(), names: new Map<string, string>(), note: "" })
   ]);
   const { points, names: pointNames, note } = located;
   if (note) warnings.push(note);
 
-  const truckIds = new Set(trucks.map((item) => item.id));
+  // Trucks and trailers already placed from their own GPS stats; the asset
+  // stream only fills in what's left (equipment, or trailers if that failed).
+  const truckIds = new Set([...trucks, ...gpsTrailers].map((item) => item.id));
   const trailerNames = new Map(trailers.filter((row) => row.id).map((row) => [row.id as string, str(row.name)]));
   const equipmentNames = new Map(equipment.filter((row) => row.id).map((row) => [row.id as string, str(row.name)]));
 
   const assets: FleetItem[] = [];
   for (const [id, point] of points) {
-    // Trucks show up in the stream too; their vehicle stats are the better source.
+    // Already placed from vehicle / trailer stats, the better source.
     if (truckIds.has(id)) continue;
     const lat = num(point.location?.latitude);
     const lng = num(point.location?.longitude);
@@ -277,10 +296,10 @@ export async function fetchFleetSnapshot(): Promise<FleetSnapshot> {
   }
 
   // Trailers Samsara knows about but that haven't reported a location.
-  const locatedIds = new Set(assets.map((item) => item.id));
+  const locatedIds = new Set([...assets, ...gpsTrailers].map((item) => item.id));
   const silent = Array.from(trailerNames.keys()).filter((id) => !locatedIds.has(id)).length;
-  if (silent > 0 && points.size > 0) warnings.push(`${silent} trailer(s) in Samsara haven't reported a location in the last ${ASSET_LOOKBACK_HOURS} hours`);
+  if (silent > 0 && (points.size > 0 || gpsTrailers.length > 0)) warnings.push(`${silent} trailer(s) in Samsara haven't reported a location in the last ${ASSET_LOOKBACK_HOURS} hours`);
 
-  const items = [...trucks, ...assets].sort((a, b) => a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name));
+  const items = [...trucks, ...gpsTrailers, ...assets].sort((a, b) => a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name));
   return { items, warnings, fetchedAt: new Date().toISOString() };
 }
