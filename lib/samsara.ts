@@ -18,7 +18,7 @@ const SAMSARA_HOST = "https://api.samsara.com";
 const ASSET_LOOKBACK_HOURS = 72;
 const MAX_PAGES = 25;
 
-export type FleetKind = "truck" | "trailer" | "equipment" | "asset";
+export type FleetKind = "truck" | "trailer" | "yard" | "equipment" | "asset";
 
 export type FleetItem = {
   id: string;
@@ -30,9 +30,28 @@ export type FleetItem = {
   speedMph: number | null;
   address: string;
   time: string;
+  // Trailer length read from the name ("53 ft"), or "" when it doesn't say.
+  size: string;
 };
 
 export type FleetSnapshot = { items: FleetItem[]; warnings: string[]; fetchedAt: string };
+
+// Samsara files many trailers as generic "assets" (unpowered trackers), so
+// the name decides: "228MGP- box (53Feet)", "100MGP-TR- 45 foot", "Larch Yard".
+const TRAILER_NAME = /\b(box|trailer|reefer|flatbed|dry\s*van|chassis|fruehauf|wabash|utility|great\s*dane|hyundai|stoughton)\b|(^|[\s-])tr([\s-]|$)|\d{2}\s*(?:'|ft\b|foot|feet)/i;
+const YARD_NAME = /\byard\b/i;
+
+function classify(name: string, kind: FleetKind): FleetKind {
+  if (kind === "truck") return kind;
+  if (YARD_NAME.test(name)) return "yard";
+  if (kind === "asset" && TRAILER_NAME.test(name)) return "trailer";
+  return kind;
+}
+
+function trailerSize(name: string): string {
+  const match = /(\d{2})\s*(?:'|ft\b|foot|feet)/i.exec(name);
+  return match ? `${match[1]} ft` : "";
+}
 
 export function isSamsaraConfigured(): boolean {
   return Boolean(process.env.SAMSARA_API_TOKEN);
@@ -119,7 +138,8 @@ function gpsItems(rows: VehicleStat[], kind: FleetKind, label: string): FleetIte
       headingDegrees: num(row.gps?.headingDegrees),
       speedMph: num(row.gps?.speedMilesPerHour),
       address: str(row.gps?.reverseGeo?.formattedLocation),
-      time: str(row.gps?.time)
+      time: str(row.gps?.time),
+      size: ""
     });
   }
   return items;
@@ -291,7 +311,8 @@ export async function fetchFleetSnapshot(): Promise<FleetSnapshot> {
       headingDegrees: num(point.location?.headingDegrees),
       speedMph: metersPerSecond === null ? null : Math.round(metersPerSecond * 2.23694),
       address: typeof address === "string" ? address : str(address?.formattedAddress) || str(address?.formattedLocation),
-      time: str(point.happenedAtTime)
+      time: str(point.happenedAtTime),
+      size: ""
     });
   }
 
@@ -300,6 +321,10 @@ export async function fetchFleetSnapshot(): Promise<FleetSnapshot> {
   const silent = Array.from(trailerNames.keys()).filter((id) => !locatedIds.has(id)).length;
   if (silent > 0 && (points.size > 0 || gpsTrailers.length > 0)) warnings.push(`${silent} trailer(s) in Samsara haven't reported a location in the last ${ASSET_LOOKBACK_HOURS} hours`);
 
-  const items = [...trucks, ...gpsTrailers, ...assets].sort((a, b) => a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name));
+  const items = [...trucks, ...gpsTrailers, ...assets]
+    .map((item) => {
+      const kind = classify(item.name, item.kind);
+      return { ...item, kind, size: kind === "trailer" ? trailerSize(item.name) : "" };
+    }).sort((a, b) => a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name));
   return { items, warnings, fetchedAt: new Date().toISOString() };
 }

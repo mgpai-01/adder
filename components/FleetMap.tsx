@@ -16,16 +16,18 @@ const REFRESH_MS = 60_000;
 const KINDS: Array<{ kind: FleetKind; label: string; plural: string; color: string }> = [
   { kind: "truck", label: "Truck", plural: "Trucks", color: "#2a6b40" },
   { kind: "trailer", label: "Trailer", plural: "Trailers", color: "#c2410c" },
+  { kind: "yard", label: "Yard", plural: "Yards", color: "#7c3aed" },
   { kind: "equipment", label: "Equipment", plural: "Equipment", color: "#1d4ed8" },
   { kind: "asset", label: "Asset", plural: "Other", color: "#6c7a86" }
 ];
-const kindInfo = (kind: FleetKind) => KINDS.find((item) => item.kind === kind) ?? KINDS[3];
+const kindInfo = (kind: FleetKind) => KINDS.find((item) => item.kind === kind) ?? KINDS[KINDS.length - 1];
 
 // Map icon glyphs (lucide paths) drawn inside each pin.
 const GLYPHS: Record<FleetKind, string> = {
   truck:
     '<path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><path d="M15 18H9"/><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14"/><circle cx="17" cy="18" r="2"/><circle cx="7" cy="18" r="2"/>',
   trailer: '<rect x="2" y="5" width="16" height="11" rx="1"/><path d="M18 13h4"/><circle cx="7" cy="18" r="2"/><circle cx="13" cy="18" r="2"/>',
+  yard: '<path d="M22 8.35V20a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8.35A2 2 0 0 1 3.26 6.5l8-3.2a2 2 0 0 1 1.48 0l8 3.2A2 2 0 0 1 22 8.35Z"/><path d="M6 18h12"/><path d="M6 14h12"/><rect x="6" y="10" width="12" height="12"/>',
   equipment: '<path d="M2 20h20"/><path d="M5 20V8l7-5 7 5v12"/><path d="M9 20v-6h6v6"/>',
   asset: '<circle cx="12" cy="10" r="3"/><path d="M12 21s7-6.2 7-11a7 7 0 1 0-14 0c0 4.8 7 11 7 11z"/>'
 };
@@ -56,7 +58,7 @@ function popupHtml(item: FleetItem): string {
   const info = kindInfo(item.kind);
   const moving = item.speedMph !== null && item.speedMph > 2 ? `${Math.round(item.speedMph)} mph` : "Parked";
   return `<div style="font-family:inherit;min-width:180px">
-    <div style="font-size:11px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:${info.color}">${info.label}</div>
+    <div style="font-size:11px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:${info.color}">${info.label}${item.size ? ` · ${item.size}` : ""}</div>
     <div style="font-size:15px;font-weight:900;margin:2px 0 4px">${escapeHtml(item.name)}</div>
     ${item.address ? `<div style="font-size:12px;font-weight:600;color:#26333f">${escapeHtml(item.address)}</div>` : ""}
     <div style="font-size:12px;font-weight:700;color:#6c7a86;margin-top:4px">${moving} · ${timeAgo(item.time) || "time unknown"}</div>
@@ -71,6 +73,8 @@ export default function FleetMap({ darkMode }: { darkMode: boolean }) {
   const [fetchedAt, setFetchedAt] = useState("");
   const [expanded, setExpanded] = useState(false);
   const [filter, setFilter] = useState<FleetKind | "all">("all");
+  // Trailer length filter ("53 ft", "" = all sizes, "?" = size not in name).
+  const [sizeFilter, setSizeFilter] = useState("");
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState("");
   const [mapReady, setMapReady] = useState(false);
@@ -146,9 +150,17 @@ export default function FleetMap({ darkMode }: { darkMode: boolean }) {
     return items.filter(
       (item) =>
         (filter === "all" || item.kind === filter) &&
+        (filter !== "trailer" || !sizeFilter || (sizeFilter === "?" ? !item.size : item.size === sizeFilter)) &&
         (!needle || item.name.toLowerCase().includes(needle) || item.address.toLowerCase().includes(needle))
     );
-  }, [items, filter, query]);
+  }, [items, filter, sizeFilter, query]);
+
+  // Trailer lengths present, longest first, with counts.
+  const sizes = useMemo(() => {
+    const tally = new Map<string, number>();
+    for (const item of items) if (item.kind === "trailer") tally.set(item.size || "?", (tally.get(item.size || "?") ?? 0) + 1);
+    return Array.from(tally.entries()).sort((a, b) => (b[0] === "?" ? -1 : a[0] === "?" ? 1 : parseInt(b[0]) - parseInt(a[0])));
+  }, [items]);
 
   // Sync pins with what's shown.
   useEffect(() => {
@@ -233,11 +245,11 @@ export default function FleetMap({ darkMode }: { darkMode: boolean }) {
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap gap-1.5">
-          <button type="button" className={chip(filter === "all")} onClick={() => setFilter("all")}>
+          <button type="button" className={chip(filter === "all")} onClick={() => { setFilter("all"); setSizeFilter(""); }}>
             All {counts.all ?? 0}
           </button>
-          {KINDS.filter((info) => (counts[info.kind] ?? 0) > 0 || info.kind !== "asset").map((info) => (
-            <button key={info.kind} type="button" className={chip(filter === info.kind)} onClick={() => setFilter(info.kind)}>
+          {KINDS.filter((info) => (counts[info.kind] ?? 0) > 0 || info.kind === "truck" || info.kind === "trailer").map((info) => (
+            <button key={info.kind} type="button" className={chip(filter === info.kind)} onClick={() => { setFilter(info.kind); setSizeFilter(""); }}>
               <span className="mr-1.5 inline-block h-2.5 w-2.5 rounded-full align-middle" style={{ background: info.color }} />
               {info.plural} {counts[info.kind] ?? 0}
             </button>
@@ -264,6 +276,20 @@ export default function FleetMap({ darkMode }: { darkMode: boolean }) {
           </button>
         </div>
       </div>
+
+      {filter === "trailer" && sizes.length > 1 && (
+        <div className="-mt-1 flex flex-wrap items-center gap-1.5">
+          <span className={`mr-1 text-xs font-black uppercase tracking-wide ${muted}`}>Size</span>
+          <button type="button" className={chip(sizeFilter === "")} onClick={() => setSizeFilter("")}>
+            All sizes
+          </button>
+          {sizes.map(([size, count]) => (
+            <button key={size} type="button" className={chip(sizeFilter === size)} onClick={() => setSizeFilter(size)}>
+              {size === "?" ? "Size not listed" : size} {count}
+            </button>
+          ))}
+        </div>
+      )}
 
       {error && (
         <div className="rounded border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-800">{error}</div>
@@ -325,14 +351,15 @@ export default function FleetMap({ darkMode }: { darkMode: boolean }) {
                     <span className="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: info.color }} />
                     <span className="min-w-0 flex-1">
                       <span className="flex items-center justify-between gap-2">
-                        <span className="truncate text-sm font-black">{item.name}</span>
+                        <span className="truncate text-sm font-black" title={item.name}>{item.name}</span>
                         <span className={`shrink-0 text-[11px] font-black ${moving ? "text-workshop-500" : muted}`}>
                           {moving ? `${Math.round(item.speedMph ?? 0)} mph` : "Parked"}
                         </span>
                       </span>
                       <span className={`block truncate text-xs font-bold ${muted}`}>{item.address || `${item.lat.toFixed(4)}, ${item.lng.toFixed(4)}`}</span>
                       <span className={`block text-[11px] font-bold ${muted}`}>
-                        {info.label} · {timeAgo(item.time) || "time unknown"}
+                        {info.label}
+                        {item.size ? ` · ${item.size}` : ""} · {timeAgo(item.time) || "time unknown"}
                       </span>
                     </span>
                   </button>
