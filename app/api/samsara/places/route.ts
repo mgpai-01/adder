@@ -30,11 +30,11 @@ export async function GET(request: Request) {
   } catch (error) {
     const message = error instanceof Error ? error.message : "Samsara lookup failed";
     // Most likely cause: the token doesn't have Addresses → Read yet.
-    const missingScope = /missing a read permission|HTTP 403/.test(message);
+    const missingScope = /permission|HTTP 403/i.test(message);
     return NextResponse.json(
       {
         error: missingScope
-          ? "Samsara places need the token's Addresses → Read permission (Samsara → Settings → API Tokens)."
+          ? "Samsara won't share Places yet: the API token needs Addresses → Read. Turn it on in Samsara → Settings → Developer → API Tokens, then redeploy."
           : message
       },
       { status: missingScope ? 403 : 502 }

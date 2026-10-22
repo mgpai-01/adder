@@ -71,8 +71,10 @@ async function describeFailure(response: Response): Promise<string> {
   } catch {
     // not JSON
   }
-  const hint =
-    response.status === 401
+  // Samsara answers a missing scope with 401 too, so its message decides.
+  const hint = /permission/i.test(message)
+    ? "the token is missing a read permission for this"
+    : response.status === 401
       ? "the token was rejected — check SAMSARA_API_TOKEN"
       : response.status === 403
         ? "the token is missing a read permission for this"
