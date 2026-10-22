@@ -19,4 +19,9 @@ export type YardEta = {
   trafficDelayMinutes?: number;
   arrival?: string;
   error?: string;
+  // The truck route as [lat, lng] points (thinned out), and the yard's spot,
+  // for drawing on the map.
+  path?: Array<[number, number]>;
+  yardLat?: number;
+  yardLng?: number;
 };

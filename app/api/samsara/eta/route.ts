@@ -43,16 +43,29 @@ async function etaTo(yard: Yard, from: { lat: number; lng: number }, key: string
       throw new Error(detail?.error?.description || `TomTom routing failed (${response.status})`);
     }
     const body = (await response.json()) as {
-      routes?: Array<{ summary?: { lengthInMeters?: number; travelTimeInSeconds?: number; trafficDelayInSeconds?: number; arrivalTime?: string } }>;
+      routes?: Array<{
+        summary?: { lengthInMeters?: number; travelTimeInSeconds?: number; trafficDelayInSeconds?: number; arrivalTime?: string };
+        legs?: Array<{ points?: Array<{ latitude?: number; longitude?: number }> }>;
+      }>;
     };
     const summary = body.routes?.[0]?.summary;
+    const points = (body.routes?.[0]?.legs ?? [])
+      .flatMap((leg) => leg.points ?? [])
+      .filter((point) => typeof point.latitude === "number" && typeof point.longitude === "number")
+      .map((point) => [point.latitude as number, point.longitude as number] as [number, number]);
+    // Keep the line light: at most ~400 points, always including both ends.
+    const step = Math.max(1, Math.ceil(points.length / 400));
+    const path = points.filter((_, index) => index % step === 0 || index === points.length - 1);
     if (!summary || typeof summary.travelTimeInSeconds !== "number") throw new Error("No route found");
     return {
       ...base,
       minutes: Math.round(summary.travelTimeInSeconds / 60),
       miles: Math.round(((summary.lengthInMeters ?? 0) / 1609.344) * 10) / 10,
       trafficDelayMinutes: Math.round((summary.trafficDelayInSeconds ?? 0) / 60),
-      arrival: summary.arrivalTime
+      arrival: summary.arrivalTime,
+      path,
+      yardLat: to.lat,
+      yardLng: to.lon
     };
   } catch (error) {
     return { ...base, error: error instanceof Error ? error.message : "Couldn't get a route" };

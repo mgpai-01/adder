@@ -11,6 +11,8 @@
 //   come from GET /fleet/trailers and GET /fleet/equipment.
 // Each source is fetched on its own, so one failing (a missing scope, say)
 // still leaves the others on the map, with the failure listed in `warnings`.
+// `notes` are for things that worked another way or are simply worth knowing
+// (a fallback was used, some trailers haven't reported) — not failures.
 
 const SAMSARA_HOST = "https://api.samsara.com";
 // How far back to look for trailer/equipment pings. Parked trailers report
@@ -34,7 +36,7 @@ export type FleetItem = {
   size: string;
 };
 
-export type FleetSnapshot = { items: FleetItem[]; warnings: string[]; fetchedAt: string };
+export type FleetSnapshot = { items: FleetItem[]; warnings: string[]; notes: string[]; fetchedAt: string };
 
 // Samsara files many trailers as generic "assets" (unpowered trackers), so
 // the name decides: "228MGP- box (53Feet)", "100MGP-TR- 45 foot", "Larch Yard".
@@ -203,6 +205,10 @@ type EquipmentLocation = {
 // stream first (a few parameter sets, simplest last), then Samsara's older
 // "current asset locations" call, then the equipment snapshot — whichever
 // answers first wins. Names found along the way are returned too.
+// When the stream rejects every parameter set, don't keep asking it (and
+// waiting on it) every minute — go straight to the fallbacks for an hour.
+let streamSkipUntil = 0;
+
 async function fetchAssetPoints(): Promise<{ points: Map<string, AssetPoint>; names: Map<string, string>; note: string }> {
   const now = Date.now();
   const start = rfc3339(now - ASSET_LOOKBACK_HOURS * 3600_000);
@@ -212,7 +218,7 @@ async function fetchAssetPoints(): Promise<{ points: Map<string, AssetPoint>; na
     { startTime: rfc3339(now - 24 * 3600_000) }
   ];
   const failures: string[] = [];
-  for (const params of attempts) {
+  for (const params of now < streamSkipUntil ? [] : attempts) {
     try {
       const rows = await samsaraGet<AssetPoint>("/assets/location-and-speed/stream", params);
       return { points: newestPerAsset(rows), names: new Map(), note: "" };
@@ -220,6 +226,8 @@ async function fetchAssetPoints(): Promise<{ points: Map<string, AssetPoint>; na
       failures.push(error instanceof Error ? error.message : "failed");
     }
   }
+  if (failures.length > 0) streamSkipUntil = now + 3600_000;
+  if (failures.length === 0 && now < streamSkipUntil) failures.push("the newer location call is paused for an hour after it failed");
 
   try {
     const body = await samsaraRaw<{ assets?: LegacyAsset[] }>("/v1/fleet/assets/locations");
@@ -237,7 +245,7 @@ async function fetchAssetPoints(): Promise<{ points: Map<string, AssetPoint>; na
         speed: fix.speedMilesPerHour === undefined ? undefined : { gpsSpeedMetersPerSecond: fix.speedMilesPerHour / 2.23694 }
       });
     }
-    return { points, names, note: `Using Samsara's older asset locations (the newer call said: ${failures[0]})` };
+    return { points, names, note: `Other assets come from Samsara's older location call (the newer one said: ${failures[0]}).` };
   } catch (error) {
     failures.push(error instanceof Error ? error.message : "failed");
   }
@@ -256,7 +264,7 @@ async function fetchAssetPoints(): Promise<{ points: Map<string, AssetPoint>; na
         speed: row.location.speed === undefined ? undefined : { gpsSpeedMetersPerSecond: row.location.speed / 2.23694 }
       });
     }
-    return { points, names, note: `Showing equipment only (trailer calls said: ${failures[0]})` };
+    return { points, names, note: `Other assets: showing equipment only (the location calls said: ${failures[0]}).` };
   } catch (error) {
     failures.push(error instanceof Error ? error.message : "failed");
   }
@@ -266,6 +274,7 @@ async function fetchAssetPoints(): Promise<{ points: Map<string, AssetPoint>; na
 
 export async function fetchFleetSnapshot(): Promise<FleetSnapshot> {
   const warnings: string[] = [];
+  const notes: string[] = [];
   const settle = async <T,>(label: string, work: Promise<T>, fallback: T): Promise<T> => {
     try {
       return await work;
@@ -283,7 +292,7 @@ export async function fetchFleetSnapshot(): Promise<FleetSnapshot> {
     settle("Other asset locations", fetchAssetPoints(), { points: new Map<string, AssetPoint>(), names: new Map<string, string>(), note: "" })
   ]);
   const { points, names: pointNames, note } = located;
-  if (note) warnings.push(note);
+  if (note) notes.push(note);
 
   // Trucks and trailers already placed from their own GPS stats; the asset
   // stream only fills in what's left (equipment, or trailers if that failed).
@@ -319,12 +328,12 @@ export async function fetchFleetSnapshot(): Promise<FleetSnapshot> {
   // Trailers Samsara knows about but that haven't reported a location.
   const locatedIds = new Set([...assets, ...gpsTrailers].map((item) => item.id));
   const silent = Array.from(trailerNames.keys()).filter((id) => !locatedIds.has(id)).length;
-  if (silent > 0 && (points.size > 0 || gpsTrailers.length > 0)) warnings.push(`${silent} trailer(s) in Samsara haven't reported a location in the last ${ASSET_LOOKBACK_HOURS} hours`);
+  if (silent > 0 && (points.size > 0 || gpsTrailers.length > 0)) notes.push(`${silent} trailer(s) in Samsara haven't reported a location in the last ${ASSET_LOOKBACK_HOURS} hours, so they aren't on the map.`);
 
   const items = [...trucks, ...gpsTrailers, ...assets]
     .map((item) => {
       const kind = classify(item.name, item.kind);
       return { ...item, kind, size: kind === "trailer" ? trailerSize(item.name) : "" };
     }).sort((a, b) => a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name));
-  return { items, warnings, fetchedAt: new Date().toISOString() };
+  return { items, warnings, notes, fetchedAt: new Date().toISOString() };
 }

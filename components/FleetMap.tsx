@@ -69,6 +69,7 @@ function popupHtml(item: FleetItem): string {
 export default function FleetMap({ darkMode }: { darkMode: boolean }) {
   const [items, setItems] = useState<FleetItem[]>([]);
   const [warnings, setWarnings] = useState<string[]>([]);
+  const [notes, setNotes] = useState<string[]>([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [fetchedAt, setFetchedAt] = useState("");
@@ -97,13 +98,14 @@ export default function FleetMap({ darkMode }: { darkMode: boolean }) {
     setLoading(true);
     try {
       const response = await authedFetch("/api/samsara/fleet");
-      const result = (await response.json()) as { ok?: boolean; items?: FleetItem[]; warnings?: string[]; fetchedAt?: string; error?: string };
+      const result = (await response.json()) as { ok?: boolean; items?: FleetItem[]; warnings?: string[]; notes?: string[]; fetchedAt?: string; error?: string };
       if (!response.ok || !result.ok) {
         setError(result.error || `Samsara didn't answer (${response.status}).`);
       } else {
         setError("");
         setItems(result.items ?? []);
         setWarnings(result.warnings ?? []);
+        setNotes(result.notes ?? []);
         setFetchedAt(result.fetchedAt ?? "");
       }
     } catch {
@@ -280,9 +282,41 @@ export default function FleetMap({ darkMode }: { darkMode: boolean }) {
   // truck/trailer, from /api/samsara/eta. Cleared when the selection changes.
   const [eta, setEta] = useState<{ id: string; loading: boolean; error?: string; etas?: YardEta[] } | null>(null);
   const selected = items.find((item) => item.id === selectedId) ?? null;
+  // Which yard's route is drawn (closest by default); the line + yard pin.
+  const [routeYardId, setRouteYardId] = useState("");
+  const routeLayerRef = useRef<import("leaflet").LayerGroup | null>(null);
+
+  useEffect(() => {
+    const L = leafletRef.current;
+    const map = mapRef.current;
+    routeLayerRef.current?.remove();
+    routeLayerRef.current = null;
+    if (!L || !map || !eta?.etas || eta.id !== selectedId) return;
+    const row = eta.etas.find((item) => item.yardId === routeYardId && item.path && item.path.length > 1);
+    if (!row?.path) return;
+    const group = L.layerGroup();
+    L.polyline(row.path, { color: "#ffffff", weight: 9, opacity: 0.9 }).addTo(group);
+    const line = L.polyline(row.path, { color: "#2563eb", weight: 5, opacity: 0.95 }).addTo(group);
+    if (typeof row.yardLat === "number" && typeof row.yardLng === "number") {
+      L.marker([row.yardLat, row.yardLng], {
+        icon: L.divIcon({ html: pinHtml("yard", true), className: "", iconSize: [40, 40], iconAnchor: [20, 20] }),
+        title: row.name,
+        zIndexOffset: 900
+      })
+        .bindTooltip(row.name, { direction: "top", offset: [0, -18] })
+        .addTo(group);
+    }
+    group.addTo(map);
+    routeLayerRef.current = group;
+    // Leave room on the right for the ETA card.
+    map.fitBounds(line.getBounds(), { paddingTopLeft: [40, 40], paddingBottomRight: [330, 40], maxZoom: 14 });
+  }, [eta, routeYardId, selectedId, mapReady]);
 
   async function loadEta(item: FleetItem) {
     setEta({ id: item.id, loading: true });
+    setRouteYardId("");
+    // The pin's popup would sit on top of the route; the card has the details.
+    mapRef.current?.closePopup();
     try {
       const response = await authedFetch(`/api/samsara/eta?lat=${item.lat}&lng=${item.lng}`);
       const result = (await response.json()) as { ok?: boolean; etas?: YardEta[]; error?: string };
@@ -293,6 +327,7 @@ export default function FleetMap({ darkMode }: { darkMode: boolean }) {
             ? { id: item.id, loading: false, etas: result.etas ?? [] }
             : { id: item.id, loading: false, error: result.error || `Couldn't get ETAs (${response.status}).` }
       );
+      if (response.ok && result.ok) setRouteYardId(result.etas?.find((row) => !row.error)?.yardId ?? "");
     } catch {
       setEta((current) => (current?.id === item.id ? { id: item.id, loading: false, error: "Couldn't reach the server — check the connection." } : current));
     }
@@ -408,8 +443,15 @@ export default function FleetMap({ darkMode }: { darkMode: boolean }) {
       {error && (
         <div className="rounded border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-800">{error}</div>
       )}
+      {notes.length > 0 && !error && (
+        <div className={`-mt-1 grid gap-0.5 text-xs font-bold ${muted}`}>
+          {notes.map((note) => (
+            <p key={note}>ⓘ {note}</p>
+          ))}
+        </div>
+      )}
       {warnings.length > 0 && !error && (
-        <details className={`rounded border p-2 text-xs font-bold ${darkMode ? "border-white/15" : "border-steel-100 bg-white"}`}>
+        <details open className={`rounded border p-2 text-xs font-bold ${darkMode ? "border-white/15" : "border-steel-100 bg-white"}`}>
           <summary className="cursor-pointer text-amber-700">Some Samsara data didn't load ({warnings.length})</summary>
           <ul className={`mt-1 list-disc pl-5 ${muted}`}>
             {warnings.map((warning) => (
@@ -452,6 +494,7 @@ export default function FleetMap({ darkMode }: { darkMode: boolean }) {
                   onClick={() => {
                     setSelectedId("");
                     setEta(null);
+                    setRouteYardId("");
                   }}
                   className={`shrink-0 rounded p-1 ${darkMode ? "hover:bg-white/10" : "hover:bg-steel-100"}`}
                 >
@@ -481,11 +524,23 @@ export default function FleetMap({ darkMode }: { darkMode: boolean }) {
                 </div>
               ) : (
                 <div className="mt-2.5 grid gap-1.5">
-                  <p className={`text-[11px] font-black uppercase tracking-wide ${muted}`}>Drive time · live traffic · truck route</p>
-                  {(eta.etas ?? []).map((row, index) => (
-                    <div
+                  <p className={`text-[11px] font-black uppercase tracking-wide ${muted}`}>Drive time · live traffic · tap a yard for its route</p>
+                  {(eta.etas ?? []).map((row) => (
+                    <button
+                      type="button"
                       key={row.yardId}
-                      className={`rounded px-2.5 py-2 ${index === 0 && !row.error ? (darkMode ? "bg-white/10" : "bg-workshop-100") : darkMode ? "bg-white/[0.04]" : "bg-steel-50"}`}
+                      disabled={!row.path}
+                      onClick={() => setRouteYardId(row.yardId)}
+                      aria-pressed={row.yardId === routeYardId}
+                      className={`w-full rounded border-2 px-2.5 py-2 text-left transition ${
+                        row.yardId === routeYardId
+                          ? darkMode
+                            ? "border-blue-400 bg-white/10"
+                            : "border-blue-600 bg-blue-50"
+                          : darkMode
+                            ? "border-transparent bg-white/[0.04] hover:bg-white/10"
+                            : "border-transparent bg-steel-50 hover:bg-steel-100"
+                      }`}
                     >
                       <div className="flex items-baseline justify-between gap-2">
                         <span className="truncate text-sm font-black">{row.name}</span>
@@ -503,7 +558,7 @@ export default function FleetMap({ darkMode }: { darkMode: boolean }) {
                           )}
                         </p>
                       )}
-                    </div>
+                    </button>
                   ))}
                   <button type="button" onClick={() => void loadEta(selected)} className={`text-left text-xs font-black underline ${muted}`}>
                     Refresh
