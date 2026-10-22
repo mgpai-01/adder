@@ -347,3 +347,66 @@ export async function fetchFleetSnapshot(): Promise<FleetSnapshot> {
     }).sort((a, b) => a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name));
   return { items, warnings, notes, fetchedAt: new Date().toISOString() };
 }
+
+// ===== Places: the addresses / geofences marked in Samsara =====
+// GET /addresses (token scope: Addresses → Read). Each has a name, a
+// formatted address and a geofence — a circle (center + radius) or a polygon.
+
+export type FleetPlace = {
+  id: string;
+  name: string;
+  address: string;
+  lat: number;
+  lng: number;
+  radiusMeters: number | null;
+  polygon: Array<[number, number]> | null;
+  types: string[];
+};
+
+type AddressRow = {
+  id?: string;
+  name?: string;
+  formattedAddress?: string;
+  latitude?: number;
+  longitude?: number;
+  addressTypes?: string[];
+  geofence?: {
+    circle?: { latitude?: number; longitude?: number; radiusMeters?: number };
+    polygon?: { vertices?: Array<{ latitude?: number; longitude?: number }> };
+  };
+};
+
+export async function fetchPlaces(): Promise<FleetPlace[]> {
+  const rows = await samsaraGet<AddressRow>("/addresses", { limit: "512" });
+  const places: FleetPlace[] = [];
+  for (const row of rows) {
+    if (!row.id) continue;
+    const circle = row.geofence?.circle;
+    const vertices = (row.geofence?.polygon?.vertices ?? [])
+      .map((vertex) => [num(vertex.latitude), num(vertex.longitude)])
+      .filter((pair): pair is [number, number] => pair[0] !== null && pair[1] !== null);
+    // Center: the circle's, else the polygon's average, else the address's.
+    let lat = num(circle?.latitude);
+    let lng = num(circle?.longitude);
+    if ((lat === null || lng === null) && vertices.length > 0) {
+      lat = vertices.reduce((sum, pair) => sum + pair[0], 0) / vertices.length;
+      lng = vertices.reduce((sum, pair) => sum + pair[1], 0) / vertices.length;
+    }
+    if (lat === null || lng === null) {
+      lat = num(row.latitude);
+      lng = num(row.longitude);
+    }
+    if (lat === null || lng === null) continue;
+    places.push({
+      id: row.id,
+      name: str(row.name) || str(row.formattedAddress) || "Place",
+      address: str(row.formattedAddress),
+      lat,
+      lng,
+      radiusMeters: num(circle?.radiusMeters),
+      polygon: vertices.length >= 3 ? vertices : null,
+      types: Array.isArray(row.addressTypes) ? row.addressTypes.filter((type) => typeof type === "string") : []
+    });
+  }
+  return places.sort((a, b) => a.name.localeCompare(b.name));
+}

@@ -2,10 +2,10 @@
 
 import "leaflet/dist/leaflet.css";
 import type { Map as LeafletMap, Marker as LeafletMarker } from "leaflet";
-import { Loader2, Maximize2, Minimize2, RotateCw, Route, Search, TrafficCone, X } from "lucide-react";
+import { Loader2, MapPin, Maximize2, Minimize2, RotateCw, Route, Search, TrafficCone, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { authedFetch } from "@/lib/auth";
-import type { FleetItem, FleetKind } from "@/lib/samsara";
+import type { FleetItem, FleetKind, FleetPlace } from "@/lib/samsara";
 import type { YardEta } from "@/lib/yards";
 
 // Live map of every truck, trailer and tracked piece of equipment from
@@ -129,6 +129,8 @@ export default function FleetMap({ darkMode }: { darkMode: boolean }) {
       leafletRef.current = L;
       const map = L.map(mapNode.current, { zoomControl: true, attributionControl: true }).setView([34.06, -117.4], 10);
       mapRef.current = map;
+      const node = mapNode.current;
+      map.on("zoomend", () => node.classList.toggle("fleet-zoom-street", map.getZoom() >= 14));
       setMapReady(true);
     });
     return () => {
@@ -202,6 +204,92 @@ export default function FleetMap({ darkMode }: { darkMode: boolean }) {
       { opacity: 0.9, zIndex: 5, maxZoom: 19, attribution: 'Traffic &copy; <a href="https://www.tomtom.com">TomTom</a>' }
     ).addTo(map);
   }, [trafficOn, trafficKey, darkMode, mapReady]);
+
+  // Places marked in Samsara (addresses / geofences): outline + labeled pin.
+  // On by default; the choice is remembered like Traffic.
+  const [places, setPlaces] = useState<FleetPlace[]>([]);
+  const [showPlaces, setShowPlaces] = useState(true);
+  const [placesError, setPlacesError] = useState("");
+  const placesLayerRef = useRef<import("leaflet").LayerGroup | null>(null);
+
+  useEffect(() => {
+    try {
+      if (window.localStorage.getItem("mgp-fleet-places-v1") === "off") setShowPlaces(false);
+    } catch {
+      // storage blocked — places stay on
+    }
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadPlaces = async () => {
+      try {
+        const response = await authedFetch("/api/samsara/places");
+        const result = (await response.json()) as { ok?: boolean; places?: FleetPlace[]; error?: string };
+        if (cancelled) return;
+        if (response.ok && result.ok) {
+          setPlaces(result.places ?? []);
+          setPlacesError("");
+        } else {
+          setPlacesError(result.error || `Couldn't load Samsara places (${response.status}).`);
+        }
+      } catch {
+        if (!cancelled) setPlacesError("Couldn't load Samsara places — check the connection.");
+      }
+    };
+    void loadPlaces();
+    const timer = window.setInterval(() => void loadPlaces(), 10 * 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  useEffect(() => {
+    const L = leafletRef.current;
+    const map = mapRef.current;
+    placesLayerRef.current?.remove();
+    placesLayerRef.current = null;
+    if (!L || !map || !showPlaces || places.length === 0) return;
+    const group = L.layerGroup();
+    const outline = { color: darkMode ? "#cbd5e1" : "#475569", weight: 1.5, opacity: 0.8, fillOpacity: 0.07, interactive: false };
+    for (const place of places) {
+      if (place.polygon) L.polygon(place.polygon, outline).addTo(group);
+      else if (place.radiusMeters) L.circle([place.lat, place.lng], { ...outline, radius: place.radiusMeters }).addTo(group);
+      L.marker([place.lat, place.lng], {
+        icon: L.divIcon({
+          html: `<div style="width:22px;height:22px;border-radius:6px;background:${darkMode ? "#e2e8f0" : "#334155"};border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.3);display:grid;place-items:center"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="${darkMode ? "#0f172a" : "#fff"}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 4.99-5.54 10.19-7.4 11.8a1 1 0 0 1-1.2 0C9.54 20.19 4 14.99 4 10a8 8 0 0 1 16 0"/><circle cx="12" cy="10" r="3"/></svg></div>`,
+          className: "",
+          iconSize: [22, 22],
+          iconAnchor: [11, 11]
+        }),
+        title: place.name,
+        // Under the trucks and trailers so their pins stay on top.
+        zIndexOffset: -500
+      })
+        // Name label beside the pin, shown only zoomed in to street level
+        // (globals.css: .fleet-place-label / .fleet-zoom-street).
+        .bindTooltip(escapeHtml(place.name), { permanent: true, direction: "right", offset: [12, 0], className: "fleet-place-label" })
+        .bindPopup(
+          `<div style="min-width:160px"><div style="font-size:11px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:#475569">Samsara place</div><div style="font-size:14px;font-weight:900;margin:2px 0">${escapeHtml(place.name)}</div>${
+            place.address ? `<div style="font-size:12px;font-weight:600;color:#26333f">${escapeHtml(place.address)}</div>` : ""
+          }</div>`
+        )
+        .addTo(group);
+    }
+    group.addTo(map);
+    placesLayerRef.current = group;
+  }, [places, showPlaces, darkMode, mapReady]);
+
+  function togglePlaces() {
+    const next = !showPlaces;
+    setShowPlaces(next);
+    try {
+      window.localStorage.setItem("mgp-fleet-places-v1", next ? "on" : "off");
+    } catch {
+      // storage blocked — the toggle still works for this visit
+    }
+  }
 
   function toggleTraffic() {
     const next = !trafficOn;
@@ -385,7 +473,7 @@ export default function FleetMap({ darkMode }: { darkMode: boolean }) {
             </button>
           ))}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <span className={`text-xs font-bold ${muted}`}>{fetchedAt ? `Updated ${timeAgo(fetchedAt)}` : ""}</span>
           <button
             type="button"
@@ -413,6 +501,22 @@ export default function FleetMap({ darkMode }: { darkMode: boolean }) {
           </button>
           <button
             type="button"
+            onClick={togglePlaces}
+            aria-pressed={showPlaces}
+            title={placesError || "Places marked in Samsara"}
+            className={`flex items-center gap-1.5 rounded border px-3 py-2 text-sm font-black transition ${
+              showPlaces
+                ? "border-steel-800 bg-steel-800 text-white hover:bg-steel-900"
+                : darkMode
+                  ? "border-white/15 hover:bg-white/10"
+                  : "border-steel-100 bg-white text-steel-900 hover:bg-steel-50"
+            }`}
+          >
+            <MapPin size={16} />
+            Places{places.length ? ` ${places.length}` : ""}
+          </button>
+          <button
+            type="button"
             onClick={() => setExpanded((value) => !value)}
             className="flex items-center gap-1.5 rounded bg-steel-900 px-3 py-2 text-sm font-black text-white hover:bg-steel-800"
           >
@@ -436,6 +540,9 @@ export default function FleetMap({ darkMode }: { darkMode: boolean }) {
         </div>
       )}
 
+      {placesError && showPlaces && (
+        <div className="rounded border border-amber-200 bg-amber-50 p-3 text-sm font-bold text-amber-900">Places: {placesError}</div>
+      )}
       {trafficError && (
         <div className="rounded border border-amber-200 bg-amber-50 p-3 text-sm font-bold text-amber-900">Traffic: {trafficError}</div>
       )}

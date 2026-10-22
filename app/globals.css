@@ -278,3 +278,13 @@ textarea {
 .fleet-tiles-dark {
   filter: invert(1) hue-rotate(180deg) brightness(0.95) contrast(0.9);
 }
+
+/* Fleet map: Samsara place names only show zoomed in to street level. */
+.fleet-place-label {
+  display: none;
+  font-weight: 800;
+  font-size: 11px;
+}
+.fleet-zoom-street .fleet-place-label {
+  display: block;
+}
