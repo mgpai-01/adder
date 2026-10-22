@@ -2,10 +2,11 @@
 
 import "leaflet/dist/leaflet.css";
 import type { Map as LeafletMap, Marker as LeafletMarker } from "leaflet";
-import { Loader2, Maximize2, Minimize2, RotateCw, Search, TrafficCone } from "lucide-react";
+import { Loader2, Maximize2, Minimize2, RotateCw, Route, Search, TrafficCone, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { authedFetch } from "@/lib/auth";
 import type { FleetItem, FleetKind } from "@/lib/samsara";
+import type { YardEta } from "@/lib/yards";
 
 // Live map of every truck, trailer and tracked piece of equipment from
 // Samsara. Pins are colored by kind; the list beside the map finds and flies
@@ -275,6 +276,34 @@ export default function FleetMap({ darkMode }: { darkMode: boolean }) {
     };
   }, [expanded]);
 
+  // Drive time to each yard (live traffic, truck mode) for the selected
+  // truck/trailer, from /api/samsara/eta. Cleared when the selection changes.
+  const [eta, setEta] = useState<{ id: string; loading: boolean; error?: string; etas?: YardEta[] } | null>(null);
+  const selected = items.find((item) => item.id === selectedId) ?? null;
+
+  async function loadEta(item: FleetItem) {
+    setEta({ id: item.id, loading: true });
+    try {
+      const response = await authedFetch(`/api/samsara/eta?lat=${item.lat}&lng=${item.lng}`);
+      const result = (await response.json()) as { ok?: boolean; etas?: YardEta[]; error?: string };
+      setEta((current) =>
+        current?.id !== item.id
+          ? current
+          : response.ok && result.ok
+            ? { id: item.id, loading: false, etas: result.etas ?? [] }
+            : { id: item.id, loading: false, error: result.error || `Couldn't get ETAs (${response.status}).` }
+      );
+    } catch {
+      setEta((current) => (current?.id === item.id ? { id: item.id, loading: false, error: "Couldn't reach the server — check the connection." } : current));
+    }
+  }
+
+  const clockTime = (iso?: string) => {
+    const time = iso ? new Date(iso) : null;
+    return time && !Number.isNaN(time.getTime()) ? time.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "";
+  };
+  const duration = (minutes: number) => (minutes < 60 ? `${minutes} min` : `${Math.floor(minutes / 60)} hr ${minutes % 60} min`);
+
   function focus(item: FleetItem) {
     setSelectedId(item.id);
     mapRef.current?.flyTo([item.lat, item.lng], Math.max(mapRef.current.getZoom(), 14), { duration: 0.6 });
@@ -402,6 +431,87 @@ export default function FleetMap({ darkMode }: { darkMode: boolean }) {
           >
             Show all
           </button>
+          {selected && (
+            <div
+              className={`absolute right-3 top-3 z-[600] w-[min(300px,calc(100%-4.5rem))] rounded border p-3 shadow-lg ${
+                darkMode ? "border-white/15 bg-steel-900/95 text-white" : "border-steel-100 bg-white/95 text-steel-900"
+              }`}
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-[11px] font-black uppercase tracking-wide" style={{ color: kindInfo(selected.kind).color }}>
+                    {kindInfo(selected.kind).label}
+                    {selected.size ? ` · ${selected.size}` : ""}
+                  </p>
+                  <p className="truncate text-sm font-black" title={selected.name}>{selected.name}</p>
+                  <p className={`truncate text-xs font-bold ${muted}`}>{selected.address || `${selected.lat.toFixed(4)}, ${selected.lng.toFixed(4)}`}</p>
+                </div>
+                <button
+                  type="button"
+                  aria-label="Close"
+                  onClick={() => {
+                    setSelectedId("");
+                    setEta(null);
+                  }}
+                  className={`shrink-0 rounded p-1 ${darkMode ? "hover:bg-white/10" : "hover:bg-steel-100"}`}
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              {eta?.id !== selected.id ? (
+                <button
+                  type="button"
+                  onClick={() => void loadEta(selected)}
+                  className="mt-2.5 flex w-full items-center justify-center gap-1.5 rounded bg-workshop-500 px-3 py-2 text-sm font-black text-white hover:bg-workshop-700"
+                >
+                  <Route size={16} />
+                  ETA to yards
+                </button>
+              ) : eta.loading ? (
+                <p className={`mt-2.5 flex items-center gap-2 text-xs font-black ${muted}`}>
+                  <Loader2 size={14} className="animate-spin" /> Checking live traffic…
+                </p>
+              ) : eta.error ? (
+                <div className="mt-2.5 grid gap-1.5">
+                  <p className="text-xs font-bold text-red-700">{eta.error}</p>
+                  <button type="button" onClick={() => void loadEta(selected)} className="text-left text-xs font-black underline">
+                    Try again
+                  </button>
+                </div>
+              ) : (
+                <div className="mt-2.5 grid gap-1.5">
+                  <p className={`text-[11px] font-black uppercase tracking-wide ${muted}`}>Drive time · live traffic · truck route</p>
+                  {(eta.etas ?? []).map((row, index) => (
+                    <div
+                      key={row.yardId}
+                      className={`rounded px-2.5 py-2 ${index === 0 && !row.error ? (darkMode ? "bg-white/10" : "bg-workshop-100") : darkMode ? "bg-white/[0.04]" : "bg-steel-50"}`}
+                    >
+                      <div className="flex items-baseline justify-between gap-2">
+                        <span className="truncate text-sm font-black">{row.name}</span>
+                        {row.minutes !== undefined && <span className="shrink-0 text-sm font-black">{duration(row.minutes)}</span>}
+                      </div>
+                      {row.error ? (
+                        <p className="text-xs font-bold text-red-700">{row.error}</p>
+                      ) : (
+                        <p className={`text-xs font-bold ${muted}`}>
+                          {row.miles} mi · arrives {clockTime(row.arrival)}
+                          {row.trafficDelayMinutes ? (
+                            <span className="text-red-700"> · +{row.trafficDelayMinutes} min traffic</span>
+                          ) : (
+                            " · no traffic delay"
+                          )}
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                  <button type="button" onClick={() => void loadEta(selected)} className={`text-left text-xs font-black underline ${muted}`}>
+                    Refresh
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
           {trafficOn && trafficKey && (
             <div className="absolute bottom-3 right-3 z-[500] mb-5 flex items-center gap-2.5 rounded bg-white/95 px-3 py-1.5 text-[11px] font-black text-steel-900 shadow-md">
               <span className="flex items-center gap-1"><span className="h-1.5 w-4 rounded-full" style={{ background: "#2fb14f" }} />Normal</span>
