@@ -3,6 +3,7 @@ import { createLocalPalletType, readLocalPalletTypes } from "@/lib/localPalletTy
 import { getSupabaseServerClient } from "@/lib/supabase";
 import type { PalletType } from "@/lib/types";
 import { denyUnless } from "@/lib/apiAuth";
+import { FALLBACK_CATEGORY, fallbackNote, friendlyPalletError, isCategoryRejected } from "@/lib/palletTypeSave";
 
 type PalletTypeRow = {
   id: string;
@@ -82,15 +83,28 @@ export async function POST(request: Request) {
     return NextResponse.json({ configured: false, storage: "local", palletType: saved });
   }
 
-  const { data, error } = await supabase
-    .from("pallet_types")
-    .insert(toRow(palletType))
-    .select("id, code, description, category, repair_rate, photo_url, active, bilingual_label, customer_rate_note, location_rate_note")
-    .single();
+  const columns = "id, code, description, category, repair_rate, photo_url, active, bilingual_label, customer_rate_note, location_rate_note";
+  let warning = "";
+  let { data, error } = await supabase.from("pallet_types").insert(toRow(palletType)).select(columns).single();
 
-  if (error) {
-    return NextResponse.json({ configured: true, error: error.message }, { status: 500 });
+  // The database's category list may not have the one picked (e.g. "Custom"
+  // before supabase/custom-category-migration.sql is run): save it under one
+  // it accepts rather than losing the pallet — see lib/palletTypeSave.
+  if (error && isCategoryRejected(error.message) && palletType.category !== FALLBACK_CATEGORY) {
+    warning = fallbackNote(palletType.category);
+    ({ data, error } = await supabase
+      .from("pallet_types")
+      .insert(toRow({ ...palletType, category: FALLBACK_CATEGORY }))
+      .select(columns)
+      .single());
   }
 
-  return NextResponse.json({ configured: true, palletType: fromRow(data as PalletTypeRow) });
+  if (error || !data) {
+    return NextResponse.json(
+      { configured: true, error: friendlyPalletError(error?.message ?? "Save failed", palletType.code) },
+      { status: error && /duplicate key|unique constraint/i.test(error.message) ? 409 : 500 }
+    );
+  }
+
+  return NextResponse.json({ configured: true, palletType: fromRow(data as PalletTypeRow), ...(warning ? { warning } : {}) });
 }

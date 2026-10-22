@@ -2263,42 +2263,76 @@ export default function Home() {
     }
   }
 
-  async function createPalletType(palletType: Omit<PalletType, "id">) {
+  // Returns a note to show the admin (e.g. the category was swapped), and
+  // throws with the reason when the pallet type wasn't saved. A pallet that
+  // only exists on this screen never reaches the other yards and vanishes on
+  // the next cloud refresh, so a failed save must never look like a success.
+  async function createPalletType(palletType: Omit<PalletType, "id">): Promise<string | void> {
     const localPalletType = { ...palletType, id: `pallet-${Date.now()}` };
     setPalletTypes((current) => [...current, localPalletType]);
-    setAdminStatus("Pallet type saved locally.");
+    setAdminStatus("Saving pallet type…");
+    const dropPlaceholder = () => setPalletTypes((current) => current.filter((item) => item.id !== localPalletType.id));
 
+    let response: Response;
+    let result: { configured?: boolean; palletType?: PalletType; error?: string; warning?: string };
     try {
-      const response = await authedFetch("/api/pallet-types", {
+      response = await authedFetch("/api/pallet-types", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(palletType)
       });
-      const result = (await response.json()) as { configured: boolean; palletType?: PalletType };
-      if (result.palletType) {
-        setPalletTypes((current) => current.map((item) => (item.id === localPalletType.id ? result.palletType! : item)));
-        setAdminStatus(result.configured ? "Pallet type saved to Supabase." : "Pallet type saved to local server storage.");
-      }
+      result = await response.json().catch(() => ({}));
     } catch {
-      setAdminStatus("Pallet type saved locally; sync pending.");
+      dropPlaceholder();
+      setAdminStatus("Pallet type NOT saved — no connection.");
+      throw new Error("No connection — the pallet type wasn't saved. Try again.");
     }
+    if (!response.ok || !result.palletType) {
+      dropPlaceholder();
+      const reason = result.error || `The server didn't save it (${response.status}).`;
+      setAdminStatus(`Pallet type NOT saved: ${reason}`);
+      throw new Error(reason);
+    }
+    const saved = result.palletType;
+    setPalletTypes((current) => current.map((item) => (item.id === localPalletType.id ? saved : item)));
+    setAdminStatus(result.configured ? "Pallet type saved to Supabase." : "Pallet type saved to local server storage.");
+    return result.warning;
   }
 
-  async function updatePalletType(id: string, patch: Partial<PalletType>) {
+  // Same contract as createPalletType: a note to show, or a throw (and the
+  // change undone on screen) when the cloud didn't take it.
+  async function updatePalletType(id: string, patch: Partial<PalletType>): Promise<string | void> {
+    const before = palletTypes.find((pallet) => pallet.id === id);
     setPalletTypes((current) => current.map((pallet) => (pallet.id === id ? { ...pallet, ...patch } : pallet)));
-    setAdminStatus("Pallet type updated locally.");
+    setAdminStatus("Saving pallet type…");
+    const undo = () => {
+      if (before) setPalletTypes((current) => current.map((pallet) => (pallet.id === id ? before : pallet)));
+    };
 
+    let response: Response;
+    let result: { configured?: boolean; error?: string; warning?: string; category?: PalletType["category"] };
     try {
-      const response = await authedFetch(`/api/pallet-types/${id}`, {
+      response = await authedFetch(`/api/pallet-types/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(patch)
       });
-      const result = (await response.json()) as { configured: boolean };
-      setAdminStatus(result.configured ? "Pallet type updated in Supabase." : "Pallet type updated locally; Supabase not configured.");
+      result = await response.json().catch(() => ({}));
     } catch {
-      setAdminStatus("Pallet type updated locally; sync pending.");
+      undo();
+      setAdminStatus("Pallet type NOT updated — no connection.");
+      throw new Error("No connection — the change wasn't saved. Try again.");
     }
+    if (!response.ok) {
+      undo();
+      const reason = result.error || `The server didn't save it (${response.status}).`;
+      setAdminStatus(`Pallet type NOT updated: ${reason}`);
+      throw new Error(reason);
+    }
+    const savedCategory = result.category;
+    if (savedCategory) setPalletTypes((current) => current.map((pallet) => (pallet.id === id ? { ...pallet, category: savedCategory } : pallet)));
+    setAdminStatus(result.configured ? "Pallet type updated in Supabase." : "Pallet type updated locally; Supabase not configured.");
+    return result.warning;
   }
 
   async function deletePalletType(id: string) {
@@ -9001,8 +9035,8 @@ function Settings({
   locations: Location[];
   shifts: Shift[];
   settings: PayrollSettings;
-  onCreatePallet: (palletType: Omit<PalletType, "id">) => void | Promise<void>;
-  onUpdatePallet: (id: string, patch: Partial<PalletType>) => void | Promise<void>;
+  onCreatePallet: (palletType: Omit<PalletType, "id">) => Promise<string | void>;
+  onUpdatePallet: (id: string, patch: Partial<PalletType>) => Promise<string | void>;
   onDeletePallet: (id: string) => void | Promise<void>;
   onFixMisdatedEntries: () => Promise<number>;
   onCreateEmployee: (employee: Omit<Employee, "id">) => void | Promise<void>;
@@ -9317,8 +9351,8 @@ function PalletAdmin({
 }: {
   palletTypes: PalletType[];
   entries: DailyEntry[];
-  onCreate: (palletType: Omit<PalletType, "id">) => void | Promise<void>;
-  onUpdate: (id: string, patch: Partial<PalletType>) => void | Promise<void>;
+  onCreate: (palletType: Omit<PalletType, "id">) => Promise<string | void>;
+  onUpdate: (id: string, patch: Partial<PalletType>) => Promise<string | void>;
   onDelete: (id: string) => void | Promise<void>;
 }) {
   const [search, setSearch] = useState("");
@@ -9357,12 +9391,12 @@ function PalletAdmin({
     setIsSaving(true);
     setError("");
     try {
-      await Promise.resolve(onCreate(clean));
-      setMessage(`${clean.code} added.`);
+      const note = await onCreate(clean);
+      setMessage(note ? `${clean.code} added. ${note}` : `${clean.code} added — it shows in every yard.`);
       setDraft((current) => (current === savedDraft ? emptyPallet : current));
       setEditingId(null);
-    } catch {
-      setError("Could not save pallet type. Try again.");
+    } catch (caught) {
+      setError(caught instanceof Error && caught.message ? `${clean.code} was NOT added: ${caught.message}` : "Could not save pallet type. Try again.");
     } finally {
       setIsSaving(false);
     }
@@ -9384,12 +9418,12 @@ function PalletAdmin({
     setIsSaving(true);
     setError("");
     try {
-      await Promise.resolve(onUpdate(clean.id, clean));
-      setMessage(`${clean.code} saved.`);
+      const note = await onUpdate(clean.id, clean);
+      setMessage(note ? `${clean.code} saved. ${note}` : `${clean.code} saved.`);
       setEditDraft(null);
       setEditingId(null);
-    } catch {
-      setError("Could not save pallet changes. Try again.");
+    } catch (caught) {
+      setError(caught instanceof Error && caught.message ? `${clean.code} was NOT saved: ${caught.message}` : "Could not save pallet changes. Try again.");
     } finally {
       setIsSaving(false);
     }
@@ -9524,7 +9558,7 @@ function PalletAdmin({
                   </td>
                   <td className={classNames("p-3 font-black", pallet.rate < 0 ? "text-red-700" : "text-workshop-700")}>{currency(pallet.rate)}</td>
                   <td className="p-3">
-                    <button type="button" className={classNames("rounded px-3 py-1 text-xs font-black", pallet.active ? "bg-workshop-500 text-white" : "bg-steel-100 text-steel-700")} onClick={() => onUpdate(pallet.id, { active: !pallet.active })}>
+                    <button type="button" className={classNames("rounded px-3 py-1 text-xs font-black", pallet.active ? "bg-workshop-500 text-white" : "bg-steel-100 text-steel-700")} onClick={() => onUpdate(pallet.id, { active: !pallet.active }).catch((caught) => setError(caught instanceof Error ? caught.message : "Could not save. Try again."))}>
                       {pallet.active ? "Active" : "Inactive"}
                     </button>
                   </td>
