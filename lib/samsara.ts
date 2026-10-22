@@ -208,6 +208,9 @@ type EquipmentLocation = {
 // When the stream rejects every parameter set, don't keep asking it (and
 // waiting on it) every minute — go straight to the fallbacks for an hour.
 let streamSkipUntil = 0;
+// Samsara's own reason from the last time the stream failed, kept through the
+// pause so it isn't replaced by "paused".
+let lastStreamError = "";
 
 async function fetchAssetPoints(): Promise<{ points: Map<string, AssetPoint>; names: Map<string, string>; note: string }> {
   const now = Date.now();
@@ -226,8 +229,14 @@ async function fetchAssetPoints(): Promise<{ points: Map<string, AssetPoint>; na
       failures.push(error instanceof Error ? error.message : "failed");
     }
   }
-  if (failures.length > 0) streamSkipUntil = now + 3600_000;
-  if (failures.length === 0 && now < streamSkipUntil) failures.push("the newer location call is paused for an hour after it failed");
+  if (failures.length > 0) {
+    streamSkipUntil = now + 3600_000;
+    lastStreamError = failures.join(" | ");
+    // Server log (Vercel → Logs) rather than the screen: the fallbacks below
+    // carry the same data, so nothing is missing for the person looking.
+    console.warn(`Samsara asset stream failed; using fallback for an hour: ${lastStreamError}`);
+  }
+  if (failures.length === 0 && now < streamSkipUntil) failures.push(lastStreamError || "the newer location call failed earlier");
 
   try {
     const body = await samsaraRaw<{ assets?: LegacyAsset[] }>("/v1/fleet/assets/locations");
@@ -245,7 +254,8 @@ async function fetchAssetPoints(): Promise<{ points: Map<string, AssetPoint>; na
         speed: fix.speedMilesPerHour === undefined ? undefined : { gpsSpeedMetersPerSecond: fix.speedMilesPerHour / 2.23694 }
       });
     }
-    return { points, names, note: `Other assets come from Samsara's older location call (the newer one said: ${failures[0]}).` };
+    // Same data as the stream, so nothing to tell the person looking.
+    return { points, names, note: "" };
   } catch (error) {
     failures.push(error instanceof Error ? error.message : "failed");
   }
