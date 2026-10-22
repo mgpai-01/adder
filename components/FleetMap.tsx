@@ -40,6 +40,15 @@ function pinHtml(kind: FleetKind, selected: boolean): string {
     <svg width="${size / 2}" height="${size / 2}" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">${GLYPHS[kind]}</svg></div>`;
 }
 
+// The short name printed under a pin: MGP's unit number from the front of
+// the Samsara name ("001MGP - 2016 FRHT-CASCADIA" → "001MGP",
+// "MGP216- BOX ( 27Foot)" → "MGP216"), else the first two words, kept short.
+function pinLabel(name: string): string {
+  const unit = /^\s*(\d+\s*MGP|MGP\s*\d+)/i.exec(name);
+  const label = unit ? unit[1].replace(/\s+/g, "") : name.trim().split(/\s+/).slice(0, 2).join(" ");
+  return label.length > 12 ? `${label.slice(0, 11)}…` : label;
+}
+
 function timeAgo(iso: string): string {
   const then = Date.parse(iso);
   if (!Number.isFinite(then)) return "";
@@ -373,12 +382,18 @@ export default function FleetMap({ darkMode }: { darkMode: boolean }) {
     for (const item of visible) {
       const icon = L.divIcon({ html: pinHtml(item.kind, item.id === selectedId), className: "", iconSize: [40, 40], iconAnchor: [20, 20], popupAnchor: [0, -18] });
       const existing = markersRef.current.get(item.id);
+      // Name under the pin: always for trucks; for everything else only once
+      // zoomed in to street level, so dozens of trailers don't bury the map
+      // (globals.css: .fleet-pin-label).
+      const label = escapeHtml(pinLabel(item.name));
+      const labelClass = `fleet-pin-label${item.kind === "truck" ? "" : " fleet-pin-label-street"}`;
       if (existing) {
-        existing.setLatLng([item.lat, item.lng]).setIcon(icon).setPopupContent(popupHtml(item));
+        existing.setLatLng([item.lat, item.lng]).setIcon(icon).setPopupContent(popupHtml(item)).setTooltipContent(label);
         existing.setZIndexOffset(item.id === selectedId ? 1000 : 0);
       } else {
         const marker = L.marker([item.lat, item.lng], { icon, title: item.name, zIndexOffset: item.id === selectedId ? 1000 : 0 })
           .bindPopup(popupHtml(item))
+          .bindTooltip(label, { permanent: true, direction: "bottom", offset: [0, 16], className: labelClass })
           .on("click", () => setSelectedId(item.id))
           .addTo(map);
         markersRef.current.set(item.id, marker);

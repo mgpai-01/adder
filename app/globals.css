@@ -288,3 +288,26 @@ textarea {
 .fleet-zoom-street .fleet-place-label {
   display: block;
 }
+
+/* Fleet map: short unit name under each pin. Trucks always; trailers and
+   the rest only zoomed in to street level (.fleet-zoom-street). */
+.leaflet-tooltip.fleet-pin-label {
+  padding: 1px 6px;
+  border: 0;
+  border-radius: 9999px;
+  background: rgba(24, 34, 44, 0.88);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 16px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+.leaflet-tooltip.fleet-pin-label::before {
+  display: none;
+}
+.fleet-pin-label-street {
+  display: none;
+}
+.fleet-zoom-street .fleet-pin-label-street {
+  display: block;
+}
