@@ -192,18 +192,55 @@ export default function FleetMap({ darkMode }: { darkMode: boolean }) {
     };
   }, [trafficOn, trafficKey]);
 
+  // TomTom serves traffic images from three generations of its API, and
+  // which one a key can use depends on the account (new accounts get Orbis).
+  // Try them in order: a source that fails several tiles without loading any
+  // is dropped for the next; if none works, say so instead of a legend over
+  // an empty map.
+  const [trafficSource, setTrafficSource] = useState(0);
+  useEffect(() => setTrafficSource(0), [trafficKey]);
+
   useEffect(() => {
     const L = leafletRef.current;
     const map = mapRef.current;
     trafficRef.current?.remove();
     trafficRef.current = null;
     if (!L || !map || !trafficOn || !trafficKey) return;
-    // relative0: green = normal speed for that road, orange/red = slower, dark red = stopped.
-    trafficRef.current = L.tileLayer(
-      `https://api.tomtom.com/traffic/map/4/tile/flow/${darkMode ? "relative0-dark" : "relative0"}/{z}/{x}/{y}.png?key=${encodeURIComponent(trafficKey)}&thickness=8`,
-      { opacity: 0.9, zIndex: 5, maxZoom: 19, attribution: 'Traffic &copy; <a href="https://www.tomtom.com">TomTom</a>' }
-    ).addTo(map);
-  }, [trafficOn, trafficKey, darkMode, mapReady]);
+    const key = encodeURIComponent(trafficKey);
+    const theme = darkMode ? "dark" : "light";
+    const sources = [
+      // Legacy Traffic API — relative0: green = normal for that road, orange/red slower, dark red stopped.
+      `https://api.tomtom.com/traffic/map/4/tile/flow/${darkMode ? "relative0-dark" : "relative0"}/{z}/{x}/{y}.png?key=${key}&thickness=8`,
+      // Orbis v2 and v1 — same relative-speed colors.
+      `https://api.tomtom.com/maps/orbis/traffic/flow/raster/tile/{z}/{x}/{y}?apiVersion=2&key=${key}&style=${theme}`,
+      `https://api.tomtom.com/maps/orbis/traffic/tile/flow/{z}/{x}/{y}.png?apiVersion=1&key=${key}&style=${theme}`
+    ];
+    if (trafficSource >= sources.length) return;
+    let loaded = 0;
+    let failed = 0;
+    const layer = L.tileLayer(sources[trafficSource], {
+      opacity: 0.9,
+      zIndex: 5,
+      maxZoom: 19,
+      // TomTom doesn't draw traffic below city zoom; don't count those as failures.
+      minZoom: 6,
+      attribution: 'Traffic &copy; <a href="https://www.tomtom.com">TomTom</a>'
+    });
+    layer.on("tileload", () => {
+      loaded += 1;
+    });
+    layer.on("tileerror", () => {
+      failed += 1;
+      if (loaded === 0 && failed >= 4) {
+        if (trafficSource + 1 < sources.length) setTrafficSource(trafficSource + 1);
+        else {
+          setTrafficError("TomTom didn't send any traffic images for this key. In my.tomtom.com, check the key includes the Traffic API (or Orbis Traffic Flow).");
+          setTrafficOn(false);
+        }
+      }
+    });
+    trafficRef.current = layer.addTo(map);
+  }, [trafficOn, trafficKey, darkMode, mapReady, trafficSource]);
 
   // Places marked in Samsara (addresses / geofences): outline + labeled pin.
   // On by default; the choice is remembered like Traffic.
@@ -294,6 +331,8 @@ export default function FleetMap({ darkMode }: { darkMode: boolean }) {
   function toggleTraffic() {
     const next = !trafficOn;
     setTrafficError("");
+    // Turning it back on starts again from the first TomTom source.
+    if (next) setTrafficSource(0);
     setTrafficOn(next);
     try {
       window.localStorage.setItem("mgp-fleet-traffic-v1", next ? "on" : "off");
