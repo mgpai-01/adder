@@ -705,7 +705,7 @@ export default function FleetMap({ darkMode }: { darkMode: boolean }) {
 
       <div className={`grid min-h-0 gap-3 ${expanded ? "flex-1 lg:grid-cols-[1fr_320px]" : "lg:grid-cols-[1fr_300px]"}`}>
         <div
-          className={`relative isolate overflow-hidden rounded border ${darkMode ? "border-white/10" : "border-steel-100"} ${expanded ? "min-h-[50vh]" : "h-[420px]"}`}
+          className={`relative isolate overflow-hidden rounded border ${darkMode ? "border-white/10" : "border-steel-100"} ${expanded ? "min-h-[35vh]" : "h-[340px]"}`}
         >
           <div ref={mapNode} className="absolute inset-0 z-0" />
           <button
@@ -824,7 +824,7 @@ export default function FleetMap({ darkMode }: { darkMode: boolean }) {
           )}
         </div>
 
-        <div className={`flex min-h-0 flex-col rounded border ${darkMode ? "border-white/10 bg-white/[0.04]" : "border-steel-100 bg-white"} ${expanded ? "max-h-[40vh] lg:max-h-none" : "h-[420px]"}`}>
+        <div className={`flex min-h-0 flex-col rounded border ${darkMode ? "border-white/10 bg-white/[0.04]" : "border-steel-100 bg-white"} ${expanded ? "max-h-[40vh] lg:max-h-none" : "h-[340px]"}`}>
           <label className={`flex items-center gap-2 border-b px-3 py-2 ${darkMode ? "border-white/10" : "border-steel-100"}`}>
             <Search size={16} className={muted} />
             <input

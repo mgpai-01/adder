@@ -3,15 +3,26 @@
 import type { FleetItem } from "@/lib/samsara";
 import type { YardArea } from "@/lib/yards";
 
-// The Yard board under the fleet map: laid out like the Production Grid, but
-// the columns are MGP's yards (plus "Not at a yard") instead of days, and each
-// cell lists the trucks / trailers parked there right now. It's rebuilt from
-// the live positions every refresh, so a trailer that moves from one yard to
-// another moves to that yard's column.
+// The Yard board under the fleet map: one card per yard (plus "Not at a
+// yard"), each showing the trucks and trailers parked there right now as
+// compact tags — trucks first, then trailers grouped by length. It's rebuilt from the live
+// positions on every refresh, so a trailer that moves from one yard to
+// another moves to that yard's card.
 
-const AWAY = "__away";
+const YARD_COLOR = "#7c3aed";
+const TRUCK_COLOR = "#2a6b40";
+const TRAILER_COLOR = "#c2410c";
+const OTHER_COLOR = "#6c7a86";
 
-type Row = { key: string; label: string; sub: string; match: (item: FleetItem) => boolean };
+function ago(iso: string): string {
+  const then = Date.parse(iso);
+  if (!Number.isFinite(then)) return "";
+  const minutes = Math.max(0, Math.round((Date.now() - then) / 60_000));
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.round(minutes / 60);
+  return hours < 48 ? `${hours} hr ago` : `${Math.round(hours / 24)} days ago`;
+}
 
 export default function YardBoard({
   items,
@@ -30,105 +41,116 @@ export default function YardBoard({
   onFocus: (item: FleetItem) => void;
   onZoomYard: (yard: YardArea) => void;
 }) {
-  // Rows: trucks, then trailers by length (longest first), then the rest.
-  const sizes = Array.from(new Set(items.filter((item) => item.kind === "trailer").map((item) => item.size)));
-  sizes.sort((a, b) => (a === "" ? 1 : b === "" ? -1 : parseInt(b) - parseInt(a)));
-  const rows: Row[] = [
-    { key: "truck", label: "Trucks", sub: "", match: (item: FleetItem) => item.kind === "truck" },
-    ...sizes.map((size) => ({
-      key: `trailer-${size || "unlisted"}`,
-      label: "Trailers",
-      sub: size || "Size not listed",
-      match: (item: FleetItem) => item.kind === "trailer" && item.size === size
-    })),
-    { key: "other", label: "Other", sub: "Yards, equipment, assets", match: (item: FleetItem) => item.kind !== "truck" && item.kind !== "trailer" }
-  ].filter((row) => items.some(row.match));
-
-  const columnOf = (item: FleetItem) => yardOf.get(item.id)?.id ?? AWAY;
-  const columns = [...yards.map((yard) => ({ id: yard.id, yard })), { id: AWAY, yard: null as YardArea | null }];
-  const cell = (row: Row, columnId: string) =>
-    items.filter((item) => row.match(item) && columnOf(item) === columnId).sort((a, b) => unitLabel(a).localeCompare(unitLabel(b), undefined, { numeric: true }));
-
-  const line = darkMode ? "border-white/10" : "border-steel-100";
-  const muted = darkMode ? "text-steel-100" : "text-steel-500";
-  const totalCell = darkMode ? "bg-workshop-700/40" : "bg-workshop-100";
-
   if (yards.length === 0) return null;
 
+  const byLabel = (a: FleetItem, b: FleetItem) => unitLabel(a).localeCompare(unitLabel(b), undefined, { numeric: true });
+  const cards = [
+    ...yards.map((yard) => ({ key: yard.id, yard, units: items.filter((item) => yardOf.get(item.id)?.id === yard.id) })),
+    { key: "away", yard: null as YardArea | null, units: items.filter((item) => !yardOf.has(item.id)) }
+  ];
+
+  const card = darkMode ? "border-white/10 bg-white/[0.04]" : "border-steel-100 bg-white shadow-panel";
+  const muted = darkMode ? "text-steel-100" : "text-steel-500";
+
+  // Units as small tags that wrap side by side, so a yard with 20 trailers
+  // takes a few lines, not 20 rows — the whole board fits on one screen.
+  // Hover / long-press for the full name and last report; tap to find it.
+  function UnitTag({ item, color }: { item: FleetItem; color: string }) {
+    const moving = item.speedMph !== null && item.speedMph > 2;
+    const status = moving ? `${Math.round(item.speedMph ?? 0)} mph` : `parked · ${ago(item.time)}`;
+    return (
+      <button
+        type="button"
+        onClick={() => onFocus(item)}
+        title={`${item.name} — ${status}. Tap to show on map.`}
+        className="relative min-h-0 rounded px-1.5 py-0.5 text-[11px] font-black leading-4 text-white transition hover:brightness-110"
+        style={{ background: color }}
+      >
+        {unitLabel(item)}
+        {moving && <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full border border-white bg-safety-500" />}
+      </button>
+    );
+  }
+
+  function Group({ title, color, units }: { title: string; color: string; units: FleetItem[] }) {
+    if (units.length === 0) return null;
+    return (
+      <div className="flex items-start gap-2">
+        <p className="w-14 shrink-0 pt-0.5 text-[10px] font-black uppercase leading-4 tracking-wide" style={{ color }}>
+          {title}
+          <span className={`block ${muted}`}>{units.length}</span>
+        </p>
+        <div className="flex min-w-0 flex-1 flex-wrap gap-1">
+          {units.map((item) => (
+            <UnitTag key={item.id} item={item} color={color} />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className={`overflow-x-auto rounded border ${line}`}>
-      <table className="w-full min-w-[760px] border-collapse text-sm">
-        <thead>
-          <tr className="bg-steel-900 text-white">
-            <th className="px-3 py-3 text-left font-black">Yard board</th>
-            {columns.map(({ id, yard }) => (
-              <th key={id} className="px-3 py-2 text-center align-bottom">
-                {yard ? (
-                  <button type="button" onClick={() => onZoomYard(yard)} className="font-black hover:underline" title={`Show ${yard.name} on the map`}>
-                    {yard.name}
-                  </button>
-                ) : (
-                  <span className="font-black">Not at a yard</span>
-                )}
-                <span className="block text-[11px] font-black uppercase tracking-wide text-safety-400">
-                  {yard ? (yard.placeName ? `Geofence: ${yard.placeName}` : "250 m around address") : "On the road / elsewhere"}
+    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+      {cards.map(({ key, yard, units }) => {
+        const trucks = units.filter((item) => item.kind === "truck").sort(byLabel);
+        const trailers = units.filter((item) => item.kind === "trailer");
+        const others = units.filter((item) => item.kind !== "truck" && item.kind !== "trailer").sort(byLabel);
+        // Trailers grouped by length, longest first; unknown length last.
+        const sizes = Array.from(new Set(trailers.map((item) => item.size))).sort((a, b) =>
+          a === "" ? 1 : b === "" ? -1 : parseInt(b) - parseInt(a)
+        );
+        const accent = yard ? YARD_COLOR : OTHER_COLOR;
+        return (
+          <section key={key} className={`flex flex-col overflow-hidden rounded border ${card}`}>
+            <header className="border-t-4 px-3 pb-2 pt-2" style={{ borderTopColor: accent }}>
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  {yard ? (
+                    <button
+                      type="button"
+                      onClick={() => onZoomYard(yard)}
+                      className="min-h-0 truncate text-left text-base font-black hover:underline"
+                      title={`Show ${yard.name} on the map`}
+                    >
+                      {yard.name}
+                    </button>
+                  ) : (
+                    <p className="text-base font-black">Not at a yard</p>
+                  )}
+                  <p className={`truncate text-[11px] font-bold ${muted}`}>
+                    {yard ? (yard.placeName ? `Geofence: ${yard.placeName}` : "250 m around the address") : "On the road or elsewhere"}
+                  </p>
+                </div>
+                <span className="shrink-0 text-2xl font-black leading-none" style={{ color: accent }}>
+                  {units.length}
                 </span>
-              </th>
-            ))}
-            <th className="bg-safety-400 px-3 py-3 text-center font-black text-steel-900">Total</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row, index) => {
-            const total = items.filter(row.match).length;
-            return (
-              <tr key={row.key} className={`border-t ${line} ${index % 2 ? (darkMode ? "bg-white/[0.03]" : "bg-steel-50") : ""}`}>
-                <td className="px-3 py-2.5 align-top">
-                  <span className="block font-black">{row.label}</span>
-                  {row.sub && <span className={`block text-xs font-bold ${muted}`}>{row.sub}</span>}
-                </td>
-                {columns.map(({ id }) => {
-                  const units = cell(row, id);
-                  return (
-                    <td key={id} className="px-3 py-2.5 text-center align-top">
-                      {units.length === 0 ? (
-                        <span className={muted}>—</span>
-                      ) : (
-                        <>
-                          <span className="block font-black">{units.length}</span>
-                          <span className="mt-1 flex flex-wrap justify-center gap-1">
-                            {units.map((item) => (
-                              <button
-                                key={item.id}
-                                type="button"
-                                onClick={() => onFocus(item)}
-                                title={`${item.name} — show on map`}
-                                className="min-h-0 rounded-full bg-steel-800 px-2 py-0.5 text-[11px] font-black leading-4 text-white hover:bg-steel-900"
-                              >
-                                {unitLabel(item)}
-                              </button>
-                            ))}
-                          </span>
-                        </>
-                      )}
-                    </td>
-                  );
-                })}
-                <td className={`px-3 py-2.5 text-center align-top font-black ${totalCell}`}>{total}</td>
-              </tr>
-            );
-          })}
-          <tr className={`border-t-2 ${darkMode ? "border-white/30" : "border-steel-900"} ${totalCell}`}>
-            <td className="px-3 py-3 font-black">Totals</td>
-            {columns.map(({ id }) => (
-              <td key={id} className="px-3 py-3 text-center font-black">
-                {items.filter((item) => columnOf(item) === id).length}
-              </td>
-            ))}
-            <td className="px-3 py-3 text-center font-black">{items.length}</td>
-          </tr>
-        </tbody>
-      </table>
+              </div>
+              <p className={`mt-1 text-xs font-black ${muted}`}>
+                {trucks.length} truck{trucks.length === 1 ? "" : "s"} · {trailers.length} trailer{trailers.length === 1 ? "" : "s"}
+                {others.length ? ` · ${others.length} other` : ""}
+              </p>
+            </header>
+            <div className={`grid flex-1 grid-cols-[minmax(0,1fr)] content-start gap-1.5 border-t px-3 py-2 ${darkMode ? "border-white/10" : "border-steel-100"}`}>
+              {units.length === 0 ? (
+                <p className={`py-1 text-center text-xs font-bold ${muted}`}>Nothing here right now</p>
+              ) : (
+                <>
+                  <Group title="Trucks" color={TRUCK_COLOR} units={trucks} />
+                  {sizes.map((size) => (
+                    <Group
+                      key={size || "unlisted"}
+                      title={size || "Trailers"}
+                      color={TRAILER_COLOR}
+                      units={trailers.filter((item) => item.size === size).sort(byLabel)}
+                    />
+                  ))}
+                  <Group title="Other" color={OTHER_COLOR} units={others} />
+                </>
+              )}
+            </div>
+          </section>
+        );
+      })}
     </div>
   );
 }
