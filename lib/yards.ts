@@ -25,3 +25,18 @@ export type YardEta = {
   yardLat?: number;
   yardLng?: number;
 };
+
+// A yard as the fleet map draws it: its spot plus the area that counts as
+// "at the yard" — the matching Samsara geofence when there is one
+// (`placeName`), else a circle around the address.
+export type YardArea = {
+  id: string;
+  name: string;
+  address: string;
+  lat: number;
+  lng: number;
+  radiusMeters: number | null;
+  polygon: Array<[number, number]> | null;
+  placeName: string;
+  placeId: string;
+};

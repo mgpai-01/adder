@@ -311,3 +311,18 @@ textarea {
 .fleet-zoom-street .fleet-pin-label-street {
   display: block;
 }
+
+/* Fleet map: yard names, always shown above the yard pin. */
+.leaflet-tooltip.fleet-yard-label {
+  padding: 1px 8px;
+  border: 0;
+  border-radius: 9999px;
+  background: #7c3aed;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+.leaflet-tooltip.fleet-yard-label::before {
+  display: none;
+}

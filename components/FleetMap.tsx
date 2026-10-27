@@ -6,7 +6,9 @@ import { Loader2, MapPin, Maximize2, Minimize2, RotateCw, Route, Search, Traffic
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { authedFetch } from "@/lib/auth";
 import type { FleetItem, FleetKind, FleetPlace } from "@/lib/samsara";
-import type { YardEta } from "@/lib/yards";
+import type { YardArea, YardEta } from "@/lib/yards";
+import { insideGeofence } from "@/lib/geo";
+import YardBoard from "@/components/YardBoard";
 
 // Live map of every truck, trailer and tracked piece of equipment from
 // Samsara. Pins are colored by kind; the list beside the map finds and flies
@@ -49,6 +51,8 @@ function pinLabel(name: string): string {
   return label.length > 12 ? `${label.slice(0, 11)}…` : label;
 }
 
+const YARD_COLOR = "#7c3aed";
+
 function timeAgo(iso: string): string {
   const then = Date.parse(iso);
   if (!Number.isFinite(then)) return "";
@@ -64,13 +68,14 @@ function escapeHtml(value: string): string {
   return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
-function popupHtml(item: FleetItem): string {
+function popupHtml(item: FleetItem, yardName?: string): string {
   const info = kindInfo(item.kind);
   const moving = item.speedMph !== null && item.speedMph > 2 ? `${Math.round(item.speedMph)} mph` : "Parked";
   return `<div style="font-family:inherit;min-width:180px">
     <div style="font-size:11px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:${info.color}">${info.label}${item.size ? ` · ${item.size}` : ""}</div>
     <div style="font-size:15px;font-weight:900;margin:2px 0 4px">${escapeHtml(item.name)}</div>
     ${item.address ? `<div style="font-size:12px;font-weight:600;color:#26333f">${escapeHtml(item.address)}</div>` : ""}
+    ${yardName ? `<div style="font-size:12px;font-weight:800;color:${YARD_COLOR};margin-top:4px">At: ${escapeHtml(yardName)}</div>` : ""}
     <div style="font-size:12px;font-weight:700;color:#6c7a86;margin-top:4px">${moving} · ${timeAgo(item.time) || "time unknown"}</div>
   </div>`;
 }
@@ -251,6 +256,69 @@ export default function FleetMap({ darkMode }: { darkMode: boolean }) {
     trafficRef.current = layer.addTo(map);
   }, [trafficOn, trafficKey, darkMode, mapReady, trafficSource]);
 
+  // MGP's yards as areas (each matched to its Samsara geofence on the
+  // server), for the Yard board and the purple outlines. Always drawn.
+  const [yards, setYards] = useState<YardArea[]>([]);
+  const [yardsNote, setYardsNote] = useState("");
+  const yardsLayerRef = useRef<import("leaflet").LayerGroup | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadYards = async () => {
+      try {
+        const response = await authedFetch("/api/samsara/yards");
+        const result = (await response.json()) as { ok?: boolean; yards?: YardArea[]; warnings?: string[]; error?: string };
+        if (cancelled) return;
+        if (response.ok && result.ok) {
+          setYards(result.yards ?? []);
+          setYardsNote((result.warnings ?? []).join(" "));
+        } else {
+          setYardsNote(`Yard board: ${result.error || `couldn't load the yards (${response.status})`}`);
+        }
+      } catch {
+        if (!cancelled) setYardsNote("Yard board: couldn't load the yards — check the connection.");
+      }
+    };
+    void loadYards();
+    const timer = window.setInterval(() => void loadYards(), 10 * 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  useEffect(() => {
+    const L = leafletRef.current;
+    const map = mapRef.current;
+    yardsLayerRef.current?.remove();
+    yardsLayerRef.current = null;
+    if (!L || !map || yards.length === 0) return;
+    const group = L.layerGroup();
+    const style = { color: YARD_COLOR, weight: 3, opacity: 0.95, fillColor: YARD_COLOR, fillOpacity: 0.12, interactive: false };
+    for (const yard of yards) {
+      if (yard.polygon) L.polygon(yard.polygon, style).addTo(group);
+      else L.circle([yard.lat, yard.lng], { ...style, radius: yard.radiusMeters ?? 250 }).addTo(group);
+      L.marker([yard.lat, yard.lng], {
+        icon: L.divIcon({ html: pinHtml("yard", false).replace(/background:[^;]+;/, `background:${YARD_COLOR};`), className: "", iconSize: [40, 40], iconAnchor: [20, 20] }),
+        title: yard.name,
+        zIndexOffset: -400
+      })
+        .bindTooltip(escapeHtml(yard.name), { permanent: true, direction: "top", offset: [0, -18], className: "fleet-yard-label" })
+        .addTo(group);
+    }
+    group.addTo(map);
+    yardsLayerRef.current = group;
+  }, [yards, mapReady]);
+
+  function zoomToYard(yard: YardArea) {
+    const L = leafletRef.current;
+    const map = mapRef.current;
+    if (!L || !map) return;
+    const bounds = yard.polygon ? L.latLngBounds(yard.polygon) : L.latLng(yard.lat, yard.lng).toBounds((yard.radiusMeters ?? 250) * 2);
+    map.fitBounds(bounds, { padding: [40, 40], maxZoom: 17 });
+    mapNode.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+
   // Places marked in Samsara (addresses / geofences): outline + labeled pin.
   // On by default; the choice is remembered like Traffic.
   const [places, setPlaces] = useState<FleetPlace[]>([]);
@@ -299,7 +367,10 @@ export default function FleetMap({ darkMode }: { darkMode: boolean }) {
     if (!L || !map || !showPlaces || places.length === 0) return;
     const group = L.layerGroup();
     const outline = { color: darkMode ? "#cbd5e1" : "#475569", weight: 1.5, opacity: 0.8, fillOpacity: 0.07, interactive: false };
+    // A yard's own geofence is drawn by the yard layer (purple) instead.
+    const yardPlaceIds = new Set(yards.map((yard) => yard.placeId).filter(Boolean));
     for (const place of places) {
+      if (yardPlaceIds.has(place.id)) continue;
       if (place.polygon) L.polygon(place.polygon, outline).addTo(group);
       else if (place.radiusMeters) L.circle([place.lat, place.lng], { ...outline, radius: place.radiusMeters }).addTo(group);
       L.marker([place.lat, place.lng], {
@@ -325,7 +396,7 @@ export default function FleetMap({ darkMode }: { darkMode: boolean }) {
     }
     group.addTo(map);
     placesLayerRef.current = group;
-  }, [places, showPlaces, darkMode, mapReady]);
+  }, [places, showPlaces, darkMode, mapReady, yards]);
 
   function togglePlaces() {
     const next = !showPlaces;
@@ -349,6 +420,16 @@ export default function FleetMap({ darkMode }: { darkMode: boolean }) {
       // storage blocked — the toggle still works for this visit
     }
   }
+
+  // Which yard each truck/trailer is in right now (none = on the road).
+  const yardOf = useMemo(() => {
+    const result = new Map<string, YardArea>();
+    for (const item of items) {
+      const yard = yards.find((area) => insideGeofence(area, item.lat, item.lng, 250));
+      if (yard) result.set(item.id, yard);
+    }
+    return result;
+  }, [items, yards]);
 
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -388,11 +469,11 @@ export default function FleetMap({ darkMode }: { darkMode: boolean }) {
       const label = escapeHtml(pinLabel(item.name));
       const labelClass = `fleet-pin-label${item.kind === "truck" ? "" : " fleet-pin-label-street"}`;
       if (existing) {
-        existing.setLatLng([item.lat, item.lng]).setIcon(icon).setPopupContent(popupHtml(item)).setTooltipContent(label);
+        existing.setLatLng([item.lat, item.lng]).setIcon(icon).setPopupContent(popupHtml(item, yardOf.get(item.id)?.name)).setTooltipContent(label);
         existing.setZIndexOffset(item.id === selectedId ? 1000 : 0);
       } else {
         const marker = L.marker([item.lat, item.lng], { icon, title: item.name, zIndexOffset: item.id === selectedId ? 1000 : 0 })
-          .bindPopup(popupHtml(item))
+          .bindPopup(popupHtml(item, yardOf.get(item.id)?.name))
           .bindTooltip(label, { permanent: true, direction: "bottom", offset: [0, 16], className: labelClass })
           .on("click", () => setSelectedId(item.id))
           .addTo(map);
@@ -404,7 +485,7 @@ export default function FleetMap({ darkMode }: { darkMode: boolean }) {
       fittedRef.current = true;
       map.fitBounds(L.latLngBounds(visible.map((item) => [item.lat, item.lng] as [number, number])), { padding: [40, 40], maxZoom: 13 });
     }
-  }, [visible, selectedId, mapReady]);
+  }, [visible, selectedId, mapReady, yardOf]);
 
   // Expanded ⇄ inline: let Leaflet re-measure, and Esc exits.
   useEffect(() => {
@@ -604,9 +685,9 @@ export default function FleetMap({ darkMode }: { darkMode: boolean }) {
       {error && (
         <div className="rounded border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-800">{error}</div>
       )}
-      {notes.length > 0 && !error && (
+      {(notes.length > 0 || yardsNote) && !error && (
         <div className={`-mt-1 grid gap-0.5 text-xs font-bold ${muted}`}>
-          {notes.map((note) => (
+          {[...notes, ...(yardsNote ? [yardsNote] : [])].map((note) => (
             <p key={note}>ⓘ {note}</p>
           ))}
         </div>
@@ -776,6 +857,11 @@ export default function FleetMap({ darkMode }: { darkMode: boolean }) {
                         </span>
                       </span>
                       <span className={`block truncate text-xs font-bold ${muted}`}>{item.address || `${item.lat.toFixed(4)}, ${item.lng.toFixed(4)}`}</span>
+                      {yardOf.get(item.id) && (
+                        <span className="block text-[11px] font-black" style={{ color: YARD_COLOR }}>
+                          At: {yardOf.get(item.id)?.name}
+                        </span>
+                      )}
                       <span className={`block text-[11px] font-bold ${muted}`}>
                         {info.label}
                         {item.size ? ` · ${item.size}` : ""} · {timeAgo(item.time) || "time unknown"}
@@ -791,6 +877,16 @@ export default function FleetMap({ darkMode }: { darkMode: boolean }) {
           </ul>
         </div>
       </div>
+
+      <YardBoard
+        items={items}
+        yards={yards}
+        yardOf={yardOf}
+        unitLabel={(item) => pinLabel(item.name)}
+        darkMode={darkMode}
+        onFocus={focus}
+        onZoomYard={zoomToYard}
+      />
     </div>
   );
 }

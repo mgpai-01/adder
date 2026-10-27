@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireCaller } from "@/lib/apiAuth";
 import { canSeeSamsaraPreview } from "@/lib/previewAccess";
 import { YARDS, type Yard, type YardEta } from "@/lib/yards";
+import { yardPosition } from "@/lib/yardGeo";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -11,24 +12,6 @@ export const maxDuration = 30;
 // Same preview lock as the fleet map.
 
 const TOMTOM = "https://api.tomtom.com";
-// Yard coordinates, looked up once per server instance.
-const yardPositions = new Map<string, { lat: number; lon: number }>();
-
-async function yardPosition(yard: Yard, key: string): Promise<{ lat: number; lon: number }> {
-  const cached = yardPositions.get(yard.id);
-  if (cached) return cached;
-  const response = await fetch(
-    `${TOMTOM}/search/2/geocode/${encodeURIComponent(yard.address)}.json?key=${encodeURIComponent(key)}&limit=1&countrySet=US`,
-    { cache: "no-store" }
-  );
-  if (!response.ok) throw new Error(`Couldn't find the yard's address (${response.status})`);
-  const body = (await response.json()) as { results?: Array<{ position?: { lat?: number; lon?: number } }> };
-  const position = body.results?.[0]?.position;
-  if (typeof position?.lat !== "number" || typeof position?.lon !== "number") throw new Error("Couldn't find the yard's address");
-  const result = { lat: position.lat, lon: position.lon };
-  yardPositions.set(yard.id, result);
-  return result;
-}
 
 async function etaTo(yard: Yard, from: { lat: number; lng: number }, key: string): Promise<YardEta> {
   const base = { yardId: yard.id, name: yard.name, address: yard.address };
