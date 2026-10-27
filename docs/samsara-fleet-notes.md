@@ -4,10 +4,15 @@ Dashboard → Samsara button → live map of trucks, trailers and yards, with a
 Traffic layer and full-screen Expand. Code: components/FleetMap.tsx,
 lib/samsara.ts, app/api/samsara/fleet and app/api/samsara/traffic.
 
-## Preview lock
-Only the logins in lib/previewAccess.ts (currently mgpai@palletmail.com) see
-the button, and both API routes check the caller's email on the server.
-Remove the lock there when it's ready for everyone.
+## Who sees it
+lib/previewAccess.ts decides, on the server:
+- Live app (Vercel Production): only the listed logins (mgpai@palletmail.com).
+- Test deployments (Vercel Preview): everyone who can sign in, so a test link
+  can be shared for feedback. They still need an MGP login (and Vercel access
+  if Deployment Protection is on). Test deployments use the live database.
+The Dashboard asks /api/samsara/access before showing the button, and every
+Samsara route checks the same rule. Open it to everyone on the live app by
+adding emails there, or by changing canSeeSamsaraPreview.
 
 ## Vercel environment variables (Production + Preview)
 - `SAMSARA_API_TOKEN` — Samsara → Settings → Developer → API Tokens.

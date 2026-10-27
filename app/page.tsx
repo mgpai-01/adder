@@ -66,7 +66,6 @@ import {
 } from "@/lib/data";
 import { calculateEntry, calculateWeeklyBonus, compareByLastName, correctedEntryDate, currency, findMisdatedEntries, getWeekKey, wholeNumber } from "@/lib/payroll";
 import { authedFetch, getAccessToken, roleLabels, roleViews, useAuth } from "@/lib/auth";
-import { canSeeSamsaraPreview } from "@/lib/previewAccess";
 import { normalizeExcelValue, parseCsvGrid, parseTimecardGrid, type ImportedBlock } from "@/lib/hoursImport";
 import { LanguageProvider, translate, useT, type Language } from "@/lib/i18n";
 import type { ChangeLogEntry } from "@/lib/cloudChangeLog";
@@ -5936,9 +5935,29 @@ function Dashboard({
 }) {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
-  // Samsara fleet map — preview, only for the logins in lib/previewAccess.
+  // Samsara fleet map — still being tried out. Who sees it is decided on the
+  // server (lib/previewAccess: listed logins on the live app, everyone signed
+  // in on a test deployment), so ask it once per signed-in user.
   const { profile } = useAuth();
-  const showSamsara = canSeeSamsaraPreview(profile?.email);
+  const [showSamsara, setShowSamsara] = useState(false);
+  useEffect(() => {
+    if (!profile?.id) {
+      setShowSamsara(false);
+      return;
+    }
+    let cancelled = false;
+    authedFetch("/api/samsara/access")
+      .then((response) => response.json())
+      .then((result: { allowed?: boolean }) => {
+        if (!cancelled) setShowSamsara(Boolean(result.allowed));
+      })
+      .catch(() => {
+        if (!cancelled) setShowSamsara(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [profile?.id]);
   const [samsaraOpen, setSamsaraOpen] = useState(false);
 
   const filteredEntries = useMemo(
