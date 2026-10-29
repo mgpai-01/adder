@@ -12,8 +12,9 @@ export const YARDS: Yard[] = [
   { id: "merrill", name: "Merrill (Fontana)", address: "14619 Merrill Ave, Fontana, CA 92335" },
   { id: "citrus", name: "Citrus (Riverside)", address: "1326 W Citrus St, Riverside, CA 92507" },
   { id: "fedex", name: "FedEx #26", samsaraPlace: "FedEx #26" },
-  // Samsara place "US Elogistic 1002 S Carnegie Ave ONTARIO".
-  { id: "uselogistic", name: "US Elogistic (Ontario)", samsaraPlace: "US Elogistic" }
+  // Samsara place "US Elogistic 1002 S Carnegie Ave ONTARIO" — named in full
+  // because other Samsara places also mention US Elogistic (e.g. Tamarind).
+  { id: "uselogistic", name: "US Elogistic (Ontario)", samsaraPlace: "US Elogistic 1002 S Carnegie" }
 ];
 
 // One yard's drive time from a truck/trailer (from /api/samsara/eta).

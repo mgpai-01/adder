@@ -51,8 +51,13 @@ async function build(key: string): Promise<{ yards: YardArea[]; warnings: string
   for (const yard of YARDS) {
     try {
       if (yard.samsaraPlace) {
+        // Best match wins: the exact name, then a name that starts with it,
+        // then one that contains it — never just the first alphabetically.
         const wanted = squash(yard.samsaraPlace);
-        const place = places.find((item) => squash(item.name) === wanted) ?? places.find((item) => squash(item.name).includes(wanted));
+        const place =
+          places.find((item) => squash(item.name) === wanted) ??
+          places.find((item) => squash(item.name).startsWith(wanted)) ??
+          places.find((item) => squash(item.name).includes(wanted));
         if (!place) {
           warnings.push(`${yard.name}: no Samsara place named "${yard.samsaraPlace}" was found, so it isn't on the board.`);
           continue;

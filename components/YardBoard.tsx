@@ -75,12 +75,13 @@ export default function YardBoard({
   function Group({ title, color, units }: { title: string; color: string; units: FleetItem[] }) {
     if (units.length === 0) return null;
     return (
-      <div className="flex items-start gap-2">
-        <p className="w-14 shrink-0 pt-0.5 text-[10px] font-black uppercase leading-4 tracking-wide" style={{ color }}>
-          {title}
-          <span className={`block ${muted}`}>{units.length}</span>
+      // Label above the tags (not beside them), so the tags get the card's
+      // full width — 2–3 per line even with six yard cards across.
+      <div>
+        <p className="mb-1 text-[10px] font-black uppercase leading-4 tracking-wide" style={{ color }}>
+          {title} <span className={muted}>· {units.length}</span>
         </p>
-        <div className="flex min-w-0 flex-1 flex-wrap gap-1">
+        <div className="flex min-w-0 flex-wrap gap-1">
           {units.map((item) => (
             <UnitTag key={item.id} item={item} color={color} />
           ))}
@@ -109,12 +110,12 @@ export default function YardBoard({
           <section key={key} className={`flex flex-col overflow-hidden rounded border ${card}`}>
             <header className="border-t-4 px-3 pb-2 pt-2" style={{ borderTopColor: accent }}>
               <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   {yard ? (
                     <button
                       type="button"
                       onClick={() => onZoomYard(yard)}
-                      className="min-h-0 truncate text-left text-base font-black hover:underline"
+                      className="block min-h-0 w-full truncate text-left text-base font-black hover:underline"
                       title={`Show ${yard.name} on the map`}
                     >
                       {yard.name}
