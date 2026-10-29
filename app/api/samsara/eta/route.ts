@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { requireCaller } from "@/lib/apiAuth";
 import { canSeeSamsaraPreview } from "@/lib/previewAccess";
-import { YARDS, type Yard, type YardEta } from "@/lib/yards";
-import { yardPosition } from "@/lib/yardGeo";
+import type { YardArea, YardEta } from "@/lib/yards";
+import { resolveYardAreas } from "@/lib/yardAreas";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -13,10 +13,12 @@ export const maxDuration = 30;
 
 const TOMTOM = "https://api.tomtom.com";
 
-async function etaTo(yard: Yard, from: { lat: number; lng: number }, key: string): Promise<YardEta> {
+// Routes to the yard's spot — the same one the Yard board uses
+// (lib/yardAreas), so a yard is never in two places.
+async function etaTo(yard: YardArea, from: { lat: number; lng: number }, key: string): Promise<YardEta> {
   const base = { yardId: yard.id, name: yard.name, address: yard.address };
   try {
-    const to = await yardPosition(yard, key);
+    const to = { lat: yard.lat, lon: yard.lng };
     const params = new URLSearchParams({ key, traffic: "true", travelMode: "truck", routeType: "fastest", departAt: "now" });
     const response = await fetch(`${TOMTOM}/routing/1/calculateRoute/${from.lat},${from.lng}:${to.lat},${to.lon}/json?${params}`, {
       cache: "no-store"
@@ -73,7 +75,8 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Expected lat and lng" }, { status: 400 });
   }
 
-  const etas = await Promise.all(YARDS.map((yard) => etaTo(yard, { lat, lng }, key)));
+  const { yards } = await resolveYardAreas();
+  const etas = await Promise.all(yards.map((yard) => etaTo(yard, { lat, lng }, key)));
   etas.sort((a, b) => (a.minutes ?? Number.MAX_SAFE_INTEGER) - (b.minutes ?? Number.MAX_SAFE_INTEGER));
   return NextResponse.json({ ok: true, etas, at: new Date().toISOString() });
 }

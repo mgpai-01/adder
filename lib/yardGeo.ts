@@ -8,6 +8,7 @@ const positions = new Map<string, { lat: number; lon: number }>();
 export async function yardPosition(yard: Yard, key: string): Promise<{ lat: number; lon: number }> {
   const cached = positions.get(yard.id);
   if (cached) return cached;
+  if (!yard.address) throw new Error(`${yard.name} has no address to look up`);
   const response = await fetch(
     `https://api.tomtom.com/search/2/geocode/${encodeURIComponent(yard.address)}.json?key=${encodeURIComponent(key)}&limit=1&countrySet=US`,
     { cache: "no-store" }

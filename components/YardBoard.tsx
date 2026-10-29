@@ -90,7 +90,12 @@ export default function YardBoard({
   }
 
   return (
-    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+    // One column per card on wide screens (yards + "Not at a yard"), so
+    // adding a yard in lib/yards just adds a card.
+    <div
+      className="grid gap-3 md:grid-cols-2 lg:grid-cols-3 xl:[grid-template-columns:repeat(var(--yard-cards),minmax(0,1fr))]"
+      style={{ ["--yard-cards" as string]: cards.length }}
+    >
       {cards.map(({ key, yard, units }) => {
         const trucks = units.filter((item) => item.kind === "truck").sort(byLabel);
         const trailers = units.filter((item) => item.kind === "trailer");
