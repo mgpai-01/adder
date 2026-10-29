@@ -380,10 +380,12 @@ export default function FleetMap({ darkMode }: { darkMode: boolean }) {
           iconSize: [22, 22],
           iconAnchor: [11, 11]
         }),
-        title: place.name,
         // Under the trucks and trailers so their pins stay on top.
         zIndexOffset: -500
       })
+        // Hover shows the name even when it's hidden at this zoom.
+        .on("mouseover", (event) => event.target.getTooltip()?.getElement()?.classList.add("fleet-pin-hover"))
+        .on("mouseout", (event) => event.target.getTooltip()?.getElement()?.classList.remove("fleet-pin-hover"))
         // Name label beside the pin, shown only zoomed in to street level
         // (globals.css: .fleet-place-label / .fleet-zoom-street).
         .bindTooltip(escapeHtml(place.name), { permanent: true, direction: "right", offset: [12, 0], className: "fleet-place-label" })
@@ -468,15 +470,35 @@ export default function FleetMap({ darkMode }: { darkMode: boolean }) {
       // (globals.css: .fleet-pin-label).
       const label = escapeHtml(pinLabel(item.name));
       const labelClass = `fleet-pin-label${item.kind === "truck" ? "" : " fleet-pin-label-street"}`;
+      const baseZ = item.id === selectedId ? 1000 : 0;
+      // Hovering a pin swaps its tag for the full Samsara name in a dark
+      // label (shown even where the short tag is hidden) and lifts it on top;
+      // leaving puts the short tag back (globals.css: .fleet-pin-hover).
+      const showFullName = (marker: LeafletMarker) => {
+        // Style first, then content: setting the content re-centers the label
+        // for its new size.
+        marker.getTooltip()?.getElement()?.classList.add("fleet-pin-hover");
+        marker.setTooltipContent(escapeHtml(item.name));
+        marker.setZIndexOffset(2000);
+      };
+      const showShortTag = (marker: LeafletMarker) => {
+        marker.getTooltip()?.getElement()?.classList.remove("fleet-pin-hover");
+        marker.setTooltipContent(label);
+        marker.setZIndexOffset(baseZ);
+      };
       if (existing) {
+        existing.getTooltip()?.getElement()?.classList.remove("fleet-pin-hover");
         existing.setLatLng([item.lat, item.lng]).setIcon(icon).setPopupContent(popupHtml(item, yardOf.get(item.id)?.name)).setTooltipContent(label);
-        existing.setZIndexOffset(item.id === selectedId ? 1000 : 0);
+        existing.setZIndexOffset(baseZ);
+        existing.off("mouseover").off("mouseout");
+        existing.on("mouseover", () => showFullName(existing)).on("mouseout", () => showShortTag(existing));
       } else {
-        const marker = L.marker([item.lat, item.lng], { icon, title: item.name, zIndexOffset: item.id === selectedId ? 1000 : 0 })
+        const marker = L.marker([item.lat, item.lng], { icon, zIndexOffset: baseZ })
           .bindPopup(popupHtml(item, yardOf.get(item.id)?.name))
           .bindTooltip(label, { permanent: true, direction: "bottom", offset: [0, 16], className: labelClass })
           .on("click", () => setSelectedId(item.id))
           .addTo(map);
+        marker.on("mouseover", () => showFullName(marker)).on("mouseout", () => showShortTag(marker));
         markersRef.current.set(item.id, marker);
       }
     }

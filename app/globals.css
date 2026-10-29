@@ -326,3 +326,24 @@ textarea {
 .leaflet-tooltip.fleet-yard-label::before {
   display: none;
 }
+
+/* Fleet map: hovering a pin shows its full name in a dark label, on top of
+   everything, even where its tag is hidden at this zoom. */
+.leaflet-tooltip.fleet-pin-hover {
+  display: block !important;
+  z-index: 1000;
+  max-width: 340px;
+  padding: 5px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: #18222c;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 18px;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+.leaflet-tooltip.fleet-pin-hover::before {
+  display: none;
+}
