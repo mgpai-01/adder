@@ -571,7 +571,47 @@ export default function FleetMap({ darkMode, layout = "panel" }: { darkMode: boo
     map.fitBounds(line.getBounds(), { paddingTopLeft: [40, 40], paddingBottomRight: [330, 40], maxZoom: 14 });
   }, [eta, routeYardId, selectedId, mapReady]);
 
+  // Drive time to a typed address, added under the yards in the same card.
+  // The last address is kept for this unit, so Refresh re-checks it too.
+  const [addressOpen, setAddressOpen] = useState(false);
+  const [addressText, setAddressText] = useState("");
+  const [addressBusy, setAddressBusy] = useState(false);
+  const [addressError, setAddressError] = useState("");
+  const lastAddressRef = useRef<{ id: string; to: string } | null>(null);
+
+  async function addAddressEta(item: FleetItem, to: string) {
+    const address = to.trim();
+    if (!address) return;
+    setAddressBusy(true);
+    setAddressError("");
+    try {
+      const response = await authedFetch(`/api/samsara/eta?lat=${item.lat}&lng=${item.lng}&to=${encodeURIComponent(address)}`);
+      const result = (await response.json()) as { ok?: boolean; etas?: YardEta[]; error?: string };
+      const row = result.etas?.[0];
+      if (!response.ok || !result.ok || !row) {
+        setAddressError(result.error || `Couldn't get a drive time (${response.status}).`);
+        return;
+      }
+      lastAddressRef.current = { id: item.id, to: address };
+      setEta((current) =>
+        current?.id !== item.id || !current.etas
+          ? current
+          : { ...current, etas: [...current.etas.filter((entry) => !entry.yardId.startsWith("address:")), row] }
+      );
+      if (!row.error) setRouteYardId(row.yardId);
+      setAddressOpen(false);
+      setAddressText("");
+    } catch {
+      setAddressError("Couldn't reach the server — check the connection.");
+    } finally {
+      setAddressBusy(false);
+    }
+  }
+
   async function loadEta(item: FleetItem) {
+    if (lastAddressRef.current?.id !== item.id) lastAddressRef.current = null;
+    setAddressOpen(false);
+    setAddressError("");
     setEta({ id: item.id, loading: true });
     setRouteYardId("");
     // The pin's popup would sit on top of the route; the card has the details.
@@ -586,7 +626,11 @@ export default function FleetMap({ darkMode, layout = "panel" }: { darkMode: boo
             ? { id: item.id, loading: false, etas: result.etas ?? [] }
             : { id: item.id, loading: false, error: result.error || `Couldn't get ETAs (${response.status}).` }
       );
-      if (response.ok && result.ok) setRouteYardId(result.etas?.find((row) => !row.error)?.yardId ?? "");
+      if (response.ok && result.ok) {
+        setRouteYardId(result.etas?.find((row) => !row.error)?.yardId ?? "");
+        const again = lastAddressRef.current;
+        if (again?.id === item.id) void addAddressEta(item, again.to);
+      }
     } catch {
       setEta((current) => (current?.id === item.id ? { id: item.id, loading: false, error: "Couldn't reach the server — check the connection." } : current));
     }
@@ -767,7 +811,7 @@ export default function FleetMap({ darkMode, layout = "panel" }: { darkMode: boo
           </button>
           {selected && (
             <div
-              className={`absolute right-3 top-3 z-[600] w-[min(300px,calc(100%-4.5rem))] rounded border p-3 shadow-lg ${
+              className={`absolute right-3 top-3 z-[600] max-h-[calc(100%-1.5rem)] w-[min(300px,calc(100%-4.5rem))] overflow-y-auto rounded border p-3 shadow-lg ${
                 darkMode ? "border-white/15 bg-steel-900/95 text-white" : "border-steel-100 bg-white/95 text-steel-900"
               }`}
             >
@@ -817,7 +861,60 @@ export default function FleetMap({ darkMode, layout = "panel" }: { darkMode: boo
               ) : (
                 <div className="mt-2.5 grid gap-1.5">
                   <p className={`text-[11px] font-black uppercase tracking-wide ${muted}`}>Drive time · live traffic · tap a yard for its route</p>
-                  {(eta.etas ?? []).map((row) => (
+                  {addressOpen ? (
+                    <form
+                      className="grid gap-1.5"
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        void addAddressEta(selected, addressText);
+                      }}
+                    >
+                      <input
+                        autoFocus
+                        value={addressText}
+                        onChange={(event) => setAddressText(event.target.value)}
+                        placeholder="Street, city or ZIP"
+                        className={`w-full rounded border px-2.5 py-2 text-sm font-bold outline-none ${
+                          darkMode ? "border-white/20 bg-white/10" : "border-steel-500 bg-white"
+                        }`}
+                        style={{ fontSize: 16 }}
+                      />
+                      {addressError && <p className="text-xs font-bold text-red-700">{addressError}</p>}
+                      <div className="flex gap-1.5">
+                        <button
+                          type="submit"
+                          disabled={addressBusy || !addressText.trim()}
+                          className="flex min-h-0 flex-1 items-center justify-center gap-1.5 rounded bg-blue-600 px-3 py-2 text-sm font-black text-white hover:bg-blue-700 disabled:opacity-50"
+                        >
+                          {addressBusy ? <Loader2 size={14} className="animate-spin" /> : <Route size={14} />}
+                          Get drive time
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAddressOpen(false);
+                            setAddressError("");
+                          }}
+                          className={`min-h-0 rounded border px-3 py-2 text-sm font-black ${darkMode ? "border-white/20" : "border-steel-100"}`}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </form>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setAddressOpen(true)}
+                      className={`flex min-h-0 w-full items-center justify-center gap-1.5 rounded border-2 border-dashed px-3 py-2 text-sm font-black ${
+                        darkMode ? "border-white/25 hover:bg-white/10" : "border-blue-600 text-blue-700 hover:bg-blue-50"
+                      }`}
+                    >
+                      <MapPin size={14} /> Drive time to an address
+                    </button>
+                  )}
+                  {[...(eta.etas ?? [])]
+                    .sort((a, b) => Number(b.yardId.startsWith("address:")) - Number(a.yardId.startsWith("address:")))
+                    .map((row) => (
                     <button
                       type="button"
                       key={row.yardId}
@@ -834,8 +931,13 @@ export default function FleetMap({ darkMode, layout = "panel" }: { darkMode: boo
                             : "border-transparent bg-steel-50 hover:bg-steel-100"
                       }`}
                     >
+                      {row.yardId.startsWith("address:") && (
+                        <p className="flex items-center gap-1 text-[10px] font-black uppercase tracking-wide text-blue-700">
+                          <MapPin size={11} /> Address
+                        </p>
+                      )}
                       <div className="flex items-baseline justify-between gap-2">
-                        <span className="truncate text-sm font-black">{row.name}</span>
+                        <span className="truncate text-sm font-black" title={row.name}>{row.name}</span>
                         {row.minutes !== undefined && <span className="shrink-0 text-sm font-black">{duration(row.minutes)}</span>}
                       </div>
                       {row.error ? (

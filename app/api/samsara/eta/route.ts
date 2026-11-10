@@ -57,6 +57,19 @@ async function etaTo(yard: YardArea, from: { lat: number; lng: number }, key: st
   }
 }
 
+// Turns a typed address into a spot to route to (TomTom geocoding, US only).
+async function geocode(address: string, key: string): Promise<{ lat: number; lng: number; label: string } | null> {
+  const params = new URLSearchParams({ key, limit: "1", countrySet: "US" });
+  const response = await fetch(`${TOMTOM}/search/2/geocode/${encodeURIComponent(address)}.json?${params}`, { cache: "no-store" });
+  if (!response.ok) return null;
+  const body = (await response.json()) as {
+    results?: Array<{ position?: { lat?: number; lon?: number }; address?: { freeformAddress?: string } }>;
+  };
+  const hit = body.results?.[0];
+  if (typeof hit?.position?.lat !== "number" || typeof hit.position.lon !== "number") return null;
+  return { lat: hit.position.lat, lng: hit.position.lon, label: hit.address?.freeformAddress || address };
+}
+
 export async function GET(request: Request) {
   const check = await requireCaller(request);
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
@@ -73,6 +86,26 @@ export async function GET(request: Request) {
   const lng = Number(url.searchParams.get("lng"));
   if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
     return NextResponse.json({ error: "Expected lat and lng" }, { status: 400 });
+  }
+
+  // A typed address instead of the yards.
+  const to = (url.searchParams.get("to") ?? "").trim().slice(0, 200);
+  if (to) {
+    const spot = await geocode(to, key).catch(() => null);
+    if (!spot) return NextResponse.json({ error: `Couldn't find “${to}”. Try adding the city or ZIP.` }, { status: 404 });
+    const area: YardArea = {
+      id: `address:${spot.lat.toFixed(5)},${spot.lng.toFixed(5)}`,
+      name: spot.label,
+      address: spot.label,
+      lat: spot.lat,
+      lng: spot.lng,
+      radiusMeters: null,
+      polygon: null,
+      placeName: "",
+      placeId: ""
+    };
+    const eta = await etaTo(area, { lat, lng }, key);
+    return NextResponse.json({ ok: true, etas: [eta], at: new Date().toISOString() });
   }
 
   const { yards } = await resolveYardAreas();
