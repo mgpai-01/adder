@@ -1,6 +1,8 @@
 // Features still being tried out. On the live app they're shown only to the
-// logins listed here; on a test (Vercel Preview) deployment every signed-in
-// user sees them, so a test link can be shared for feedback. Emails are
+// logins listed here; on a test (Vercel Preview) deployment every admin sees
+// them, so a test link can be shared with other admins for feedback. (Test
+// links use the same accounts as the live app, so this keeps truck and
+// trailer locations away from employee logins there too.) Emails are
 // compared lowercase.
 //
 // Server-only rule: VERCEL_ENV is "production" on the live app and "preview"
@@ -14,6 +16,10 @@ export function isTestDeployment(): boolean {
   return process.env.VERCEL_ENV === "preview";
 }
 
-export function canSeeSamsaraPreview(email: string | null | undefined): boolean {
-  return isTestDeployment() || SAMSARA_PREVIEW_EMAILS.includes((email ?? "").trim().toLowerCase());
+// Roles that may see it on a test deployment.
+const SAMSARA_TEST_ROLES = ["admin"];
+
+export function canSeeSamsaraPreview(email: string | null | undefined, role: string | null | undefined): boolean {
+  if (SAMSARA_PREVIEW_EMAILS.includes((email ?? "").trim().toLowerCase())) return true;
+  return isTestDeployment() && SAMSARA_TEST_ROLES.includes(role ?? "");
 }

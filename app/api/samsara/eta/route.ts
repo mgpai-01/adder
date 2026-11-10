@@ -3,6 +3,7 @@ import { requireCaller } from "@/lib/apiAuth";
 import { canSeeSamsaraPreview } from "@/lib/previewAccess";
 import type { YardArea, YardEta } from "@/lib/yards";
 import { resolveYardAreas } from "@/lib/yardAreas";
+import { allowCall } from "@/lib/rateLimit";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -75,11 +76,16 @@ export async function GET(request: Request) {
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
 
   const { data } = await check.supabase.auth.admin.getUserById(check.userId);
-  if (!canSeeSamsaraPreview(data.user?.email)) {
+  if (!canSeeSamsaraPreview(data.user?.email, check.role)) {
     return NextResponse.json({ error: "Not available for this account yet" }, { status: 403 });
   }
   const key = process.env.TOMTOM_API_KEY ?? "";
   if (!key) return NextResponse.json({ error: "TOMTOM_API_KEY is not set in Vercel" }, { status: 503 });
+  // Each ETA is several paid TomTom lookups: plenty for real use, but a
+  // stuck script can't run up the bill.
+  if (!allowCall(`eta:${check.userId}`, 40, 10 * 60 * 1000)) {
+    return NextResponse.json({ error: "Too many drive-time checks in a short time — try again in a few minutes." }, { status: 429 });
+  }
 
   const url = new URL(request.url);
   const lat = Number(url.searchParams.get("lat"));

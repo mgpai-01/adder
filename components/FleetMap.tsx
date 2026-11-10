@@ -144,7 +144,15 @@ export default function FleetMap({ darkMode, layout = "panel" }: { darkMode: boo
   // Traffic button; the key comes from /api/samsara/traffic for allowed logins.
   const trafficRef = useRef<import("leaflet").TileLayer | null>(null);
   const [trafficOn, setTrafficOn] = useState(false);
+  // A short-lived pass for our traffic tile route (the TomTom key itself
+  // stays on the server). Renewed a few minutes before it runs out.
   const [trafficKey, setTrafficKey] = useState("");
+  const [trafficExpiresAt, setTrafficExpiresAt] = useState(0);
+  useEffect(() => {
+    if (!trafficKey || !trafficExpiresAt) return;
+    const timer = window.setTimeout(() => setTrafficKey(""), Math.max(60_000, trafficExpiresAt - Date.now() - 5 * 60_000));
+    return () => window.clearTimeout(timer);
+  }, [trafficKey, trafficExpiresAt]);
   const [trafficError, setTrafficError] = useState("");
   const fittedRef = useRef(false);
 
@@ -226,10 +234,11 @@ export default function FleetMap({ darkMode, layout = "panel" }: { darkMode: boo
     void (async () => {
       try {
         const response = await authedFetch("/api/samsara/traffic");
-        const result = (await response.json()) as { ok?: boolean; key?: string; error?: string };
+        const result = (await response.json()) as { ok?: boolean; token?: string; expiresAt?: number; error?: string };
         if (cancelled) return;
-        if (response.ok && result.ok && result.key) {
-          setTrafficKey(result.key);
+        if (response.ok && result.ok && result.token) {
+          setTrafficKey(result.token);
+          setTrafficExpiresAt(result.expiresAt ?? 0);
           setTrafficError("");
         } else {
           setTrafficError(result.error || "Traffic isn't available right now.");
@@ -253,7 +262,11 @@ export default function FleetMap({ darkMode, layout = "panel" }: { darkMode: boo
   // is dropped for the next; if none works, say so instead of a legend over
   // an empty map.
   const [trafficSource, setTrafficSource] = useState(0);
-  useEffect(() => setTrafficSource(0), [trafficKey]);
+  // Renewing the pass doesn't change which TomTom source works, so the choice
+  // is only reset when traffic is switched back on.
+  useEffect(() => {
+    if (trafficOn) setTrafficSource(0);
+  }, [trafficOn]);
 
   useEffect(() => {
     const L = leafletRef.current;
@@ -261,15 +274,12 @@ export default function FleetMap({ darkMode, layout = "panel" }: { darkMode: boo
     trafficRef.current?.remove();
     trafficRef.current = null;
     if (!L || !map || !trafficOn || !trafficKey) return;
-    const key = encodeURIComponent(trafficKey);
+    const pass = encodeURIComponent(trafficKey);
     const theme = darkMode ? "dark" : "light";
-    const sources = [
-      // Legacy Traffic API — relative0: green = normal for that road, orange/red slower, dark red stopped.
-      `https://api.tomtom.com/traffic/map/4/tile/flow/${darkMode ? "relative0-dark" : "relative0"}/{z}/{x}/{y}.png?key=${key}&thickness=8`,
-      // Orbis v2 and v1 — same relative-speed colors.
-      `https://api.tomtom.com/maps/orbis/traffic/flow/raster/tile/{z}/{x}/{y}?apiVersion=2&key=${key}&style=${theme}`,
-      `https://api.tomtom.com/maps/orbis/traffic/tile/flow/{z}/{x}/{y}.png?apiVersion=1&key=${key}&style=${theme}`
-    ];
+    // Through our own tile route (app/api/samsara/traffic/tile), which picks
+    // the TomTom source: 0 = legacy Traffic API (green = normal for that road,
+    // orange/red slower, dark red stopped), 1 = Orbis v2, 2 = Orbis v1.
+    const sources = [0, 1, 2].map((source) => `/api/samsara/traffic/tile/${source}/{z}/{x}/{y}?t=${pass}&theme=${theme}`);
     if (trafficSource >= sources.length) return;
     let loaded = 0;
     let failed = 0;

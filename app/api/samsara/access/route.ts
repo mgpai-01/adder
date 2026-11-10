@@ -11,5 +11,5 @@ export async function GET(request: Request) {
   const check = await requireCaller(request);
   if (!check.ok) return NextResponse.json({ allowed: false, error: check.error }, { status: check.status });
   const { data } = await check.supabase.auth.admin.getUserById(check.userId);
-  return NextResponse.json({ allowed: canSeeSamsaraPreview(data.user?.email) });
+  return NextResponse.json({ allowed: canSeeSamsaraPreview(data.user?.email, check.role) });
 }

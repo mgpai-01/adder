@@ -17,7 +17,7 @@ export async function GET(request: Request) {
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
 
   const { data } = await check.supabase.auth.admin.getUserById(check.userId);
-  if (!canSeeSamsaraPreview(data.user?.email)) {
+  if (!canSeeSamsaraPreview(data.user?.email, check.role)) {
     return NextResponse.json({ error: "Not available for this account yet" }, { status: 403 });
   }
   if (!isSamsaraConfigured()) {
