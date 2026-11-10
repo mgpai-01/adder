@@ -172,6 +172,12 @@ export default function FleetSections({
     })
     .sort((a, b) => lastPing(b) - lastPing(a));
   const openTamper = tampered.filter((item) => !checked.includes(eventKey(item)));
+  // The Tamper tab only exists while an alert is open; once the last one is
+  // checked (or the unit reports again), go back to the yards.
+  const tamperShown = openTamper.length > 0;
+  useEffect(() => {
+    if (tab === "tamper" && !tamperShown) setTab("yards");
+  }, [tab, tamperShown]);
 
   const unitsIn = (place: FleetPlace) => items.filter((item) => insideGeofence(place, item.lat, item.lng, 150));
   const yardPlaceIds = new Set(yards.map((yard) => yard.placeId).filter(Boolean));
@@ -246,7 +252,7 @@ export default function FleetSections({
 
       {/* Tabs: what shows under the search bars. */}
       <div className="flex flex-wrap gap-1.5" role="tablist">
-        {TABS.map((entry) => {
+        {TABS.filter((entry) => entry.id !== "tamper" || tamperShown).map((entry) => {
           const count =
             entry.id === "road" ? away.length : entry.id === "all" ? items.length : entry.id === "nogps" ? quietCount : entry.id === "tamper" ? openTamper.length : null;
           const on = tab === entry.id;
