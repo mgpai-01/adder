@@ -5,7 +5,7 @@ import type { Map as LeafletMap, Marker as LeafletMarker } from "leaflet";
 import { Loader2, MapPin, Maximize2, Minimize2, RotateCw, Route, Search, TrafficCone, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { authedFetch } from "@/lib/auth";
-import type { FleetItem, FleetKind, FleetPlace } from "@/lib/samsara";
+import type { FleetItem, FleetKind, FleetPlace, SilentUnit } from "@/lib/samsara";
 import type { YardArea, YardEta } from "@/lib/yards";
 import { insideGeofence } from "@/lib/geo";
 import YardBoard from "@/components/YardBoard";
@@ -88,6 +88,8 @@ function popupHtml(item: FleetItem, yardName?: string): string {
 export default function FleetMap({ darkMode, layout = "panel" }: { darkMode: boolean; layout?: "panel" | "page" }) {
   const isPage = layout === "page";
   const [items, setItems] = useState<FleetItem[]>([]);
+  // Trailers with no location in Samsara's lookback window (No GPS tab).
+  const [silent, setSilent] = useState<SilentUnit[]>([]);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [notes, setNotes] = useState<string[]>([]);
   const [error, setError] = useState("");
@@ -118,12 +120,13 @@ export default function FleetMap({ darkMode, layout = "panel" }: { darkMode: boo
     setLoading(true);
     try {
       const response = await authedFetch("/api/samsara/fleet");
-      const result = (await response.json()) as { ok?: boolean; items?: FleetItem[]; warnings?: string[]; notes?: string[]; fetchedAt?: string; error?: string };
+      const result = (await response.json()) as { ok?: boolean; items?: FleetItem[]; silent?: SilentUnit[]; warnings?: string[]; notes?: string[]; fetchedAt?: string; error?: string };
       if (!response.ok || !result.ok) {
         setError(result.error || `Samsara didn't answer (${response.status}).`);
       } else {
         setError("");
         setItems(result.items ?? []);
+        setSilent(result.silent ?? []);
         setWarnings(result.warnings ?? []);
         setNotes(result.notes ?? []);
         setFetchedAt(result.fetchedAt ?? "");
@@ -1038,6 +1041,7 @@ export default function FleetMap({ darkMode, layout = "panel" }: { darkMode: boo
         !expanded && (
           <FleetSections
             items={items}
+            silent={silent}
             yards={yards}
             yardOf={yardOf}
             places={places}

@@ -36,7 +36,12 @@ export type FleetItem = {
   size: string;
 };
 
-export type FleetSnapshot = { items: FleetItem[]; warnings: string[]; notes: string[]; fetchedAt: string };
+// A unit Samsara knows about that hasn't reported any location in the
+// lookback window — no spot to put on the map, but it belongs on the
+// "No GPS" list.
+export type SilentUnit = { id: string; name: string; kind: FleetKind; size: string };
+
+export type FleetSnapshot = { items: FleetItem[]; silent: SilentUnit[]; warnings: string[]; notes: string[]; fetchedAt: string };
 
 // Samsara files many trailers as generic "assets" (unpowered trackers), so
 // the name decides: "228MGP- box (53Feet)", "100MGP-TR- 45 foot", "Larch Yard".
@@ -339,15 +344,27 @@ export async function fetchFleetSnapshot(): Promise<FleetSnapshot> {
 
   // Trailers Samsara knows about but that haven't reported a location.
   const locatedIds = new Set([...assets, ...gpsTrailers].map((item) => item.id));
-  const silent = Array.from(trailerNames.keys()).filter((id) => !locatedIds.has(id)).length;
-  if (silent > 0 && (points.size > 0 || gpsTrailers.length > 0)) notes.push(`${silent} trailer(s) in Samsara haven't reported a location in the last ${ASSET_LOOKBACK_HOURS} hours, so they aren't on the map.`);
+  // Only trusted when a location source answered — otherwise every trailer
+  // would look silent because the lookup itself failed.
+  const locationsAnswered = points.size > 0 || gpsTrailers.length > 0;
+  const silent: SilentUnit[] = locationsAnswered
+    ? Array.from(trailerNames.entries())
+        .filter(([id]) => !locatedIds.has(id))
+        .map(([id, name]) => {
+          const label = name || `Trailer ${id}`;
+          const kind = classify(label, "trailer");
+          return { id, name: label, kind, size: kind === "trailer" ? trailerSize(label) : "" };
+        })
+        .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
+    : [];
+  if (silent.length > 0) notes.push(`${silent.length} trailer(s) in Samsara haven't reported a location in the last ${ASSET_LOOKBACK_HOURS} hours, so they aren't on the map (see the No GPS 24h+ tab).`);
 
   const items = [...trucks, ...gpsTrailers, ...assets]
     .map((item) => {
       const kind = classify(item.name, item.kind);
       return { ...item, kind, size: kind === "trailer" ? trailerSize(item.name) : "" };
     }).sort((a, b) => a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name));
-  return { items, warnings, notes, fetchedAt: new Date().toISOString() };
+  return { items, silent, warnings, notes, fetchedAt: new Date().toISOString() };
 }
 
 // ===== Places: the addresses / geofences marked in Samsara =====

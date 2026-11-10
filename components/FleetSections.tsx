@@ -1,10 +1,10 @@
 "use client";
 
-import { MapPin, Route, Search, Truck, X } from "lucide-react";
+import { AlertTriangle, Bell, BellOff, MapPin, Route, Search, Truck, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import YardBoard from "@/components/YardBoard";
 import { insideGeofence, type Geofence } from "@/lib/geo";
-import type { FleetItem, FleetPlace } from "@/lib/samsara";
+import type { FleetItem, FleetPlace, SilentUnit } from "@/lib/samsara";
 import type { YardArea } from "@/lib/yards";
 
 // Under the map on the Fleet tab, laid out like the Production Grid's yard
@@ -18,13 +18,20 @@ import type { YardArea } from "@/lib/yards";
 // Yard board (every yard side by side), what's on the road / not at a yard,
 // or every unit. The truck/trailer search finds any unit whichever tab is open.
 
-type Tab = "yards" | "board" | "road" | "all";
+type Tab = "yards" | "board" | "road" | "all" | "nogps";
 const TABS: { id: Tab; label: string }[] = [
   { id: "yards", label: "Yards & pinned places" },
   { id: "board", label: "Yard board" },
   { id: "road", label: "On the road" },
-  { id: "all", label: "All units" }
+  { id: "all", label: "All units" },
+  { id: "nogps", label: "No GPS 24h+" }
 ];
+
+// "No GPS": a unit whose last ping is older than this. Muted units (one in
+// the shop, say) are left out until the mute ends — saved in this browser.
+const NO_GPS_MS = 24 * 60 * 60 * 1000;
+const MUTE_KEY = "mgp-fleet-gps-mute-v1";
+const MUTE_MS = 7 * 24 * 60 * 60 * 1000;
 const TAB_KEY = "mgp-fleet-tab-v1";
 
 const PINNED_KEY = "mgp-fleet-pinned-places-v1";
@@ -44,6 +51,7 @@ const plural = (count: number, word: string) => `${count} ${word}${count === 1 ?
 
 export default function FleetSections({
   items,
+  silent = [],
   yards,
   yardOf,
   places,
@@ -54,6 +62,7 @@ export default function FleetSections({
   onZoom
 }: {
   items: FleetItem[];
+  silent?: SilentUnit[];
   yards: YardArea[];
   yardOf: Map<string, YardArea>;
   places: FleetPlace[];
@@ -99,6 +108,32 @@ export default function FleetSections({
       // storage blocked — tab lasts for this visit
     }
   }
+
+  // Muted "No GPS" units: id → muted until (ms). Expired mutes drop off.
+  const [mutes, setMutes] = useState<Record<string, number>>({});
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(window.localStorage.getItem(MUTE_KEY) ?? "{}") as Record<string, unknown>;
+      const now = Date.now();
+      setMutes(Object.fromEntries(Object.entries(saved).filter((entry): entry is [string, number] => typeof entry[1] === "number" && entry[1] > now)));
+    } catch {
+      // storage blocked — nothing muted
+    }
+  }, []);
+  function saveMuted(next: Record<string, number>) {
+    setMutes(next);
+    try {
+      window.localStorage.setItem(MUTE_KEY, JSON.stringify(next));
+    } catch {
+      // storage blocked — mute lasts for this visit
+    }
+  }
+  const isMuted = (id: string) => (mutes[id] ?? 0) > Date.now();
+  const lastPing = (item: FleetItem) => Date.parse(item.time);
+  const quiet = items
+    .filter((item) => Number.isFinite(lastPing(item)) && Date.now() - lastPing(item) > NO_GPS_MS)
+    .sort((a, b) => lastPing(a) - lastPing(b));
+  const quietCount = quiet.filter((item) => !isMuted(item.id)).length + silent.filter((unit) => !isMuted(unit.id)).length;
 
   const unitsIn = (place: FleetPlace) => items.filter((item) => insideGeofence(place, item.lat, item.lng, 150));
   const yardPlaceIds = new Set(yards.map((yard) => yard.placeId).filter(Boolean));
@@ -148,8 +183,39 @@ export default function FleetSections({
       {/* Tabs: what shows under the search bars. */}
       <div className="flex flex-wrap gap-1.5" role="tablist">
         {TABS.map((entry) => {
-          const count = entry.id === "road" ? away.length : entry.id === "all" ? items.length : null;
+          const count = entry.id === "road" ? away.length : entry.id === "all" ? items.length : entry.id === "nogps" ? quietCount : null;
           const on = tab === entry.id;
+          if (entry.id === "nogps") {
+            const alarm = quietCount > 0;
+            return (
+              <button
+                key={entry.id}
+                type="button"
+                role="tab"
+                aria-selected={on}
+                onClick={() => chooseTab(entry.id)}
+                className={`flex min-h-0 items-center gap-2 rounded border px-4 py-2.5 text-sm font-black transition ${
+                  on
+                    ? alarm
+                      ? "border-red-600 bg-red-600 text-white"
+                      : darkMode
+                        ? "border-white bg-white text-steel-900"
+                        : "border-steel-900 bg-steel-900 text-white"
+                    : alarm
+                      ? darkMode
+                        ? "border-red-500/60 bg-red-500/10 text-red-300 hover:bg-red-500/20"
+                        : "border-red-300 bg-red-50 text-red-700 hover:bg-red-100"
+                      : darkMode
+                        ? "border-white/10 bg-white/[0.04] hover:bg-white/10"
+                        : "border-steel-100 bg-white hover:bg-steel-50"
+                }`}
+              >
+                {alarm && <AlertTriangle size={15} />}
+                {entry.label}
+                <span className={`rounded-full px-2 text-[11px] ${on && alarm ? "bg-white text-red-700" : alarm ? "bg-red-600 text-white" : "bg-safety-400 text-steel-900"}`}>{count}</span>
+              </button>
+            );
+          }
           return (
             <button
               key={entry.id}
@@ -305,6 +371,22 @@ export default function FleetSections({
 
       {tab === "all" && (
         <Section title="All units" subtitle="Every truck and trailer Samsara reports" units={items} whereOf={whereOf} {...{ unitLabel, darkMode, onFocus, onEta }} />
+      )}
+
+      {tab === "nogps" && (
+        <NoGpsSection
+          quiet={quiet}
+          silent={silent}
+          isMuted={isMuted}
+          mutedUntil={(id) => mutes[id] ?? 0}
+          onMute={(id) => saveMuted({ ...mutes, [id]: Date.now() + MUTE_MS })}
+          onUnmute={(id) => {
+            const next = { ...mutes };
+            delete next[id];
+            saveMuted(next);
+          }}
+          {...{ whereOf, unitLabel, darkMode, onFocus }}
+        />
       )}
 
       {tab === "yards" && yards.map((yard) => (
@@ -541,5 +623,170 @@ function UnitTag({ item, label }: { item: FleetItem; label: string }) {
     >
       {label}
     </span>
+  );
+}
+
+// The "No GPS 24h+" tab: units whose last ping is over 24 hours old (oldest
+// first), then trailers with no location at all in Samsara's lookback window.
+// "Show last spot" finds it on the map; "Mute 7 days" hides one you already
+// know about (in the shop, parked for storage) — saved in this browser.
+function NoGpsSection({
+  quiet,
+  silent,
+  isMuted,
+  mutedUntil,
+  onMute,
+  onUnmute,
+  whereOf,
+  unitLabel,
+  darkMode,
+  onFocus
+}: {
+  quiet: FleetItem[];
+  silent: SilentUnit[];
+  isMuted: (id: string) => boolean;
+  mutedUntil: (id: string) => number;
+  onMute: (id: string) => void;
+  onUnmute: (id: string) => void;
+  whereOf: (item: FleetItem) => string;
+  unitLabel: (item: FleetItem) => string;
+  darkMode: boolean;
+  onFocus: (item: FleetItem) => void;
+}) {
+  const muted = darkMode ? "text-steel-100" : "text-steel-500";
+  const line = darkMode ? "border-white/10" : "border-steel-100";
+  type Row = { id: string; name: string; kind: string; label: string; item: FleetItem | null };
+  const asLabel = (name: string) => unitLabel({ name } as FleetItem);
+  const all: Row[] = [
+    ...quiet.map((item) => ({ id: item.id, name: item.name, kind: item.kind, label: unitLabel(item), item })),
+    ...silent.map((unit) => ({ id: unit.id, name: unit.name, kind: unit.kind, label: asLabel(unit.name), item: null }))
+  ];
+  const active = all.filter((row) => !isMuted(row.id));
+  const mutedRows = all.filter((row) => isMuted(row.id));
+  const trailers = active.filter((row) => row.kind === "trailer").length;
+  const trucks = active.filter((row) => row.kind === "truck").length;
+  const other = active.length - trailers - trucks;
+
+  const since = (iso: string) => {
+    const minutes = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60_000));
+    const days = Math.floor(minutes / 1440);
+    const hours = Math.floor((minutes % 1440) / 60);
+    return days ? `${days} day${days === 1 ? "" : "s"}${hours ? ` ${hours} hr` : ""} ago` : `${hours} hr ago`;
+  };
+  const stamp = (iso: string) => {
+    const time = new Date(iso);
+    return Number.isNaN(time.getTime()) ? "—" : time.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  };
+  const box = "flex h-12 min-w-[110px] items-center justify-center rounded px-3 text-base font-black";
+  const soft = darkMode ? "bg-red-500/20 text-white" : "bg-red-100 text-steel-900";
+
+  return (
+    <section className="mt-6">
+      <div className="flex items-end justify-between gap-3 border-b-2 border-red-600 pb-2">
+        <h3 className="text-2xl font-black uppercase">No GPS in 24 hours</h3>
+        <span className={`shrink-0 text-base font-black ${muted}`}>
+          {plural(active.length, "unit")}
+          {mutedRows.length ? ` · ${mutedRows.length} muted` : ""}
+        </span>
+      </div>
+      <div className={`mt-3 rounded border p-3 ${darkMode ? "border-white/10 bg-white/[0.03]" : "border-steel-100 bg-steel-50"}`}>
+        <div className="flex flex-wrap items-center gap-2">
+          <p className={`mr-auto text-sm font-bold ${muted}`}>The tracker may be unplugged, out of battery or out of signal.</p>
+          <span className={`${box} ${soft}`}>{plural(trailers, "trailer")}</span>
+          <span className={`${box} ${soft}`}>{plural(trucks, "truck")}</span>
+          {other > 0 && <span className={`${box} ${soft}`}>{other} other</span>}
+          <span className={`${box} bg-red-600 text-white`}>{active.length} total</span>
+        </div>
+
+        <div className="mt-3 overflow-x-auto">
+          <table className="w-full min-w-[960px] border-collapse text-sm">
+            <thead>
+              <tr className="bg-steel-900 text-white">
+                <th className="px-3 py-2.5 text-left font-black">Unit</th>
+                <th className="px-3 py-2.5 text-left font-black">Full name</th>
+                <th className="px-3 py-2.5 text-center font-black">Type</th>
+                <th className="px-3 py-2.5 text-center font-black">Last GPS</th>
+                <th className="px-3 py-2.5 text-center font-black">Last ping</th>
+                <th className="px-3 py-2.5 text-left font-black">Last known spot</th>
+                <th className="px-3 py-2.5 text-center font-black">Map</th>
+                <th className="px-3 py-2.5 text-center font-black">Alert</th>
+              </tr>
+            </thead>
+            <tbody>
+              {active.map((row, index) => (
+                <tr key={row.id} className={`border-t ${line} ${index % 2 ? (darkMode ? "bg-white/[0.03]" : "bg-steel-50") : darkMode ? "" : "bg-white"}`}>
+                  <td className="px-3 py-2">
+                    <span
+                      className="rounded px-2 py-0.5 text-xs font-black text-white"
+                      style={{ background: row.kind === "truck" ? "#2a6b40" : row.kind === "trailer" ? "#c2410c" : "#6c7a86" }}
+                    >
+                      {row.label}
+                    </span>
+                  </td>
+                  <td className="max-w-[320px] truncate px-3 py-2 font-bold" title={row.name}>
+                    {row.name}
+                  </td>
+                  <td className="px-3 py-2 text-center font-bold capitalize">{row.kind === "asset" ? "Other" : row.kind}</td>
+                  <td className="px-3 py-2 text-center font-black text-red-600">{row.item ? since(row.item.time) : "Over 3 days"}</td>
+                  <td className={`px-3 py-2 text-center font-bold ${muted}`}>{row.item ? stamp(row.item.time) : "—"}</td>
+                  <td className="max-w-[240px] truncate px-3 py-2 font-bold" title={row.item ? whereOf(row.item) : ""}>
+                    {row.item ? whereOf(row.item) : <span className={muted}>Not known</span>}
+                  </td>
+                  <td className="px-3 py-2 text-center">
+                    {row.item ? (
+                      <button
+                        type="button"
+                        onClick={() => row.item && onFocus(row.item)}
+                        className={`mx-auto flex min-h-0 items-center gap-1 rounded border px-2.5 py-1.5 text-xs font-black ${line} ${darkMode ? "hover:bg-white/10" : "bg-white hover:bg-steel-50"}`}
+                      >
+                        <MapPin size={12} /> Show last spot
+                      </button>
+                    ) : (
+                      <span className={`text-xs font-bold ${muted}`}>—</span>
+                    )}
+                  </td>
+                  <td className="px-3 py-2 text-center">
+                    <button
+                      type="button"
+                      onClick={() => onMute(row.id)}
+                      title="Stop alerting on this unit for 7 days"
+                      className={`mx-auto flex min-h-0 items-center gap-1 rounded border px-2.5 py-1.5 text-xs font-black ${line} ${darkMode ? "hover:bg-white/10" : "bg-white hover:bg-steel-50"}`}
+                    >
+                      <BellOff size={12} /> Mute 7 days
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {active.length === 0 && (
+                <tr>
+                  <td colSpan={8} className={`px-3 py-5 text-center text-sm font-bold ${muted}`}>
+                    Every truck and trailer has sent GPS in the last 24 hours.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {mutedRows.length > 0 && (
+          <div className={`mt-3 flex flex-wrap items-center gap-1.5 text-xs font-black ${muted}`}>
+            <span>Muted:</span>
+            {mutedRows.map((row) => (
+              <span key={row.id} className={`flex items-center gap-1 rounded-full border py-1 pl-3 pr-1 ${line}`}>
+                {row.label} · until {new Date(mutedUntil(row.id)).toLocaleDateString([], { month: "short", day: "numeric" })}
+                <button
+                  type="button"
+                  onClick={() => onUnmute(row.id)}
+                  title="Alert on this unit again"
+                  className={`flex min-h-0 items-center gap-0.5 rounded-full px-2 py-0.5 ${darkMode ? "hover:bg-white/10" : "hover:bg-steel-100"}`}
+                >
+                  <Bell size={11} /> Unmute
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+    </section>
   );
 }
