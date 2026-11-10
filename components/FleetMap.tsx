@@ -9,6 +9,8 @@ import type { FleetItem, FleetKind, FleetPlace } from "@/lib/samsara";
 import type { YardArea, YardEta } from "@/lib/yards";
 import { insideGeofence } from "@/lib/geo";
 import YardBoard from "@/components/YardBoard";
+import FleetSections from "@/components/FleetSections";
+import { metersBetween, type Geofence } from "@/lib/geo";
 
 // Live map of every truck, trailer and tracked piece of equipment from
 // Samsara. Pins are colored by kind; the list beside the map finds and flies
@@ -80,7 +82,11 @@ function popupHtml(item: FleetItem, yardName?: string): string {
   </div>`;
 }
 
-export default function FleetMap({ darkMode }: { darkMode: boolean }) {
+// layout "panel": the Dashboard's Samsara panel — map + list, compact yard cards.
+// layout "page": the Fleet tab — a big full-width map with the yard sections
+// and geofence search under it (components/FleetSections).
+export default function FleetMap({ darkMode, layout = "panel" }: { darkMode: boolean; layout?: "panel" | "page" }) {
+  const isPage = layout === "page";
   const [items, setItems] = useState<FleetItem[]>([]);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [notes, setNotes] = useState<string[]>([]);
@@ -310,7 +316,7 @@ export default function FleetMap({ darkMode }: { darkMode: boolean }) {
     yardsLayerRef.current = group;
   }, [yards, mapReady]);
 
-  function zoomToYard(yard: YardArea) {
+  function zoomToYard(yard: Geofence) {
     const L = leafletRef.current;
     const map = mapRef.current;
     if (!L || !map) return;
@@ -503,9 +509,17 @@ export default function FleetMap({ darkMode }: { darkMode: boolean }) {
       }
     }
     // Frame everything the first time pins arrive.
+    // A unit reporting from far away (or a bad GPS fix) would zoom the whole
+    // map out to several states, so the first view frames the units within
+    // 150 km of the middle of the fleet; "Show all" still frames everything.
     if (!fittedRef.current && visible.length > 0) {
       fittedRef.current = true;
-      map.fitBounds(L.latLngBounds(visible.map((item) => [item.lat, item.lng] as [number, number])), { padding: [40, 40], maxZoom: 13 });
+      const middle = (values: number[]) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)];
+      const midLat = middle(visible.map((item) => item.lat));
+      const midLng = middle(visible.map((item) => item.lng));
+      const near = visible.filter((item) => metersBetween(midLat, midLng, item.lat, item.lng) <= 150_000);
+      const frame = near.length > 0 ? near : visible;
+      map.fitBounds(L.latLngBounds(frame.map((item) => [item.lat, item.lng] as [number, number])), { padding: [40, 40], maxZoom: 13 });
     }
   }, [visible, selectedId, mapReady, yardOf]);
 
@@ -588,6 +602,14 @@ export default function FleetMap({ darkMode }: { darkMode: boolean }) {
     setSelectedId(item.id);
     mapRef.current?.flyTo([item.lat, item.lng], Math.max(mapRef.current.getZoom(), 14), { duration: 0.6 });
     markersRef.current.get(item.id)?.openPopup();
+  }
+
+  // "ETA" in a Fleet-tab table: find the unit on the map and load its drive
+  // times to every yard (the card and route appear on the map).
+  function etaFor(item: FleetItem) {
+    focus(item);
+    void loadEta(item);
+    mapNode.current?.scrollIntoView({ behavior: "smooth", block: "center" });
   }
 
   function fitAll() {
@@ -725,9 +747,9 @@ export default function FleetMap({ darkMode }: { darkMode: boolean }) {
         </details>
       )}
 
-      <div className={`grid min-h-0 gap-3 ${expanded ? "flex-1 lg:grid-cols-[1fr_320px]" : "lg:grid-cols-[1fr_300px]"}`}>
+      <div className={`grid min-h-0 gap-3 ${expanded ? "flex-1 lg:grid-cols-[1fr_320px]" : isPage ? "" : "lg:grid-cols-[1fr_300px]"}`}>
         <div
-          className={`relative isolate overflow-hidden rounded border ${darkMode ? "border-white/10" : "border-steel-100"} ${expanded ? "min-h-[35vh]" : "h-[340px]"}`}
+          className={`relative isolate overflow-hidden rounded border ${darkMode ? "border-white/10" : "border-steel-100"} ${expanded ? "min-h-[35vh]" : isPage ? "h-[62vh] min-h-[420px]" : "h-[340px]"}`}
         >
           <div ref={mapNode} className="absolute inset-0 z-0" />
           <button
@@ -846,7 +868,11 @@ export default function FleetMap({ darkMode }: { darkMode: boolean }) {
           )}
         </div>
 
-        <div className={`flex min-h-0 flex-col rounded border ${darkMode ? "border-white/10 bg-white/[0.04]" : "border-steel-100 bg-white"} ${expanded ? "max-h-[40vh] lg:max-h-none" : "h-[340px]"}`}>
+        <div
+          className={`flex min-h-0 flex-col rounded border ${darkMode ? "border-white/10 bg-white/[0.04]" : "border-steel-100 bg-white"} ${
+            expanded ? "max-h-[40vh] lg:max-h-none" : "h-[340px]"
+          } ${isPage && !expanded ? "hidden" : ""}`}
+        >
           <label className={`flex items-center gap-2 border-b px-3 py-2 ${darkMode ? "border-white/10" : "border-steel-100"}`}>
             <Search size={16} className={muted} />
             <input
@@ -900,15 +926,31 @@ export default function FleetMap({ darkMode }: { darkMode: boolean }) {
         </div>
       </div>
 
-      <YardBoard
-        items={items}
-        yards={yards}
-        yardOf={yardOf}
-        unitLabel={(item) => pinLabel(item.name)}
-        darkMode={darkMode}
-        onFocus={focus}
-        onZoomYard={zoomToYard}
-      />
+      {isPage ? (
+        !expanded && (
+          <FleetSections
+            items={items}
+            yards={yards}
+            yardOf={yardOf}
+            places={places}
+            unitLabel={(item) => pinLabel(item.name)}
+            darkMode={darkMode}
+            onFocus={focus}
+            onEta={etaFor}
+            onZoom={zoomToYard}
+          />
+        )
+      ) : (
+        <YardBoard
+          items={items}
+          yards={yards}
+          yardOf={yardOf}
+          unitLabel={(item) => pinLabel(item.name)}
+          darkMode={darkMode}
+          onFocus={focus}
+          onZoomYard={zoomToYard}
+        />
+      )}
     </div>
   );
 }

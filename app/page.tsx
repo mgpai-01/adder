@@ -66,6 +66,7 @@ import {
 } from "@/lib/data";
 import { calculateEntry, calculateWeeklyBonus, compareByLastName, correctedEntryDate, currency, findMisdatedEntries, getWeekKey, wholeNumber } from "@/lib/payroll";
 import { authedFetch, getAccessToken, roleLabels, roleViews, useAuth } from "@/lib/auth";
+import { useFleetMovingCount, useSamsaraAccess } from "@/lib/fleetHooks";
 import { normalizeExcelValue, parseCsvGrid, parseTimecardGrid, type ImportedBlock } from "@/lib/hoursImport";
 import { LanguageProvider, translate, useT, type Language } from "@/lib/i18n";
 import type { ChangeLogEntry } from "@/lib/cloudChangeLog";
@@ -159,7 +160,7 @@ const legacyPalletTypeAliases: Record<string, string> = {
   "no-2": defaultLabelSlugById.get("stacker-grade-b-2") ?? "stacker-grade-b-2"
 };
 
-type View = "entry" | "count-sheets" | "production-grid" | "dashboard" | "live-yards" | "payroll" | "cloud" | "users" | "settings";
+type View = "entry" | "count-sheets" | "production-grid" | "dashboard" | "live-yards" | "fleet" | "payroll" | "cloud" | "users" | "settings";
 type AdminTab = "settings" | "pallets" | "employees" | "locations";
 
 type EntryForm = Omit<DailyEntry, "id" | "createdAt">;
@@ -1052,6 +1053,10 @@ export default function Home() {
   const { configured, profile, signOut } = useAuth();
   const allowedViews = (configured && profile ? roleViews[profile.role] : allViews) as View[];
   const [view, setView] = useState<View>("entry");
+  // Fleet tab (Samsara): shown to the logins lib/previewAccess allows, with a
+  // live "● N moving" count on its menu button.
+  const fleetAllowed = useSamsaraAccess(profile?.id);
+  const fleetMoving = useFleetMovingCount(fleetAllowed);
   const [adminTab, setAdminTab] = useState<AdminTab>("settings");
   const [darkMode, setDarkMode] = useState(false);
   // UI language. Managers default to Spanish (most read Spanish) but anyone can
@@ -3808,6 +3813,7 @@ export default function Home() {
           {allowedViews.includes("production-grid") && <NavButton icon={<FileSpreadsheet size={19} />} label={t("Production Grid")} active={view === "production-grid"} onClick={() => setView("production-grid")} />}
           {allowedViews.includes("dashboard") && <NavButton icon={<BarChart3 size={19} />} label={t("Dashboard")} active={view === "dashboard"} onClick={() => setView("dashboard")} />}
           {allowedViews.includes("live-yards") && <NavButton icon={<LayoutGrid size={19} />} label={t("Live Yards")} active={view === "live-yards"} onClick={() => setView("live-yards")} />}
+          {fleetAllowed && <FleetNavButton active={view === "fleet"} moving={fleetMoving} darkMode={darkMode} onClick={() => setView("fleet")} />}
           {allowedViews.includes("payroll") && <NavButton icon={<FileSpreadsheet size={19} />} label={t("Payroll")} active={view === "payroll"} onClick={() => setView("payroll")} />}
           {allowedViews.includes("cloud") && <NavButton icon={<Database size={19} />} label="Cloud" active={view === "cloud"} onClick={() => setView("cloud")} />}
           {allowedViews.includes("users") && <NavButton icon={<UserRound size={19} />} label="Users" active={view === "users"} onClick={() => setView("users")} />}
@@ -3887,6 +3893,7 @@ export default function Home() {
             />
           )}
           {view === "dashboard" && <Dashboard settings={settings} darkMode={darkMode} countSheets={scopedCountSheets} entries={scopedEntries} locations={scopedLocationList} shifts={shiftList} palletTypes={palletTypes} employees={employeeList} onSelectEmployee={setProfileEmployeeId} />}
+          {view === "fleet" && fleetAllowed && <FleetPage darkMode={darkMode} />}
           {view === "live-yards" && <LiveYards settings={settings} darkMode={darkMode} entries={scopedEntries} locations={scopedLocationList} palletTypes={palletTypes} employees={employeeList} onSelectEmployee={setProfileEmployeeId} />}
           {view === "payroll" && (
             <Payroll
@@ -5939,25 +5946,7 @@ function Dashboard({
   // server (lib/previewAccess: listed logins on the live app, everyone signed
   // in on a test deployment), so ask it once per signed-in user.
   const { profile } = useAuth();
-  const [showSamsara, setShowSamsara] = useState(false);
-  useEffect(() => {
-    if (!profile?.id) {
-      setShowSamsara(false);
-      return;
-    }
-    let cancelled = false;
-    authedFetch("/api/samsara/access")
-      .then((response) => response.json())
-      .then((result: { allowed?: boolean }) => {
-        if (!cancelled) setShowSamsara(Boolean(result.allowed));
-      })
-      .catch(() => {
-        if (!cancelled) setShowSamsara(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [profile?.id]);
+  const showSamsara = useSamsaraAccess(profile?.id);
   const [samsaraOpen, setSamsaraOpen] = useState(false);
 
   const filteredEntries = useMemo(
@@ -10782,6 +10771,48 @@ function Avatar({ employee, size = "sm" }: { employee?: Partial<Employee>; size?
     <div className={classNames("flex shrink-0 items-center justify-center overflow-hidden rounded bg-safety-400 font-black text-steel-900", dimension)}>
       {employee?.photoDataUrl ? <img src={employee.photoDataUrl} alt="" className="h-full w-full object-cover" /> : initials}
     </div>
+  );
+}
+
+// The Fleet tab's menu button: the Samsara owl, "Fleet", and a live count of
+// trucks / trailers moving right now (lib/fleetHooks), updated every minute.
+function FleetNavButton({ active, moving, darkMode, onClick }: { active: boolean; moving: number | null; darkMode: boolean; onClick: () => void }) {
+  const owl = active || darkMode ? "white" : "black";
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={`Fleet${moving !== null ? `, ${moving} moving` : ""}`}
+      className={classNames("touch-target flex min-w-32 flex-1 items-center justify-center gap-2 rounded px-3 py-2 text-sm font-black", active ? "bg-steel-900 text-white" : "bg-transparent text-inherit")}
+    >
+      <img src={`/brand/samsara-owl-${owl}.png`} alt="" className="h-[19px] w-auto" />
+      <span className="text-left leading-tight">
+        Fleet
+        <span className={classNames("flex items-center gap-1 text-[11px] font-black", active ? "text-safety-400" : "text-workshop-500")}>
+          <span className={classNames("inline-block h-1.5 w-1.5 rounded-full", moving ? "animate-pulse bg-safety-500" : "bg-steel-500")} />
+          {moving === null ? "live" : `${moving} moving`}
+        </span>
+      </span>
+    </button>
+  );
+}
+
+// The Fleet tab: the live Samsara map, big, with the yards and geofence search
+// under it (components/FleetMap in "page" layout).
+function FleetPage({ darkMode }: { darkMode: boolean }) {
+  return (
+    <section className={classNames("rounded border p-4", darkMode ? "border-white/10 bg-white/[0.04]" : "border-steel-100 bg-white shadow-panel")}>
+      <div className="flex items-end justify-between gap-3">
+        <div>
+          <h2 className="flex items-center gap-2 text-2xl font-black">
+            <img src={`/brand/samsara-owl-${darkMode ? "white" : "black"}.png`} alt="" className="h-7 w-auto" />
+            Fleet
+          </h2>
+          <p className={classNames("text-sm", darkMode ? "text-steel-100" : "text-steel-500")}>Live from Samsara · refreshed every minute</p>
+        </div>
+      </div>
+      <FleetMap darkMode={darkMode} layout="page" />
+    </section>
   );
 }
 
