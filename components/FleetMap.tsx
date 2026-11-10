@@ -104,6 +104,35 @@ export default function FleetMap({ darkMode, layout = "panel" }: { darkMode: boo
   const [mapReady, setMapReady] = useState(false);
 
   const mapNode = useRef<HTMLDivElement | null>(null);
+  // Scrolling over the map scrolls the page; zooming takes a pinch or
+  // ⌘/Ctrl + scroll (pinch arrives as a wheel event with ctrlKey set), or the
+  // + / − buttons. Plain scrolls are stopped before Leaflet sees them and a
+  // short hint shows. In full screen there's no page to scroll, so the wheel
+  // zooms as usual.
+  const mapFrame = useRef<HTMLDivElement | null>(null);
+  const [scrollHint, setScrollHint] = useState(false);
+  const [isMac, setIsMac] = useState(true);
+  useEffect(() => {
+    setIsMac(/Mac|iPhone|iPad/i.test(navigator.userAgent));
+  }, []);
+  useEffect(() => {
+    const frame = mapFrame.current;
+    if (!frame || expanded) return;
+    let timer = 0;
+    const onWheel = (event: WheelEvent) => {
+      if (event.ctrlKey || event.metaKey) return;
+      event.stopPropagation();
+      setScrollHint(true);
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => setScrollHint(false), 1200);
+    };
+    frame.addEventListener("wheel", onWheel, { capture: true });
+    return () => {
+      frame.removeEventListener("wheel", onWheel, { capture: true });
+      window.clearTimeout(timer);
+      setScrollHint(false);
+    };
+  }, [expanded]);
   const mapRef = useRef<LeafletMap | null>(null);
   const leafletRef = useRef<typeof import("leaflet") | null>(null);
   const markersRef = useRef<Map<string, LeafletMarker>>(new Map());
@@ -802,9 +831,17 @@ export default function FleetMap({ darkMode, layout = "panel" }: { darkMode: boo
 
       <div className={`grid min-h-0 gap-3 ${expanded ? "flex-1 lg:grid-cols-[1fr_320px]" : isPage ? "" : "lg:grid-cols-[1fr_300px]"}`}>
         <div
+          ref={mapFrame}
           className={`relative isolate overflow-hidden rounded border ${darkMode ? "border-white/10" : "border-steel-100"} ${expanded ? "min-h-[35vh]" : isPage ? "h-[62vh] min-h-[420px]" : "h-[340px]"}`}
         >
           <div ref={mapNode} className="absolute inset-0 z-0" />
+          {scrollHint && (
+            <div className="pointer-events-none absolute inset-0 z-[700] grid place-items-center bg-steel-900/45">
+              <p className="rounded bg-steel-900/90 px-4 py-2.5 text-sm font-black text-white shadow-lg">
+                Pinch, or hold {isMac ? "⌘" : "Ctrl"} while scrolling, to zoom the map
+              </p>
+            </div>
+          )}
           <button
             type="button"
             onClick={fitAll}
