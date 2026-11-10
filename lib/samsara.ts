@@ -36,10 +36,12 @@ export type FleetItem = {
   size: string;
 };
 
-// A unit Samsara knows about that hasn't reported any location in the
-// lookback window — no spot to put on the map, but it belongs on the
-// "No GPS" list.
-export type SilentUnit = { id: string; name: string; kind: FleetKind; size: string };
+// A trailer Samsara knows about but has no location for at all — no spot to
+// put on the map, but it belongs on the "No GPS" list. Samsara keeps a
+// tracked trailer's last GPS however old it is, so these have never reported
+// a location: either no tracker is paired with them ("none"), or one is but
+// it has never sent a fix ("installed").
+export type SilentUnit = { id: string; name: string; kind: FleetKind; size: string; tracker: "none" | "installed" | "unknown" };
 
 export type FleetSnapshot = { items: FleetItem[]; silent: SilentUnit[]; warnings: string[]; notes: string[]; fetchedAt: string };
 
@@ -168,7 +170,9 @@ async function fetchTrailers(): Promise<FleetItem[]> {
   }
 }
 
-type Named = { id?: string; name?: string };
+// /fleet/trailers and /fleet/equipment rows. A trailer's installedGateway is
+// the Samsara tracker paired with it (absent when none is installed).
+type Named = { id?: string; name?: string; installedGateway?: { serial?: string; model?: string } | null };
 
 type AssetPoint = {
   asset?: { id?: string };
@@ -315,6 +319,11 @@ export async function fetchFleetSnapshot(): Promise<FleetSnapshot> {
   // stream only fills in what's left (equipment, or trailers if that failed).
   const truckIds = new Set([...trucks, ...gpsTrailers].map((item) => item.id));
   const trailerNames = new Map(trailers.filter((row) => row.id).map((row) => [row.id as string, str(row.name)]));
+  const trailerTracker = new Map(
+    trailers
+      .filter((row) => row.id)
+      .map((row) => [row.id as string, row.installedGateway === undefined ? "unknown" : row.installedGateway?.serial ? "installed" : "none"] as const)
+  );
   const equipmentNames = new Map(equipment.filter((row) => row.id).map((row) => [row.id as string, str(row.name)]));
 
   const assets: FleetItem[] = [];
@@ -353,11 +362,11 @@ export async function fetchFleetSnapshot(): Promise<FleetSnapshot> {
         .map(([id, name]) => {
           const label = name || `Trailer ${id}`;
           const kind = classify(label, "trailer");
-          return { id, name: label, kind, size: kind === "trailer" ? trailerSize(label) : "" };
+          return { id, name: label, kind, size: kind === "trailer" ? trailerSize(label) : "", tracker: trailerTracker.get(id) ?? "unknown" };
         })
         .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
     : [];
-  if (silent.length > 0) notes.push(`${silent.length} trailer(s) in Samsara haven't reported a location in the last ${ASSET_LOOKBACK_HOURS} hours, so they aren't on the map (see the No GPS 24h+ tab).`);
+  if (silent.length > 0) notes.push(`${silent.length} trailer(s) in Samsara have no location on record, so they aren't on the map (see the No GPS 24h+ tab).`);
 
   const items = [...trucks, ...gpsTrailers, ...assets]
     .map((item) => {

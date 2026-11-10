@@ -103,6 +103,15 @@ export default function FleetSections({
   }
 
   const [tab, setTab] = useState<Tab>("yards");
+  // Phone-width screens get shorter search hints so they aren't cut off.
+  const [narrow, setNarrow] = useState(false);
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 639px)");
+    const update = () => setNarrow(query.matches);
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
   useEffect(() => {
     try {
       const saved = window.localStorage.getItem(TAB_KEY);
@@ -223,13 +232,13 @@ export default function FleetSections({
   const pinnedPlaces = pinned.map((id) => places.find((place) => place.id === id)).filter((place): place is FleetPlace => Boolean(place));
 
   return (
-    <div className="grid gap-2">
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-2">
       {/* Critical: a tracker went dark while its unit was moving. */}
       {openTamper.length > 0 && (
-        <div className="flex flex-wrap items-center gap-3 rounded border-2 border-red-700 bg-red-600 px-4 py-3 text-white shadow-lg" role="alert">
-          <AlertTriangle size={26} className="shrink-0 animate-pulse" />
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded border-2 border-red-700 bg-red-600 px-3 py-2.5 text-white shadow-lg sm:px-4 sm:py-3" role="alert">
+          <AlertTriangle size={24} className="shrink-0 animate-pulse" />
           <div className="min-w-0 flex-1">
-            <p className="text-base font-black uppercase tracking-wide">
+            <p className="text-sm font-black uppercase tracking-wide sm:text-base">
               Critical · {openTamper.length === 1 ? "1 tracker" : `${openTamper.length} trackers`} stopped reporting while moving
             </p>
             <p className="truncate text-sm font-bold text-white/90">
@@ -243,7 +252,7 @@ export default function FleetSections({
           <button
             type="button"
             onClick={() => chooseTab("tamper")}
-            className="min-h-0 shrink-0 rounded bg-white px-4 py-2 text-sm font-black text-red-700 hover:bg-red-50"
+            className="min-h-[40px] w-full shrink-0 rounded bg-white px-4 py-2 text-sm font-black text-red-700 hover:bg-red-50 sm:min-h-0 sm:w-auto"
           >
             Review →
           </button>
@@ -251,7 +260,7 @@ export default function FleetSections({
       )}
 
       {/* Tabs: what shows under the search bars. */}
-      <div className="flex flex-wrap gap-1.5" role="tablist">
+      <div className="no-scrollbar -mx-1 flex gap-1.5 overflow-x-auto px-1 pb-0.5 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0 sm:pb-0" role="tablist">
         {TABS.filter((entry) => entry.id !== "tamper" || tamperShown).map((entry) => {
           const count =
             entry.id === "road" ? away.length : entry.id === "all" ? items.length : entry.id === "nogps" ? quietCount : entry.id === "tamper" ? openTamper.length : null;
@@ -265,7 +274,7 @@ export default function FleetSections({
                 role="tab"
                 aria-selected={on}
                 onClick={() => chooseTab(entry.id)}
-                className={`flex min-h-0 items-center gap-2 rounded border px-4 py-2.5 text-sm font-black transition ${
+                className={`flex min-h-0 shrink-0 items-center gap-2 whitespace-nowrap rounded border px-3 py-2.5 text-sm font-black transition sm:px-4 ${
                   on
                     ? alarm
                       ? "border-red-600 bg-red-600 text-white"
@@ -294,7 +303,7 @@ export default function FleetSections({
               role="tab"
               aria-selected={on}
               onClick={() => chooseTab(entry.id)}
-              className={`flex min-h-0 items-center gap-2 rounded border px-4 py-2.5 text-sm font-black transition ${
+              className={`flex min-h-0 shrink-0 items-center gap-2 whitespace-nowrap rounded border px-3 py-2.5 text-sm font-black transition sm:px-4 ${
                 on
                   ? darkMode
                     ? "border-white bg-white text-steel-900"
@@ -313,13 +322,13 @@ export default function FleetSections({
 
       <div className="grid gap-2 md:grid-cols-2">
       {/* Find any truck or trailer; picking one shows it on the map. */}
-      <div className={`relative rounded border p-3 ${darkMode ? "border-white/10 bg-white/[0.04]" : "border-steel-100 bg-white"}`}>
+      <div className={`relative rounded border p-2 sm:p-3 ${darkMode ? "border-white/10 bg-white/[0.04]" : "border-steel-100 bg-white"}`}>
         <label className={`flex items-center gap-2 rounded border-2 px-3 py-2.5 ${darkMode ? "border-white/30" : "border-steel-900"}`}>
           <Truck size={18} className={muted} />
           <input
             value={unitQuery}
             onChange={(event) => setUnitQuery(event.target.value)}
-            placeholder="Find any truck or trailer — unit #, name or street"
+            placeholder={narrow ? "Find a truck or trailer" : "Find any truck or trailer — unit #, name or street"}
             className="w-full bg-transparent font-bold outline-none"
             style={{ fontSize: 16 }}
           />
@@ -357,13 +366,13 @@ export default function FleetSections({
       </div>
 
       {/* Search any Samsara geofence; picking one zooms the map and pins it. */}
-      <div className={`relative rounded border p-3 ${darkMode ? "border-white/10 bg-white/[0.04]" : "border-steel-100 bg-white"}`}>
+      <div className={`relative rounded border p-2 sm:p-3 ${darkMode ? "border-white/10 bg-white/[0.04]" : "border-steel-100 bg-white"}`}>
         <label className={`flex items-center gap-2 rounded border-2 px-3 py-2.5 ${darkMode ? "border-white/30" : "border-steel-900"}`}>
           <Search size={18} className={muted} />
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder={`Search any geofence — all ${places.length} from Samsara`}
+            placeholder={narrow ? `Search ${places.length} geofences` : `Search any geofence — all ${places.length} from Samsara`}
             className="w-full bg-transparent font-bold outline-none"
             style={{ fontSize: 16 }}
           />
@@ -546,7 +555,7 @@ function Section({
       )
     : sorted;
 
-  const box = "flex h-12 min-w-[110px] items-center justify-center rounded px-3 text-base font-black";
+  const box = "flex h-10 items-center justify-center rounded px-3 text-sm font-black sm:h-12 sm:min-w-[110px] sm:text-base";
   const light = darkMode ? "bg-workshop-700/50 text-white" : "bg-safety-400/70 text-steel-900";
   const orange = accent === "orange";
   const strongBox = orange ? "bg-[#c2410c] text-white" : "bg-workshop-500 text-white";
@@ -556,11 +565,11 @@ function Section({
     <section className="mt-6">
       <div className={`flex items-end justify-between gap-3 border-b-2 pb-2 ${orange ? "border-[#c2410c]" : "border-workshop-500"}`}>
         {onZoom ? (
-          <button type="button" onClick={onZoom} className="min-h-0 text-left text-2xl font-black uppercase hover:underline" title="Show on the map">
+          <button type="button" onClick={onZoom} className="min-h-0 text-left text-xl font-black uppercase hover:underline sm:text-2xl" title="Show on the map">
             {title}
           </button>
         ) : (
-          <h3 className="text-2xl font-black uppercase">{title}</h3>
+          <h3 className="text-xl font-black uppercase sm:text-2xl">{title}</h3>
         )}
         <span className={`shrink-0 text-base font-black ${muted}`}>
           {plural(trucks.length, "truck")} · {plural(trailers.length, "trailer")}
@@ -568,8 +577,8 @@ function Section({
       </div>
       <div className={`mt-3 rounded border p-3 ${darkMode ? "border-white/10 bg-white/[0.03]" : "border-steel-100 bg-steel-50"}`}>
         <div className="flex flex-wrap items-center gap-2">
-          <div className="mr-auto min-w-0">
-            <p className="truncate text-lg font-black">{title}</p>
+          <div className="w-full min-w-0 sm:mr-auto sm:w-auto">
+            <p className="hidden truncate text-lg font-black sm:block">{title}</p>
             <p className={`truncate text-sm font-bold ${muted}`}>{subtitle}</p>
           </div>
           {boxes ? (
@@ -602,7 +611,7 @@ function Section({
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder={`Search ${title} — unit #, name, size…`}
+            placeholder="Search here — unit #, name, size…"
             className="w-full bg-transparent text-sm font-bold outline-none"
             style={{ fontSize: 14 }}
           />
@@ -618,7 +627,27 @@ function Section({
           )}
         </label>
 
-        <div className="mt-2 overflow-x-auto">
+        <PhoneCards
+          darkMode={darkMode}
+          empty={units.length === 0 ? "Nothing here right now." : `Nothing matches “${query.trim()}”.`}
+          cards={shown.map((item) => {
+            const moving = (item.speedMph ?? 0) > MOVING_MPH;
+            return {
+              key: item.id,
+              item,
+              label: unitLabel(item),
+              name: item.name,
+              status: moving ? `${Math.round(item.speedMph ?? 0)} mph` : "Parked",
+              statusTone: moving ? "good" : "muted",
+              meta: [item.kind === "asset" ? "Other" : item.kind, item.size, whereOf ? whereOf(item) : "", `GPS ${ago(item.time)}`].filter(Boolean).join(" · "),
+              actions: [
+                { label: "Map", icon: "map", onClick: () => onFocus(item) },
+                { label: "ETA", icon: "eta", onClick: () => onEta(item), primary: true }
+              ]
+            };
+          })}
+        />
+        <div className="mt-2 hidden overflow-x-auto sm:block">
           <table className={`w-full border-collapse text-sm ${whereOf ? "min-w-[900px]" : "min-w-[720px]"}`}>
             <thead>
               <tr className="bg-steel-900 text-white">
@@ -642,7 +671,7 @@ function Section({
                         type="button"
                         onClick={() => onFocus(item)}
                         title="Show on the map"
-                        className="min-h-0 rounded px-2 py-0.5 text-xs font-black text-white"
+                        className="min-h-0 whitespace-nowrap rounded px-2 py-0.5 text-xs font-black text-white"
                         style={{ background: item.kind === "truck" ? "#2a6b40" : item.kind === "trailer" ? "#c2410c" : "#6c7a86" }}
                       >
                         {unitLabel(item)}
@@ -693,7 +722,7 @@ function Section({
 function UnitTag({ item, label }: { item: FleetItem; label: string }) {
   return (
     <span
-      className="shrink-0 rounded px-2 py-0.5 text-xs font-black text-white"
+      className="shrink-0 whitespace-nowrap rounded px-2 py-0.5 text-xs font-black text-white"
       style={{ background: item.kind === "truck" ? "#2a6b40" : item.kind === "trailer" ? "#c2410c" : "#6c7a86" }}
     >
       {label}
@@ -730,11 +759,13 @@ function NoGpsSection({
 }) {
   const muted = darkMode ? "text-steel-100" : "text-steel-500";
   const line = darkMode ? "border-white/10" : "border-steel-100";
-  type Row = { id: string; name: string; kind: string; label: string; item: FleetItem | null };
+  type Row = { id: string; name: string; kind: string; label: string; item: FleetItem | null; tracker?: SilentUnit["tracker"] };
+  // No location on record at all (see SilentUnit): say why, not a guess at days.
+  const neverLabel = (tracker?: SilentUnit["tracker"]) => (tracker === "none" ? "No tracker installed" : "Never reported");
   const asLabel = (name: string) => unitLabel({ name } as FleetItem);
   const all: Row[] = [
     ...quiet.map((item) => ({ id: item.id, name: item.name, kind: item.kind, label: unitLabel(item), item })),
-    ...silent.map((unit) => ({ id: unit.id, name: unit.name, kind: unit.kind, label: asLabel(unit.name), item: null }))
+    ...silent.map((unit) => ({ id: unit.id, name: unit.name, kind: unit.kind, label: asLabel(unit.name), item: null, tracker: unit.tracker }))
   ];
   const active = all.filter((row) => !isMuted(row.id));
   const mutedRows = all.filter((row) => isMuted(row.id));
@@ -752,13 +783,13 @@ function NoGpsSection({
     const time = new Date(iso);
     return Number.isNaN(time.getTime()) ? "—" : time.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
   };
-  const box = "flex h-12 min-w-[110px] items-center justify-center rounded px-3 text-base font-black";
+  const box = "flex h-10 items-center justify-center rounded px-3 text-sm font-black sm:h-12 sm:min-w-[110px] sm:text-base";
   const soft = darkMode ? "bg-red-500/20 text-white" : "bg-red-100 text-steel-900";
 
   return (
     <section className="mt-6">
       <div className="flex items-end justify-between gap-3 border-b-2 border-red-600 pb-2">
-        <h3 className="text-2xl font-black uppercase">No GPS in 24 hours</h3>
+        <h3 className="text-xl font-black uppercase sm:text-2xl">No GPS in 24 hours</h3>
         <span className={`shrink-0 text-base font-black ${muted}`}>
           {plural(active.length, "unit")}
           {mutedRows.length ? ` · ${mutedRows.length} muted` : ""}
@@ -766,14 +797,31 @@ function NoGpsSection({
       </div>
       <div className={`mt-3 rounded border p-3 ${darkMode ? "border-white/10 bg-white/[0.03]" : "border-steel-100 bg-steel-50"}`}>
         <div className="flex flex-wrap items-center gap-2">
-          <p className={`mr-auto text-sm font-bold ${muted}`}>The tracker may be unplugged, out of battery or out of signal.</p>
+          <p className={`w-full text-sm font-bold sm:mr-auto sm:w-auto ${muted}`}>The tracker may be unplugged, out of battery or out of signal.</p>
           <span className={`${box} ${soft}`}>{plural(trailers, "trailer")}</span>
           <span className={`${box} ${soft}`}>{plural(trucks, "truck")}</span>
           {other > 0 && <span className={`${box} ${soft}`}>{other} other</span>}
           <span className={`${box} bg-red-600 text-white`}>{active.length} total</span>
         </div>
 
-        <div className="mt-3 overflow-x-auto">
+        <PhoneCards
+          darkMode={darkMode}
+          empty="Every truck and trailer has sent GPS in the last 24 hours."
+          cards={active.map((row) => ({
+            key: row.id,
+            item: { kind: row.kind } as FleetItem,
+            label: row.label,
+            name: row.name,
+            status: row.item ? since(row.item.time) : neverLabel(row.tracker),
+            statusTone: "bad",
+            meta: [row.kind === "asset" ? "Other" : row.kind, row.item ? `Last seen: ${whereOf(row.item)}` : "No location on record"].join(" · "),
+            actions: [
+              ...(row.item ? [{ label: "Last spot", icon: "map" as const, onClick: () => row.item && onFocus(row.item) }] : []),
+              { label: "Mute 7 days", icon: "mute" as const, onClick: () => onMute(row.id) }
+            ]
+          }))}
+        />
+        <div className="mt-3 hidden overflow-x-auto sm:block">
           <table className="w-full min-w-[960px] border-collapse text-sm">
             <thead>
               <tr className="bg-steel-900 text-white">
@@ -792,7 +840,7 @@ function NoGpsSection({
                 <tr key={row.id} className={`border-t ${line} ${index % 2 ? (darkMode ? "bg-white/[0.03]" : "bg-steel-50") : darkMode ? "" : "bg-white"}`}>
                   <td className="px-3 py-2">
                     <span
-                      className="rounded px-2 py-0.5 text-xs font-black text-white"
+                      className="whitespace-nowrap rounded px-2 py-0.5 text-xs font-black text-white"
                       style={{ background: row.kind === "truck" ? "#2a6b40" : row.kind === "trailer" ? "#c2410c" : "#6c7a86" }}
                     >
                       {row.label}
@@ -802,10 +850,10 @@ function NoGpsSection({
                     {row.name}
                   </td>
                   <td className="px-3 py-2 text-center font-bold capitalize">{row.kind === "asset" ? "Other" : row.kind}</td>
-                  <td className="whitespace-nowrap px-3 py-2 text-center font-black text-red-600">{row.item ? since(row.item.time) : "Over 3 days"}</td>
+                  <td className="whitespace-nowrap px-3 py-2 text-center font-black text-red-600">{row.item ? since(row.item.time) : neverLabel(row.tracker)}</td>
                   <td className={`whitespace-nowrap px-3 py-2 text-center font-bold ${muted}`}>{row.item ? stamp(row.item.time) : "—"}</td>
                   <td className="max-w-[240px] truncate px-3 py-2 font-bold" title={row.item ? whereOf(row.item) : ""}>
-                    {row.item ? whereOf(row.item) : <span className={muted}>Not known</span>}
+                    {row.item ? whereOf(row.item) : <span className={muted}>No location on record</span>}
                   </td>
                   <td className="px-3 py-2 text-center">
                     {row.item ? (
@@ -899,7 +947,7 @@ function TamperSection({
   return (
     <section className="mt-6">
       <div className="flex items-end justify-between gap-3 border-b-2 border-red-700 pb-2">
-        <h3 className="flex items-center gap-2 text-2xl font-black uppercase">
+        <h3 className="flex items-center gap-2 text-xl font-black uppercase sm:text-2xl">
           <AlertTriangle size={22} className="text-red-600" /> Tamper alerts
         </h3>
         <span className={`shrink-0 text-base font-black ${muted}`}>
@@ -912,7 +960,28 @@ function TamperSection({
           reports 0 mph first — so this usually means the tracker was unplugged, cut or covered, or it&apos;s in a long dead zone. Check the
           unit, then mark it checked.
         </p>
-        <div className="mt-3 overflow-x-auto">
+        <PhoneCards
+          darkMode={darkMode}
+          empty="No tamper alerts — no tracker has gone silent while its unit was moving."
+          cards={events.map((item) => {
+            const done = isChecked(item);
+            return {
+              key: item.id,
+              item,
+              label: unitLabel(item),
+              name: item.name,
+              status: `${Math.round(item.speedMph ?? 0)} mph → dark ${ago(item.time)}`,
+              statusTone: done ? "muted" : "bad",
+              meta: [item.kind === "asset" ? "Other" : item.kind, `Last seen: ${whereOf(item)}`, stamp(item.time)].join(" · "),
+              faded: done,
+              actions: [
+                { label: "Last spot", icon: "map" as const, onClick: () => onFocus(item) },
+                done ? { label: "Checked", icon: "check" as const, disabled: true } : { label: "Mark checked", icon: "check" as const, onClick: () => onCheck(item), primary: true }
+              ]
+            };
+          })}
+        />
+        <div className="mt-3 hidden overflow-x-auto sm:block">
           <table className="w-full min-w-[980px] border-collapse text-sm">
             <thead>
               <tr className="bg-steel-900 text-white">
@@ -938,7 +1007,7 @@ function TamperSection({
                   >
                     <td className="px-3 py-2">
                       <span
-                        className="rounded px-2 py-0.5 text-xs font-black text-white"
+                        className="whitespace-nowrap rounded px-2 py-0.5 text-xs font-black text-white"
                         style={{ background: item.kind === "truck" ? "#2a6b40" : item.kind === "trailer" ? "#c2410c" : "#6c7a86" }}
                       >
                         {unitLabel(item)}
@@ -987,5 +1056,70 @@ function TamperSection({
         </div>
       </div>
     </section>
+  );
+}
+
+// Phones: each unit as a card (tag + status, full name, details, buttons)
+// instead of a wide table, so nothing needs sideways scrolling. Hidden from
+// the sm breakpoint up, where the tables show.
+type PhoneCard = {
+  key: string;
+  item: FleetItem;
+  label: string;
+  name: string;
+  status: string;
+  statusTone: "good" | "bad" | "muted";
+  meta: string;
+  faded?: boolean;
+  actions: { label: string; icon: "map" | "eta" | "mute" | "check"; onClick?: () => void; primary?: boolean; disabled?: boolean }[];
+};
+
+function PhoneCards({ cards, empty, darkMode }: { cards: PhoneCard[]; empty: string; darkMode: boolean }) {
+  const muted = darkMode ? "text-steel-100" : "text-steel-500";
+  const line = darkMode ? "border-white/10" : "border-steel-100";
+  const icons = { map: MapPin, eta: Route, mute: BellOff, check: Check };
+  if (cards.length === 0) return <p className={`mt-2 py-4 text-center text-sm font-bold sm:hidden ${muted}`}>{empty}</p>;
+  return (
+    <ul className="mt-2 grid gap-2 sm:hidden">
+      {cards.map((card) => (
+        <li key={card.key} className={`rounded border p-3 ${line} ${darkMode ? "bg-white/[0.04]" : "bg-white"} ${card.faded ? "opacity-55" : ""}`}>
+          <div className="flex items-center justify-between gap-2">
+            <span
+              className="shrink-0 whitespace-nowrap rounded px-2 py-0.5 text-xs font-black text-white"
+              style={{ background: card.item.kind === "truck" ? "#2a6b40" : card.item.kind === "trailer" ? "#c2410c" : "#6c7a86" }}
+            >
+              {card.label}
+            </span>
+            <span
+              className={`min-w-0 truncate text-right text-sm font-black ${
+                card.statusTone === "good" ? "text-workshop-500" : card.statusTone === "bad" ? "text-red-600" : muted
+              }`}
+            >
+              {card.status}
+            </span>
+          </div>
+          <p className="mt-1.5 truncate text-sm font-black">{card.name}</p>
+          <p className={`mt-0.5 text-xs font-bold ${muted}`}>{card.meta.charAt(0).toUpperCase() + card.meta.slice(1)}</p>
+          <div className="mt-2.5 flex gap-2">
+            {card.actions.map((action) => {
+              const Icon = icons[action.icon];
+              return (
+                <button
+                  key={action.label}
+                  type="button"
+                  onClick={action.onClick}
+                  disabled={action.disabled}
+                  className={`flex min-h-[40px] flex-1 items-center justify-center gap-1.5 rounded px-3 text-sm font-black disabled:opacity-60 ${
+                    action.primary ? "bg-workshop-500 text-white active:bg-workshop-700" : `border ${line} ${darkMode ? "active:bg-white/10" : "bg-white active:bg-steel-50"}`
+                  }`}
+                >
+                  <Icon size={15} /> {action.label}
+                </button>
+              );
+            })}
+          </div>
+        </li>
+      ))}
+    </ul>
   );
 }

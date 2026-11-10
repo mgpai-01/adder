@@ -110,7 +110,7 @@ export default function FleetMap({ darkMode, layout = "panel" }: { darkMode: boo
   // short hint shows. In full screen there's no page to scroll, so the wheel
   // zooms as usual.
   const mapFrame = useRef<HTMLDivElement | null>(null);
-  const [scrollHint, setScrollHint] = useState(false);
+  const [scrollHint, setScrollHint] = useState<"" | "wheel" | "touch">("");
   const [isMac, setIsMac] = useState(true);
   useEffect(() => {
     setIsMac(/Mac|iPhone|iPad/i.test(navigator.userAgent));
@@ -125,17 +125,52 @@ export default function FleetMap({ darkMode, layout = "panel" }: { darkMode: boo
       if (!(event.target instanceof Node) || !mapNode.current?.contains(event.target)) return;
       if (event.ctrlKey || event.metaKey) return;
       event.stopPropagation();
-      setScrollHint(true);
+      setScrollHint("wheel");
       window.clearTimeout(timer);
-      timer = window.setTimeout(() => setScrollHint(false), 1200);
+      timer = window.setTimeout(() => setScrollHint(""), 1200);
     };
     frame.addEventListener("wheel", onWheel, { capture: true });
     return () => {
       frame.removeEventListener("wheel", onWheel, { capture: true });
       window.clearTimeout(timer);
-      setScrollHint(false);
+      setScrollHint("");
     };
   }, [expanded]);
+
+  // Phones and tablets: one finger scrolls the page, two fingers move and
+  // zoom the map (Leaflet's pinch also pans). With one-finger dragging off,
+  // the browser scrolls the page; a short hint says how to move the map.
+  // In full screen there's no page to scroll, so one finger moves the map.
+  useEffect(() => {
+    const map = mapRef.current;
+    const node = mapNode.current;
+    if (!map || !node || !window.matchMedia("(pointer: coarse)").matches) return;
+    if (expanded) {
+      map.dragging.enable();
+      return;
+    }
+    map.dragging.disable();
+    let timer = 0;
+    let single = false;
+    const onStart = (event: TouchEvent) => {
+      single = event.touches.length === 1;
+    };
+    const onMove = (event: TouchEvent) => {
+      if (!single || event.touches.length !== 1) return;
+      single = false;
+      setScrollHint("touch");
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => setScrollHint(""), 1400);
+    };
+    node.addEventListener("touchstart", onStart, { passive: true });
+    node.addEventListener("touchmove", onMove, { passive: true });
+    return () => {
+      node.removeEventListener("touchstart", onStart);
+      node.removeEventListener("touchmove", onMove);
+      window.clearTimeout(timer);
+      setScrollHint("");
+    };
+  }, [expanded, mapReady]);
   const mapRef = useRef<LeafletMap | null>(null);
   const leafletRef = useRef<typeof import("leaflet") | null>(null);
   const markersRef = useRef<Map<string, LeafletMarker>>(new Map());
@@ -613,7 +648,11 @@ export default function FleetMap({ darkMode, layout = "panel" }: { darkMode: boo
     group.addTo(map);
     routeLayerRef.current = group;
     // Leave room on the right for the ETA card.
-    map.fitBounds(line.getBounds(), { paddingTopLeft: [40, 40], paddingBottomRight: [330, 40], maxZoom: 14 });
+    // Leave room for the ETA card: on the right on wide screens, along the
+    // bottom (55% of the map) on phones.
+    const phone = window.innerWidth < 640;
+    const sheet = Math.round((mapNode.current?.clientHeight ?? 400) * 0.55) + 16;
+    map.fitBounds(line.getBounds(), { paddingTopLeft: [30, 30], paddingBottomRight: phone ? [30, sheet] : [330, 40], maxZoom: 14 });
   }, [eta, routeYardId, selectedId, mapReady]);
 
   // Drive time to a typed address, added under the yards in the same card.
@@ -773,6 +812,7 @@ export default function FleetMap({ darkMode, layout = "panel" }: { darkMode: boo
             type="button"
             onClick={toggleTraffic}
             aria-pressed={trafficOn}
+            aria-label="Traffic"
             className={`flex items-center gap-1.5 rounded border px-3 py-2 text-sm font-black transition ${
               trafficOn
                 ? "border-red-600 bg-red-600 text-white hover:bg-red-700"
@@ -782,7 +822,7 @@ export default function FleetMap({ darkMode, layout = "panel" }: { darkMode: boo
             }`}
           >
             <TrafficCone size={16} />
-            Traffic
+            <span className="hidden sm:inline">Traffic</span>
           </button>
           <button
             type="button"
@@ -798,15 +838,17 @@ export default function FleetMap({ darkMode, layout = "panel" }: { darkMode: boo
             }`}
           >
             <MapPin size={16} />
-            Places{places.length ? ` ${places.length}` : ""}
+            <span className="hidden sm:inline">Places</span>
+            {places.length ? <span>{places.length}</span> : null}
           </button>
           <button
             type="button"
             onClick={() => setExpanded((value) => !value)}
+            aria-label={expanded ? "Exit full screen" : "Expand map to full screen"}
             className="flex items-center gap-1.5 rounded bg-steel-900 px-3 py-2 text-sm font-black text-white hover:bg-steel-800"
           >
             {expanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
-            {expanded ? "Exit full screen" : "Expand"}
+            <span className={expanded ? "" : "hidden sm:inline"}>{expanded ? "Exit full screen" : "Expand"}</span>
           </button>
         </div>
       </div>
@@ -856,13 +898,13 @@ export default function FleetMap({ darkMode, layout = "panel" }: { darkMode: boo
       <div className={`grid min-h-0 gap-3 ${expanded ? "flex-1 lg:grid-cols-[1fr_320px]" : isPage ? "" : "lg:grid-cols-[1fr_300px]"}`}>
         <div
           ref={mapFrame}
-          className={`relative isolate overflow-hidden rounded border ${darkMode ? "border-white/10" : "border-steel-100"} ${expanded ? "min-h-[35vh]" : isPage ? "h-[62vh] min-h-[420px]" : "h-[340px]"}`}
+          className={`relative isolate overflow-hidden rounded border ${darkMode ? "border-white/10" : "border-steel-100"} ${expanded ? "min-h-[35vh]" : isPage ? "h-[55vh] min-h-[360px] sm:h-[62vh] sm:min-h-[420px]" : "h-[340px]"}`}
         >
           <div ref={mapNode} className="absolute inset-0 z-0" />
           {scrollHint && (
             <div className="pointer-events-none absolute inset-0 z-[700] grid place-items-center bg-steel-900/45">
               <p className="rounded bg-steel-900/90 px-4 py-2.5 text-sm font-black text-white shadow-lg">
-                Pinch, or hold {isMac ? "⌘" : "Ctrl"} while scrolling, to zoom the map
+                {scrollHint === "touch" ? "Use two fingers to move the map" : <>Pinch, or hold {isMac ? "⌘" : "Ctrl"} while scrolling, to zoom the map</>}
               </p>
             </div>
           )}
@@ -875,7 +917,7 @@ export default function FleetMap({ darkMode, layout = "panel" }: { darkMode: boo
           </button>
           {selected && (
             <div
-              className={`absolute right-3 top-3 z-[600] max-h-[calc(100%-1.5rem)] w-[min(300px,calc(100%-4.5rem))] overflow-y-auto overflow-x-hidden rounded border p-3 shadow-lg ${
+              className={`absolute inset-x-2 bottom-2 z-[600] max-h-[55%] overflow-y-auto overflow-x-hidden overscroll-contain rounded border p-3 shadow-lg sm:inset-x-auto sm:bottom-auto sm:right-3 sm:top-3 sm:max-h-[calc(100%-1.5rem)] sm:w-[min(300px,calc(100%-4.5rem))] ${
                 darkMode ? "border-white/15 bg-steel-900/95 text-white" : "border-steel-100 bg-white/95 text-steel-900"
               }`}
             >
@@ -924,7 +966,9 @@ export default function FleetMap({ darkMode, layout = "panel" }: { darkMode: boo
                 </div>
               ) : (
                 <div className="mt-2 grid grid-cols-[minmax(0,1fr)] gap-1">
-                  <p className={`text-[11px] font-black uppercase tracking-wide ${muted}`}>Drive time · live traffic · tap a yard for its route</p>
+                  <p className={`text-[11px] font-black uppercase tracking-wide ${muted}`}>
+                    Drive time · live traffic<span className="hidden sm:inline"> · tap a yard for its route</span>
+                  </p>
                   {addressOpen ? (
                     <form
                       className="grid gap-1.5"
