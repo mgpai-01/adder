@@ -120,6 +120,9 @@ export default function FleetMap({ darkMode, layout = "panel" }: { darkMode: boo
     if (!frame || expanded) return;
     let timer = 0;
     const onWheel = (event: WheelEvent) => {
+      // Only the map itself: the ETA card and other boxes on top of it
+      // scroll on their own, with no hint.
+      if (!(event.target instanceof Node) || !mapNode.current?.contains(event.target)) return;
       if (event.ctrlKey || event.metaKey) return;
       event.stopPropagation();
       setScrollHint(true);
