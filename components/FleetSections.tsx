@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, Bell, BellOff, MapPin, Route, Search, Truck, X } from "lucide-react";
+import { AlertTriangle, Bell, BellOff, Check, MapPin, Route, Search, Truck, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import YardBoard from "@/components/YardBoard";
 import { insideGeofence, type Geofence } from "@/lib/geo";
@@ -18,14 +18,25 @@ import type { YardArea } from "@/lib/yards";
 // Yard board (every yard side by side), what's on the road / not at a yard,
 // or every unit. The truck/trailer search finds any unit whichever tab is open.
 
-type Tab = "yards" | "board" | "road" | "all" | "nogps";
+type Tab = "yards" | "board" | "road" | "all" | "nogps" | "tamper";
 const TABS: { id: Tab; label: string }[] = [
   { id: "yards", label: "Yards & pinned places" },
   { id: "board", label: "Yard board" },
   { id: "road", label: "On the road" },
   { id: "all", label: "All units" },
-  { id: "nogps", label: "No GPS 24h+" }
+  { id: "nogps", label: "No GPS 24h+" },
+  { id: "tamper", label: "Tamper" }
 ];
+
+// "Tamper" (critical): the tracker's last ping had the unit moving, and then
+// it went silent. A normal stop reports 0 mph before the tracker sleeps, so
+// going dark mid-drive points to it being unplugged, cut, covered or blocked
+// (or a long dead zone). Trailer trackers report less often, so they get a
+// longer grace period. "Mark checked" clears one event; if the same unit goes
+// dark while moving again later, it alerts again.
+const DARK_TRUCK_MS = 30 * 60 * 1000;
+const DARK_OTHER_MS = 2 * 60 * 60 * 1000;
+const CHECKED_KEY = "mgp-fleet-tamper-checked-v1";
 
 // "No GPS": a unit whose last ping is older than this. Muted units (one in
 // the shop, say) are left out until the mute ends — saved in this browser.
@@ -135,6 +146,33 @@ export default function FleetSections({
     .sort((a, b) => lastPing(a) - lastPing(b));
   const quietCount = quiet.filter((item) => !isMuted(item.id)).length + silent.filter((unit) => !isMuted(unit.id)).length;
 
+  const [checked, setChecked] = useState<string[]>([]);
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(window.localStorage.getItem(CHECKED_KEY) ?? "[]");
+      if (Array.isArray(saved)) setChecked(saved.filter((entry) => typeof entry === "string").slice(-500));
+    } catch {
+      // storage blocked — nothing checked yet
+    }
+  }, []);
+  const eventKey = (item: FleetItem) => `${item.id}@${item.time}`;
+  function markChecked(item: FleetItem) {
+    const next = [...checked.filter((key) => key !== eventKey(item)), eventKey(item)].slice(-500);
+    setChecked(next);
+    try {
+      window.localStorage.setItem(CHECKED_KEY, JSON.stringify(next));
+    } catch {
+      // storage blocked — lasts for this visit
+    }
+  }
+  const tampered = items
+    .filter((item) => {
+      const age = Date.now() - lastPing(item);
+      return (item.speedMph ?? 0) > MOVING_MPH && Number.isFinite(age) && age > (item.kind === "truck" ? DARK_TRUCK_MS : DARK_OTHER_MS);
+    })
+    .sort((a, b) => lastPing(b) - lastPing(a));
+  const openTamper = tampered.filter((item) => !checked.includes(eventKey(item)));
+
   const unitsIn = (place: FleetPlace) => items.filter((item) => insideGeofence(place, item.lat, item.lng, 150));
   const yardPlaceIds = new Set(yards.map((yard) => yard.placeId).filter(Boolean));
 
@@ -180,13 +218,40 @@ export default function FleetSections({
 
   return (
     <div className="grid gap-2">
+      {/* Critical: a tracker went dark while its unit was moving. */}
+      {openTamper.length > 0 && (
+        <div className="flex flex-wrap items-center gap-3 rounded border-2 border-red-700 bg-red-600 px-4 py-3 text-white shadow-lg" role="alert">
+          <AlertTriangle size={26} className="shrink-0 animate-pulse" />
+          <div className="min-w-0 flex-1">
+            <p className="text-base font-black uppercase tracking-wide">
+              Critical · {openTamper.length === 1 ? "1 tracker" : `${openTamper.length} trackers`} stopped reporting while moving
+            </p>
+            <p className="truncate text-sm font-bold text-white/90">
+              {openTamper
+                .slice(0, 4)
+                .map((item) => `${unitLabel(item)} (${Math.round(item.speedMph ?? 0)} mph, ${ago(item.time)})`)
+                .join(" · ")}
+              {openTamper.length > 4 ? ` · +${openTamper.length - 4} more` : ""} — may be unplugged, cut or blocked
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => chooseTab("tamper")}
+            className="min-h-0 shrink-0 rounded bg-white px-4 py-2 text-sm font-black text-red-700 hover:bg-red-50"
+          >
+            Review →
+          </button>
+        </div>
+      )}
+
       {/* Tabs: what shows under the search bars. */}
       <div className="flex flex-wrap gap-1.5" role="tablist">
         {TABS.map((entry) => {
-          const count = entry.id === "road" ? away.length : entry.id === "all" ? items.length : entry.id === "nogps" ? quietCount : null;
+          const count =
+            entry.id === "road" ? away.length : entry.id === "all" ? items.length : entry.id === "nogps" ? quietCount : entry.id === "tamper" ? openTamper.length : null;
           const on = tab === entry.id;
-          if (entry.id === "nogps") {
-            const alarm = quietCount > 0;
+          if (entry.id === "nogps" || entry.id === "tamper") {
+            const alarm = (count ?? 0) > 0;
             return (
               <button
                 key={entry.id}
@@ -210,7 +275,7 @@ export default function FleetSections({
                         : "border-steel-100 bg-white hover:bg-steel-50"
                 }`}
               >
-                {alarm && <AlertTriangle size={15} />}
+                {alarm && <AlertTriangle size={15} className={entry.id === "tamper" ? "animate-pulse" : ""} />}
                 {entry.label}
                 <span className={`rounded-full px-2 text-[11px] ${on && alarm ? "bg-white text-red-700" : alarm ? "bg-red-600 text-white" : "bg-safety-400 text-steel-900"}`}>{count}</span>
               </button>
@@ -387,6 +452,10 @@ export default function FleetSections({
           }}
           {...{ whereOf, unitLabel, darkMode, onFocus }}
         />
+      )}
+
+      {tab === "tamper" && (
+        <TamperSection events={tampered} isChecked={(item) => checked.includes(eventKey(item))} onCheck={markChecked} {...{ whereOf, unitLabel, darkMode, onFocus }} />
       )}
 
       {tab === "yards" && yards.map((yard) => (
@@ -727,8 +796,8 @@ function NoGpsSection({
                     {row.name}
                   </td>
                   <td className="px-3 py-2 text-center font-bold capitalize">{row.kind === "asset" ? "Other" : row.kind}</td>
-                  <td className="px-3 py-2 text-center font-black text-red-600">{row.item ? since(row.item.time) : "Over 3 days"}</td>
-                  <td className={`px-3 py-2 text-center font-bold ${muted}`}>{row.item ? stamp(row.item.time) : "—"}</td>
+                  <td className="whitespace-nowrap px-3 py-2 text-center font-black text-red-600">{row.item ? since(row.item.time) : "Over 3 days"}</td>
+                  <td className={`whitespace-nowrap px-3 py-2 text-center font-bold ${muted}`}>{row.item ? stamp(row.item.time) : "—"}</td>
                   <td className="max-w-[240px] truncate px-3 py-2 font-bold" title={row.item ? whereOf(row.item) : ""}>
                     {row.item ? whereOf(row.item) : <span className={muted}>Not known</span>}
                   </td>
@@ -737,7 +806,7 @@ function NoGpsSection({
                       <button
                         type="button"
                         onClick={() => row.item && onFocus(row.item)}
-                        className={`mx-auto flex min-h-0 items-center gap-1 rounded border px-2.5 py-1.5 text-xs font-black ${line} ${darkMode ? "hover:bg-white/10" : "bg-white hover:bg-steel-50"}`}
+                        className={`mx-auto flex min-h-0 items-center gap-1 whitespace-nowrap rounded border px-2.5 py-1.5 text-xs font-black ${line} ${darkMode ? "hover:bg-white/10" : "bg-white hover:bg-steel-50"}`}
                       >
                         <MapPin size={12} /> Show last spot
                       </button>
@@ -750,7 +819,7 @@ function NoGpsSection({
                       type="button"
                       onClick={() => onMute(row.id)}
                       title="Stop alerting on this unit for 7 days"
-                      className={`mx-auto flex min-h-0 items-center gap-1 rounded border px-2.5 py-1.5 text-xs font-black ${line} ${darkMode ? "hover:bg-white/10" : "bg-white hover:bg-steel-50"}`}
+                      className={`mx-auto flex min-h-0 items-center gap-1 whitespace-nowrap rounded border px-2.5 py-1.5 text-xs font-black ${line} ${darkMode ? "hover:bg-white/10" : "bg-white hover:bg-steel-50"}`}
                     >
                       <BellOff size={12} /> Mute 7 days
                     </button>
@@ -786,6 +855,130 @@ function NoGpsSection({
             ))}
           </div>
         )}
+      </div>
+    </section>
+  );
+}
+
+// The "Tamper" tab: trackers that went silent while their unit was moving,
+// newest first. Checked events stay listed (greyed) so there's a record.
+function TamperSection({
+  events,
+  isChecked,
+  onCheck,
+  whereOf,
+  unitLabel,
+  darkMode,
+  onFocus
+}: {
+  events: FleetItem[];
+  isChecked: (item: FleetItem) => boolean;
+  onCheck: (item: FleetItem) => void;
+  whereOf: (item: FleetItem) => string;
+  unitLabel: (item: FleetItem) => string;
+  darkMode: boolean;
+  onFocus: (item: FleetItem) => void;
+}) {
+  const muted = darkMode ? "text-steel-100" : "text-steel-500";
+  const line = darkMode ? "border-white/10" : "border-steel-100";
+  const open = events.filter((item) => !isChecked(item));
+  const stamp = (iso: string) => {
+    const time = new Date(iso);
+    return Number.isNaN(time.getTime()) ? "—" : time.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  };
+  const small = `mx-auto flex min-h-0 items-center gap-1 whitespace-nowrap rounded border px-2.5 py-1.5 text-xs font-black ${line} ${
+    darkMode ? "hover:bg-white/10" : "bg-white hover:bg-steel-50"
+  }`;
+
+  return (
+    <section className="mt-6">
+      <div className="flex items-end justify-between gap-3 border-b-2 border-red-700 pb-2">
+        <h3 className="flex items-center gap-2 text-2xl font-black uppercase">
+          <AlertTriangle size={22} className="text-red-600" /> Tamper alerts
+        </h3>
+        <span className={`shrink-0 text-base font-black ${muted}`}>
+          {open.length} open{events.length > open.length ? ` · ${events.length - open.length} checked` : ""}
+        </span>
+      </div>
+      <div className={`mt-3 rounded border p-3 ${darkMode ? "border-white/10 bg-white/[0.03]" : "border-steel-100 bg-steel-50"}`}>
+        <p className={`text-sm font-bold ${muted}`}>
+          The tracker&apos;s last report had the unit moving, then it went silent (trucks after 30 min, trailers after 2 hr). A normal stop
+          reports 0 mph first — so this usually means the tracker was unplugged, cut or covered, or it&apos;s in a long dead zone. Check the
+          unit, then mark it checked.
+        </p>
+        <div className="mt-3 overflow-x-auto">
+          <table className="w-full min-w-[980px] border-collapse text-sm">
+            <thead>
+              <tr className="bg-steel-900 text-white">
+                <th className="px-3 py-2.5 text-left font-black">Unit</th>
+                <th className="px-3 py-2.5 text-left font-black">Full name</th>
+                <th className="px-3 py-2.5 text-center font-black">Type</th>
+                <th className="px-3 py-2.5 text-center font-black">Last speed</th>
+                <th className="px-3 py-2.5 text-center font-black">Went dark</th>
+                <th className="px-3 py-2.5 text-left font-black">Last known spot</th>
+                <th className="px-3 py-2.5 text-center font-black">Map</th>
+                <th className="px-3 py-2.5 text-center font-black">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {events.map((item, index) => {
+                const done = isChecked(item);
+                return (
+                  <tr
+                    key={item.id}
+                    className={`border-t ${line} ${done ? "opacity-55" : ""} ${
+                      !done ? (darkMode ? "bg-red-500/10" : "bg-red-50") : index % 2 ? (darkMode ? "bg-white/[0.03]" : "bg-steel-50") : darkMode ? "" : "bg-white"
+                    }`}
+                  >
+                    <td className="px-3 py-2">
+                      <span
+                        className="rounded px-2 py-0.5 text-xs font-black text-white"
+                        style={{ background: item.kind === "truck" ? "#2a6b40" : item.kind === "trailer" ? "#c2410c" : "#6c7a86" }}
+                      >
+                        {unitLabel(item)}
+                      </span>
+                    </td>
+                    <td className="max-w-[300px] truncate px-3 py-2 font-bold" title={item.name}>
+                      {item.name}
+                    </td>
+                    <td className="px-3 py-2 text-center font-bold capitalize">{item.kind === "asset" ? "Other" : item.kind}</td>
+                    <td className="whitespace-nowrap px-3 py-2 text-center font-black text-red-600">{Math.round(item.speedMph ?? 0)} mph</td>
+                    <td className="whitespace-nowrap px-3 py-2 text-center font-bold">
+                      <span className="font-black text-red-600">{ago(item.time)}</span>
+                      <span className={`block text-[11px] ${muted}`}>{stamp(item.time)}</span>
+                    </td>
+                    <td className="max-w-[240px] truncate px-3 py-2 font-bold" title={whereOf(item)}>
+                      {whereOf(item)}
+                    </td>
+                    <td className="px-3 py-2 text-center">
+                      <button type="button" onClick={() => onFocus(item)} className={small}>
+                        <MapPin size={12} /> Show last spot
+                      </button>
+                    </td>
+                    <td className="px-3 py-2 text-center">
+                      {done ? (
+                        <span className={`flex items-center justify-center gap-1 text-xs font-black ${muted}`}>
+                          <Check size={12} /> Checked
+                        </span>
+                      ) : (
+                        <button type="button" onClick={() => onCheck(item)} className={small}>
+                          <Check size={12} /> Mark checked
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+              {events.length === 0 && (
+                <tr>
+                  <td colSpan={8} className={`px-3 py-5 text-center text-sm font-bold ${muted}`}>
+                    No tamper alerts — no tracker has gone silent while its unit was moving.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
     </section>
   );
