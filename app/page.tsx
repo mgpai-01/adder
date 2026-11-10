@@ -1202,12 +1202,13 @@ export default function Home() {
     toastTimer.current = window.setTimeout(() => setToast(""), 2600);
   }
 
-  // Keep the active tab valid for the signed-in role.
+  // Keep the active tab valid for the signed-in role. Fleet isn't a role
+  // view — it's open to whoever the Samsara access check allows.
   useEffect(() => {
-    if (!allowedViews.includes(view)) {
+    if (view === "fleet" ? !fleetAllowed : !allowedViews.includes(view)) {
       setView(allowedViews[0]);
     }
-  }, [allowedViews, view]);
+  }, [allowedViews, view, fleetAllowed]);
 
   // One-time correction of the yard managers to the real people, applied once
   // per browser after the roster loads and saved to the cloud for everyone.
