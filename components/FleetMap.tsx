@@ -643,6 +643,17 @@ export default function FleetMap({ darkMode, layout = "panel" }: { darkMode: boo
     }
   }
 
+  // Takes the typed address back off the list (and off the map).
+  function removeAddressEta(id: string) {
+    if (lastAddressRef.current?.id === id) lastAddressRef.current = null;
+    setEta((current) => {
+      if (current?.id !== id || !current.etas) return current;
+      const etas = current.etas.filter((entry) => !entry.yardId.startsWith("address:"));
+      setRouteYardId((route) => (route.startsWith("address:") ? etas.find((entry) => !entry.error)?.yardId ?? "" : route));
+      return { ...current, etas };
+    });
+  }
+
   async function loadEta(item: FleetItem) {
     if (lastAddressRef.current?.id !== item.id) lastAddressRef.current = null;
     setAddressOpen(false);
@@ -854,7 +865,7 @@ export default function FleetMap({ darkMode, layout = "panel" }: { darkMode: boo
           </button>
           {selected && (
             <div
-              className={`absolute right-3 top-3 z-[600] max-h-[calc(100%-1.5rem)] w-[min(300px,calc(100%-4.5rem))] overflow-y-auto rounded border p-3 shadow-lg ${
+              className={`absolute right-3 top-3 z-[600] max-h-[calc(100%-1.5rem)] w-[min(300px,calc(100%-4.5rem))] overflow-y-auto overflow-x-hidden rounded border p-3 shadow-lg ${
                 darkMode ? "border-white/15 bg-steel-900/95 text-white" : "border-steel-100 bg-white/95 text-steel-900"
               }`}
             >
@@ -902,7 +913,7 @@ export default function FleetMap({ darkMode, layout = "panel" }: { darkMode: boo
                   </button>
                 </div>
               ) : (
-                <div className="mt-2.5 grid gap-1.5">
+                <div className="mt-2 grid grid-cols-[minmax(0,1fr)] gap-1">
                   <p className={`text-[11px] font-black uppercase tracking-wide ${muted}`}>Drive time · live traffic · tap a yard for its route</p>
                   {addressOpen ? (
                     <form
@@ -958,13 +969,13 @@ export default function FleetMap({ darkMode, layout = "panel" }: { darkMode: boo
                   {[...(eta.etas ?? [])]
                     .sort((a, b) => Number(b.yardId.startsWith("address:")) - Number(a.yardId.startsWith("address:")))
                     .map((row) => (
+                    <div key={row.yardId} className="relative min-w-0">
                     <button
                       type="button"
-                      key={row.yardId}
                       disabled={!row.path}
                       onClick={() => setRouteYardId(row.yardId)}
                       aria-pressed={row.yardId === routeYardId}
-                      className={`w-full rounded border-2 px-2.5 py-2 text-left transition ${
+                      className={`w-full rounded border-2 px-2.5 py-1 text-left leading-tight transition ${
                         row.yardId === routeYardId
                           ? darkMode
                             ? "border-blue-400 bg-white/10"
@@ -975,12 +986,12 @@ export default function FleetMap({ darkMode, layout = "panel" }: { darkMode: boo
                       }`}
                     >
                       {row.yardId.startsWith("address:") && (
-                        <p className="flex items-center gap-1 text-[10px] font-black uppercase tracking-wide text-blue-700">
+                        <p className="flex items-center gap-1 pr-6 text-[10px] font-black uppercase tracking-wide text-blue-700">
                           <MapPin size={11} /> Address
                         </p>
                       )}
-                      <div className="flex items-baseline justify-between gap-2">
-                        <span className="truncate text-sm font-black" title={row.name}>{row.name}</span>
+                      <div className="flex min-w-0 items-baseline justify-between gap-2">
+                        <span className="min-w-0 truncate text-sm font-black" title={row.name}>{row.name}</span>
                         {row.minutes !== undefined && <span className="shrink-0 text-sm font-black">{duration(row.minutes)}</span>}
                       </div>
                       {row.error ? (
@@ -996,6 +1007,20 @@ export default function FleetMap({ darkMode, layout = "panel" }: { darkMode: boo
                         </p>
                       )}
                     </button>
+                    {row.yardId.startsWith("address:") && (
+                      <button
+                        type="button"
+                        aria-label="Remove this address"
+                        title="Remove this address"
+                        onClick={() => removeAddressEta(selected.id)}
+                        className={`absolute right-1.5 top-1.5 flex min-h-0 items-center justify-center rounded-full p-1 ${
+                          darkMode ? "text-steel-100 hover:bg-white/15" : "text-steel-500 hover:bg-steel-100 hover:text-steel-900"
+                        }`}
+                      >
+                        <X size={14} />
+                      </button>
+                    )}
+                    </div>
                   ))}
                   <button type="button" onClick={() => void loadEta(selected)} className={`text-left text-xs font-black underline ${muted}`}>
                     Refresh
