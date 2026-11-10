@@ -606,6 +606,12 @@ export default function FleetMap({ darkMode, layout = "panel" }: { darkMode: boo
 
   // "ETA" in a Fleet-tab table: find the unit on the map and load its drive
   // times to every yard (the card and route appear on the map).
+  // From the lists under the map on the Fleet tab: find it and bring the map into view.
+  function showOnMap(item: FleetItem) {
+    focus(item);
+    mapNode.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+
   function etaFor(item: FleetItem) {
     focus(item);
     void loadEta(item);
@@ -935,7 +941,7 @@ export default function FleetMap({ darkMode, layout = "panel" }: { darkMode: boo
             places={places}
             unitLabel={(item) => pinLabel(item.name)}
             darkMode={darkMode}
-            onFocus={focus}
+            onFocus={showOnMap}
             onEta={etaFor}
             onZoom={zoomToYard}
           />
