@@ -10776,7 +10776,7 @@ function FleetNavButton({ active, moving, darkMode, onClick }: { active: boolean
       type="button"
       onClick={onClick}
       aria-label={`Fleet${moving !== null ? `, ${moving} moving` : ""}`}
-      className={classNames("touch-target flex min-w-32 flex-1 items-center justify-center gap-2 rounded px-3 py-2 text-sm font-black", active ? "bg-steel-900 text-white" : "bg-transparent text-inherit")}
+      className={classNames("touch-target flex min-w-32 flex-1 items-center justify-center gap-2 rounded px-3 py-2 text-sm font-black lg:min-w-0 lg:px-2", active ? "bg-steel-900 text-white" : "bg-transparent text-inherit")}
     >
       <img src={`/brand/samsara-owl-${owl}.png`} alt="" className="h-[19px] w-auto" />
       <span className="text-left leading-tight">
@@ -10811,7 +10811,7 @@ function FleetPage({ darkMode }: { darkMode: boolean }) {
 
 function NavButton({ icon, label, active, onClick }: { icon: ReactNode; label: string; active: boolean; onClick: () => void }) {
   return (
-    <button type="button" className={classNames("touch-target flex min-w-32 flex-1 items-center justify-center gap-2 rounded px-3 py-2 text-sm font-black", active ? "bg-steel-900 text-white" : "bg-transparent text-inherit")} onClick={onClick}>
+    <button type="button" className={classNames("touch-target flex min-w-32 flex-1 items-center justify-center gap-2 rounded px-3 py-2 text-sm font-black lg:min-w-0 lg:px-2", active ? "bg-steel-900 text-white" : "bg-transparent text-inherit")} onClick={onClick}>
       {icon}
       {label}
     </button>
