@@ -405,6 +405,38 @@ export default function FleetMap({ darkMode, layout = "panel" }: { darkMode: boo
     mapNode.current?.scrollIntoView({ behavior: "smooth", block: "center" });
   }
 
+  // "Show on map" from the header's yard alert bell: zoom to that yard once
+  // the map and yards are ready. It arrives as a window event when the Fleet
+  // tab is already open, or is left in sessionStorage when the tab is opening.
+  const [pendingYard, setPendingYard] = useState("");
+  useEffect(() => {
+    try {
+      const waiting = window.sessionStorage.getItem("mgp-fleet-zoom-yard");
+      if (waiting) setPendingYard(waiting);
+    } catch {
+      // storage blocked — the event below still works
+    }
+    const onZoom = (event: Event) => setPendingYard(String((event as CustomEvent<string>).detail ?? ""));
+    window.addEventListener("mgp-fleet-zoom-yard", onZoom);
+    return () => window.removeEventListener("mgp-fleet-zoom-yard", onZoom);
+  }, []);
+  useEffect(() => {
+    if (!pendingYard || !mapReady) return;
+    const yard = yards.find((area) => area.id === pendingYard);
+    if (!yard) return;
+    // Don't let the first "fit everything" undo this zoom.
+    fittedRef.current = true;
+    if (expanded) setExpanded(false);
+    zoomToYard(yard);
+    setPendingYard("");
+    try {
+      window.sessionStorage.removeItem("mgp-fleet-zoom-yard");
+    } catch {
+      // nothing to clean up
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingYard, yards, mapReady]);
+
   // Places marked in Samsara (addresses / geofences): outline + labeled pin.
   // On by default; the choice is remembered like Traffic.
   const [places, setPlaces] = useState<FleetPlace[]>([]);

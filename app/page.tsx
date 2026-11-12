@@ -66,7 +66,8 @@ import {
 } from "@/lib/data";
 import { calculateEntry, calculateWeeklyBonus, compareByLastName, correctedEntryDate, currency, findMisdatedEntries, getWeekKey, wholeNumber } from "@/lib/payroll";
 import { authedFetch, getAccessToken, roleLabels, roleViews, useAuth } from "@/lib/auth";
-import { useFleetMovingCount, useSamsaraAccess } from "@/lib/fleetHooks";
+import { useFleetStatus, useSamsaraAccess } from "@/lib/fleetHooks";
+import YardAlertBell from "@/components/YardAlertBell";
 import { normalizeExcelValue, parseCsvGrid, parseTimecardGrid, type ImportedBlock } from "@/lib/hoursImport";
 import { LanguageProvider, translate, useT, type Language } from "@/lib/i18n";
 import type { ChangeLogEntry } from "@/lib/cloudChangeLog";
@@ -1056,7 +1057,18 @@ export default function Home() {
   // Fleet tab (Samsara): shown to the logins lib/previewAccess allows, with a
   // live "● N moving" count on its menu button.
   const fleetAllowed = useSamsaraAccess(profile?.id);
-  const fleetMoving = useFleetMovingCount(fleetAllowed);
+  const fleetStatus = useFleetStatus(fleetAllowed);
+  const fleetMoving = fleetStatus.moving;
+  // Header yard alert → "Show on map": open Fleet zoomed on that yard.
+  function showYardOnMap(yardId: string) {
+    try {
+      window.sessionStorage.setItem("mgp-fleet-zoom-yard", yardId);
+    } catch {
+      // storage blocked — the event below covers an open Fleet tab
+    }
+    setView("fleet");
+    window.dispatchEvent(new CustomEvent("mgp-fleet-zoom-yard", { detail: yardId }));
+  }
   const [adminTab, setAdminTab] = useState<AdminTab>("settings");
   const [darkMode, setDarkMode] = useState(false);
   // UI language. Managers default to Spanish (most read Spanish) but anyone can
@@ -3750,6 +3762,7 @@ export default function Home() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {fleetAllowed && <YardAlertBell yards={fleetStatus.yardWatch} darkMode={darkMode} onShowYard={showYardOnMap} />}
             {configured && profile && (
               <div className={classNames("flex overflow-hidden rounded border text-xs font-black", darkMode ? "border-white/20" : "border-steel-200")}>
                 {(["en", "es"] as Language[]).map((code) => (

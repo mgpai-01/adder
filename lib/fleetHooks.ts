@@ -5,6 +5,7 @@
 import { useEffect, useState } from "react";
 import { authedFetch } from "./auth";
 import type { FleetItem } from "./samsara";
+import type { YardWatch } from "./yardWatch";
 
 // Whether this login may see the fleet features. The server decides
 // (lib/previewAccess via /api/samsara/access); asked once per signed-in user.
@@ -31,15 +32,19 @@ export function useSamsaraAccess(profileId: string | undefined): boolean {
   return allowed;
 }
 
-// How many trucks / trailers are moving right now (over 2 mph), for the live
-// count on the Fleet menu button. Refreshed every minute; null until known.
-// The server shares one Samsara pull per 30 s, so this costs no extra calls.
+// Live fleet status for the header: how many trucks / trailers are moving
+// right now (over 2 mph) for the Fleet menu button, and the production yards'
+// trailer watch for the yard alert bell (lib/yardWatch). Refreshed every
+// minute; null until known. The server shares one Samsara pull per 30 s, so
+// this costs no extra calls — and these refreshes are also what keep the
+// yard watch's "empty since" times up to date.
 const MOVING_MPH = 2;
-export function useFleetMovingCount(enabled: boolean): number | null {
-  const [moving, setMoving] = useState<number | null>(null);
+export type FleetStatus = { moving: number | null; yardWatch: YardWatch[] | null };
+export function useFleetStatus(enabled: boolean): FleetStatus {
+  const [status, setStatus] = useState<FleetStatus>({ moving: null, yardWatch: null });
   useEffect(() => {
     if (!enabled) {
-      setMoving(null);
+      setStatus({ moving: null, yardWatch: null });
       return;
     }
     let cancelled = false;
@@ -47,10 +52,14 @@ export function useFleetMovingCount(enabled: boolean): number | null {
       try {
         const response = await authedFetch("/api/samsara/fleet");
         if (!response.ok) return;
-        const result = (await response.json()) as { items?: FleetItem[] };
-        if (!cancelled) setMoving((result.items ?? []).filter((item) => (item.speedMph ?? 0) > MOVING_MPH).length);
+        const result = (await response.json()) as { items?: FleetItem[]; yardWatch?: { yards?: YardWatch[] } | null };
+        if (cancelled) return;
+        setStatus((current) => ({
+          moving: (result.items ?? []).filter((item) => (item.speedMph ?? 0) > MOVING_MPH).length,
+          yardWatch: result.yardWatch?.yards ?? current.yardWatch
+        }));
       } catch {
-        // keep the last count on a blip
+        // keep the last status on a blip
       }
     };
     void load();
@@ -60,5 +69,5 @@ export function useFleetMovingCount(enabled: boolean): number | null {
       window.clearInterval(timer);
     };
   }, [enabled]);
-  return moving;
+  return status;
 }

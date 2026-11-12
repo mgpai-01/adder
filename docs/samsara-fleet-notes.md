@@ -39,3 +39,12 @@ TomTom's flow tiles (`relative0` / `relative0-dark`) drawn on top.
 Per user, per server instance: 40 ETA checks and 3,000 traffic tiles per
 10 minutes. A brake on runaway use (each ETA is ~5 paid TomTom lookups), not
 an exact quota.
+
+## Yard alert (header bell)
+Admins / Fleet logins see a bell next to EN/ES. It watches the production
+yards (lib/yards `production: true`: Sultana, Merrill, Citrus) and turns red
+when one has had no trailers parked for 30 minutes (lib/yardWatch). "Since
+when" is kept in the `fleet_yard_watch` table — run
+supabase/fleet-yard-watch-migration.sql once; until then the server's memory
+is used. It updates on each fresh Samsara pull, i.e. about once a minute while
+any admin has the app open.

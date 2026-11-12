@@ -5,12 +5,14 @@
 // - `samsaraPlace`: taken straight from the Samsara place (geofence) with that
 //   name, for yards without a street address of their own (e.g. FedEx #26).
 // Moving or adding a yard is a one-line change here.
-export type Yard = { id: string; name: string; address?: string; samsaraPlace?: string };
+// `production`: one of the yards where pallets are built. The header's yard
+// alert (lib/yardWatch) watches only these for running out of trailers.
+export type Yard = { id: string; name: string; address?: string; samsaraPlace?: string; production?: boolean };
 
 export const YARDS: Yard[] = [
-  { id: "sultana", name: "Sultana (Fontana)", address: "8386 Sultana Ave, Fontana, CA 92335" },
-  { id: "merrill", name: "Merrill (Fontana)", address: "14619 Merrill Ave, Fontana, CA 92335" },
-  { id: "citrus", name: "Citrus (Riverside)", address: "1326 W Citrus St, Riverside, CA 92507" },
+  { id: "sultana", name: "Sultana (Fontana)", address: "8386 Sultana Ave, Fontana, CA 92335", production: true },
+  { id: "merrill", name: "Merrill (Fontana)", address: "14619 Merrill Ave, Fontana, CA 92335", production: true },
+  { id: "citrus", name: "Citrus (Riverside)", address: "1326 W Citrus St, Riverside, CA 92507", production: true },
   { id: "fedex", name: "FedEx #26", samsaraPlace: "FedEx #26" },
   // Samsara place "US Elogistic 1002 S Carnegie Ave ONTARIO" — named in full
   // because other Samsara places also mention US Elogistic (e.g. Tamarind).

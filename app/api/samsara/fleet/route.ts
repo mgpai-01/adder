@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireCaller } from "@/lib/apiAuth";
 import { canSeeSamsaraPreview } from "@/lib/previewAccess";
 import { fetchFleetSnapshot, isSamsaraConfigured, type FleetSnapshot } from "@/lib/samsara";
+import { updateYardWatch, type YardWatchResult } from "@/lib/yardWatch";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -9,7 +10,7 @@ export const maxDuration = 60;
 // The map refreshes every minute; anyone opening it within this window shares
 // one Samsara pull instead of each sending their own.
 const CACHE_MS = 30_000;
-let cached: { at: number; snapshot: FleetSnapshot } | null = null;
+let cached: { at: number; snapshot: FleetSnapshot; yardWatch: YardWatchResult | null } | null = null;
 
 // Where every truck, trailer and tracked piece of equipment is right now, from
 // Samsara. Preview: only the logins in lib/previewAccess may call it — checked
@@ -28,9 +29,16 @@ export async function GET(request: Request) {
 
   try {
     if (!cached || Date.now() - cached.at > CACHE_MS) {
-      cached = { at: Date.now(), snapshot: await fetchFleetSnapshot() };
+      const snapshot = await fetchFleetSnapshot();
+      // The yard alert rides along with each fresh pull (lib/yardWatch); a
+      // failure there must not take the map down with it.
+      const yardWatch = await updateYardWatch(check.supabase, snapshot.items).catch((error) => {
+        console.warn("Yard watch failed:", error instanceof Error ? error.message : error);
+        return cached?.yardWatch ?? null;
+      });
+      cached = { at: Date.now(), snapshot, yardWatch };
     }
-    return NextResponse.json({ ok: true, ...cached.snapshot });
+    return NextResponse.json({ ok: true, ...cached.snapshot, yardWatch: cached.yardWatch });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Samsara lookup failed" }, { status: 502 });
   }
