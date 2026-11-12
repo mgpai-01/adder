@@ -21,10 +21,13 @@ function sinceText(iso: string): string {
 
 export default function YardAlertBell({
   yards,
+  saved = true,
   darkMode,
   onShowYard
 }: {
   yards: YardWatch[] | null;
+  // False when the server couldn't keep the timers in the database.
+  saved?: boolean;
   darkMode: boolean;
   onShowYard: (yardId: string) => void;
 }) {
@@ -97,6 +100,11 @@ export default function YardAlertBell({
             </button>
           </div>
 
+          {!saved && (
+            <p className="mt-2 rounded bg-amber-50 px-2 py-1.5 text-xs font-bold text-amber-800">
+              Timers aren&apos;t being saved to the database right now, so they can restart. Check the fleet_yard_watch table in Supabase.
+            </p>
+          )}
           {!yards ? (
             <p className={`mt-3 text-sm font-bold ${muted}`}>Checking the yards…</p>
           ) : (
@@ -128,7 +136,7 @@ export default function YardAlertBell({
                       </p>
                       <p className={`text-xs font-bold ${alert ? "text-red-700" : waiting ? "text-amber-700" : muted}`}>
                         {yard.emptySince
-                          ? `No trailers for ${sinceText(yard.emptySince)}${alert ? "" : " — alerts at 30 min"}`
+                          ? `No trailers for ${sinceText(yard.emptySince)}${alert ? "" : " — alerts at 30 min"} (since ${new Date(yard.emptySince).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })})`
                           : `${yard.trailers} trailer${yard.trailers === 1 ? "" : "s"} · ${yard.trucks} truck${yard.trucks === 1 ? "" : "s"}`}
                       </p>
                     </div>

@@ -39,12 +39,12 @@ export function useSamsaraAccess(profileId: string | undefined): boolean {
 // this costs no extra calls — and these refreshes are also what keep the
 // yard watch's "empty since" times up to date.
 const MOVING_MPH = 2;
-export type FleetStatus = { moving: number | null; yardWatch: YardWatch[] | null };
+export type FleetStatus = { moving: number | null; yardWatch: YardWatch[] | null; yardWatchSaved: boolean };
 export function useFleetStatus(enabled: boolean): FleetStatus {
-  const [status, setStatus] = useState<FleetStatus>({ moving: null, yardWatch: null });
+  const [status, setStatus] = useState<FleetStatus>({ moving: null, yardWatch: null, yardWatchSaved: true });
   useEffect(() => {
     if (!enabled) {
-      setStatus({ moving: null, yardWatch: null });
+      setStatus({ moving: null, yardWatch: null, yardWatchSaved: true });
       return;
     }
     let cancelled = false;
@@ -52,11 +52,12 @@ export function useFleetStatus(enabled: boolean): FleetStatus {
       try {
         const response = await authedFetch("/api/samsara/fleet");
         if (!response.ok) return;
-        const result = (await response.json()) as { items?: FleetItem[]; yardWatch?: { yards?: YardWatch[] } | null };
+        const result = (await response.json()) as { items?: FleetItem[]; yardWatch?: { yards?: YardWatch[]; storage?: string } | null };
         if (cancelled) return;
         setStatus((current) => ({
           moving: (result.items ?? []).filter((item) => (item.speedMph ?? 0) > MOVING_MPH).length,
-          yardWatch: result.yardWatch?.yards ?? current.yardWatch
+          yardWatch: result.yardWatch?.yards ?? current.yardWatch,
+          yardWatchSaved: result.yardWatch ? result.yardWatch.storage !== "memory" : current.yardWatchSaved
         }));
       } catch {
         // keep the last status on a blip
