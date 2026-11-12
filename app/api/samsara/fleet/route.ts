@@ -1,17 +1,14 @@
 import { NextResponse } from "next/server";
 import { requireCaller } from "@/lib/apiAuth";
 import { canSeeSamsaraPreview } from "@/lib/previewAccess";
-import { fetchFleetSnapshot, isSamsaraConfigured, type FleetSnapshot } from "@/lib/samsara";
-import { updateYardWatch, type YardWatchResult } from "@/lib/yardWatch";
+import { getFleetStatus } from "@/lib/fleetCache";
+import { isSamsaraConfigured } from "@/lib/samsara";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-// The map refreshes every minute; anyone opening it within this window shares
-// one Samsara pull instead of each sending their own.
-const CACHE_MS = 30_000;
-let cached: { at: number; snapshot: FleetSnapshot; yardWatch: YardWatchResult | null } | null = null;
-
+// The map refreshes every minute; anyone opening it within 30 seconds shares
+// one Samsara pull (lib/fleetCache) instead of each sending their own.
 // Where every truck, trailer and tracked piece of equipment is right now, from
 // Samsara. Preview: only the logins in lib/previewAccess may call it — checked
 // here on the server, so hiding the button isn't the only lock.
@@ -28,16 +25,7 @@ export async function GET(request: Request) {
   }
 
   try {
-    if (!cached || Date.now() - cached.at > CACHE_MS) {
-      const snapshot = await fetchFleetSnapshot();
-      // The yard alert rides along with each fresh pull (lib/yardWatch); a
-      // failure there must not take the map down with it.
-      const yardWatch = await updateYardWatch(check.supabase, snapshot.items).catch((error) => {
-        console.warn("Yard watch failed:", error instanceof Error ? error.message : error);
-        return cached?.yardWatch ?? null;
-      });
-      cached = { at: Date.now(), snapshot, yardWatch };
-    }
+    const cached = await getFleetStatus(check.supabase);
     return NextResponse.json({ ok: true, ...cached.snapshot, yardWatch: cached.yardWatch });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Samsara lookup failed" }, { status: 502 });

@@ -3762,7 +3762,7 @@ export default function Home() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {fleetAllowed && <YardAlertBell yards={fleetStatus.yardWatch} saved={fleetStatus.yardWatchSaved} darkMode={darkMode} onShowYard={showYardOnMap} />}
+            {fleetAllowed && <YardAlertBell yards={fleetStatus.yardWatch} saved={fleetStatus.yardWatchSaved} checkedAt={fleetStatus.yardCheckedAt} darkMode={darkMode} onShowYard={showYardOnMap} />}
             {configured && profile && (
               <div className={classNames("flex overflow-hidden rounded border text-xs font-black", darkMode ? "border-white/20" : "border-steel-200")}>
                 {(["en", "es"] as Language[]).map((code) => (

@@ -46,5 +46,7 @@ yards (lib/yards `production: true`: Sultana, Merrill, Citrus) and turns red
 when one has had no trailers parked for 30 minutes (lib/yardWatch). "Since
 when" is kept in the `fleet_yard_watch` table — run
 supabase/fleet-yard-watch-migration.sql once; until then the server's memory
-is used. It updates on each fresh Samsara pull, i.e. about once a minute while
-any admin has the app open.
+is used. It updates on each fresh Samsara pull (lib/fleetCache): once a
+minute from a Supabase scheduled job calling /api/samsara/yard-watch
+(supabase/fleet-yard-watch-schedule.sql — pg_cron + pg_net), so it runs with
+nobody on the site, and also whenever an admin has the app open.

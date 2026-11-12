@@ -22,12 +22,15 @@ function sinceText(iso: string): string {
 export default function YardAlertBell({
   yards,
   saved = true,
+  checkedAt = "",
   darkMode,
   onShowYard
 }: {
   yards: YardWatch[] | null;
   // False when the server couldn't keep the timers in the database.
   saved?: boolean;
+  // When the server last checked the yards (it checks every minute).
+  checkedAt?: string;
   darkMode: boolean;
   onShowYard: (yardId: string) => void;
 }) {
@@ -156,6 +159,11 @@ export default function YardAlertBell({
                 );
               })}
             </ul>
+          )}
+          {checkedAt && (
+            <p className={`mt-2 text-right text-[11px] font-bold ${muted}`}>
+              Last checked {new Date(checkedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} · checks every minute
+            </p>
           )}
         </div>
       )}

@@ -39,12 +39,12 @@ export function useSamsaraAccess(profileId: string | undefined): boolean {
 // this costs no extra calls — and these refreshes are also what keep the
 // yard watch's "empty since" times up to date.
 const MOVING_MPH = 2;
-export type FleetStatus = { moving: number | null; yardWatch: YardWatch[] | null; yardWatchSaved: boolean };
+export type FleetStatus = { moving: number | null; yardWatch: YardWatch[] | null; yardWatchSaved: boolean; yardCheckedAt: string };
 export function useFleetStatus(enabled: boolean): FleetStatus {
-  const [status, setStatus] = useState<FleetStatus>({ moving: null, yardWatch: null, yardWatchSaved: true });
+  const [status, setStatus] = useState<FleetStatus>({ moving: null, yardWatch: null, yardWatchSaved: true, yardCheckedAt: "" });
   useEffect(() => {
     if (!enabled) {
-      setStatus({ moving: null, yardWatch: null, yardWatchSaved: true });
+      setStatus({ moving: null, yardWatch: null, yardWatchSaved: true, yardCheckedAt: "" });
       return;
     }
     let cancelled = false;
@@ -52,12 +52,13 @@ export function useFleetStatus(enabled: boolean): FleetStatus {
       try {
         const response = await authedFetch("/api/samsara/fleet");
         if (!response.ok) return;
-        const result = (await response.json()) as { items?: FleetItem[]; yardWatch?: { yards?: YardWatch[]; storage?: string } | null };
+        const result = (await response.json()) as { items?: FleetItem[]; yardWatch?: { yards?: YardWatch[]; storage?: string; checkedAt?: string } | null };
         if (cancelled) return;
         setStatus((current) => ({
           moving: (result.items ?? []).filter((item) => (item.speedMph ?? 0) > MOVING_MPH).length,
           yardWatch: result.yardWatch?.yards ?? current.yardWatch,
-          yardWatchSaved: result.yardWatch ? result.yardWatch.storage !== "memory" : current.yardWatchSaved
+          yardWatchSaved: result.yardWatch ? result.yardWatch.storage !== "memory" : current.yardWatchSaved,
+          yardCheckedAt: result.yardWatch?.checkedAt ?? current.yardCheckedAt
         }));
       } catch {
         // keep the last status on a blip
