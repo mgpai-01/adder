@@ -42,7 +42,7 @@ Per user, per server instance: 40 ETA checks and 3,000 traffic tiles per
 an exact quota.
 
 ## Yard alert (header bell)
-Admins see a bell next to EN/ES (managers see Fleet but not the bell). It watches the production
+Admins and managers (everyone who can see Fleet) get a bell next to EN/ES. It watches the production
 yards (lib/yards `production: true`: Sultana, Merrill, Citrus) and turns red
 when one has had no trailers parked for 30 minutes (lib/yardWatch). "Since
 when" is kept in the `fleet_yard_watch` table — run
