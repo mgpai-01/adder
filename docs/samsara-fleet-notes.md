@@ -5,7 +5,8 @@ Traffic layer and full-screen Expand. Code: components/FleetMap.tsx,
 lib/samsara.ts, app/api/samsara/fleet and app/api/samsara/traffic.
 
 ## Who sees it
-lib/previewAccess.ts decides, on the server: admins only (SAMSARA_ROLES), on
+lib/previewAccess.ts decides, on the server: admins and managers (SAMSARA_ROLES:
+admin, supervisor), on
 the live app and test deployments alike, plus any email listed in
 SAMSARA_EXTRA_EMAILS. Test deployments use the live database and the same
 logins, so the rule is the same in both. The app asks /api/samsara/access
@@ -41,7 +42,7 @@ Per user, per server instance: 40 ETA checks and 3,000 traffic tiles per
 an exact quota.
 
 ## Yard alert (header bell)
-Admins / Fleet logins see a bell next to EN/ES. It watches the production
+Admins see a bell next to EN/ES (managers see Fleet but not the bell). It watches the production
 yards (lib/yards `production: true`: Sultana, Merrill, Citrus) and turns red
 when one has had no trailers parked for 30 minutes (lib/yardWatch). "Since
 when" is kept in the `fleet_yard_watch` table — run
