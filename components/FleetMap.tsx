@@ -70,7 +70,29 @@ function escapeHtml(value: string): string {
   return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
-function popupHtml(item: FleetItem, yardName?: string): string {
+// "Location sources": every fix Samsara gave for this unit, newest first, with
+// its age and how far it is from the pin — so a spot that looks wrong can be
+// traced to the feed (trailer GPS, asset feed, a duplicate record) behind it.
+function sourcesHtml(item: FleetItem, streamError: string): string {
+  const sources = [...(item.sources ?? [])].sort((a, b) => (Date.parse(b.time) || 0) - (Date.parse(a.time) || 0));
+  if (sources.length === 0) return "";
+  const away = (lat: number, lng: number) => {
+    const miles = metersBetween(item.lat, item.lng, lat, lng) / 1609.344;
+    return miles < 0.05 ? "at the pin" : `${miles < 10 ? miles.toFixed(1) : Math.round(miles)} mi from the pin`;
+  };
+  const rows = sources
+    .map(
+      (src) => `<div style="margin-top:3px"><b>${escapeHtml(src.feed)}</b><br>${escapeHtml(timeAgo(src.time) || "time unknown")}${
+        src.time ? ` (${escapeHtml(new Date(src.time).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }))})` : ""
+      } · ${away(src.lat, src.lng)}${src.address ? `<br>${escapeHtml(src.address)}` : ""}</div>`
+    )
+    .join("");
+  return `<details style="margin-top:6px;font-size:11px;font-weight:600;color:#26333f"><summary style="cursor:pointer;font-weight:800;color:#6c7a86">Location sources (${sources.length})</summary>${rows}${
+    streamError && item.kind !== "truck" ? `<div style="margin-top:4px;color:#9a6700">Samsara's newer asset stream refused: ${escapeHtml(streamError.slice(0, 160))}</div>` : ""
+  }</details>`;
+}
+
+function popupHtml(item: FleetItem, yardName?: string, streamError = ""): string {
   const info = kindInfo(item.kind);
   const moving = item.speedMph !== null && item.speedMph > 2 ? `${Math.round(item.speedMph)} mph` : "Parked";
   return `<div style="font-family:inherit;min-width:180px">
@@ -79,6 +101,7 @@ function popupHtml(item: FleetItem, yardName?: string): string {
     ${item.address ? `<div style="font-size:12px;font-weight:600;color:#26333f">${escapeHtml(item.address)}</div>` : ""}
     ${yardName ? `<div style="font-size:12px;font-weight:800;color:${YARD_COLOR};margin-top:4px">At: ${escapeHtml(yardName)}</div>` : ""}
     <div style="font-size:12px;font-weight:700;color:#6c7a86;margin-top:4px">${moving} · ${timeAgo(item.time) || "time unknown"}</div>
+    ${sourcesHtml(item, streamError)}
   </div>`;
 }
 
@@ -92,6 +115,8 @@ export default function FleetMap({ darkMode, layout = "panel" }: { darkMode: boo
   const [silent, setSilent] = useState<SilentUnit[]>([]);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [notes, setNotes] = useState<string[]>([]);
+  // Why Samsara's newer asset location stream was refused (shown in popups).
+  const [streamError, setStreamError] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [fetchedAt, setFetchedAt] = useState("");
@@ -195,7 +220,7 @@ export default function FleetMap({ darkMode, layout = "panel" }: { darkMode: boo
     setLoading(true);
     try {
       const response = await authedFetch("/api/samsara/fleet");
-      const result = (await response.json()) as { ok?: boolean; items?: FleetItem[]; silent?: SilentUnit[]; warnings?: string[]; notes?: string[]; fetchedAt?: string; error?: string };
+      const result = (await response.json()) as { ok?: boolean; items?: FleetItem[]; silent?: SilentUnit[]; warnings?: string[]; notes?: string[]; fetchedAt?: string; streamError?: string; error?: string };
       if (!response.ok || !result.ok) {
         setError(result.error || `Samsara didn't answer (${response.status}).`);
       } else {
@@ -204,6 +229,7 @@ export default function FleetMap({ darkMode, layout = "panel" }: { darkMode: boo
         setSilent(result.silent ?? []);
         setWarnings(result.warnings ?? []);
         setNotes(result.notes ?? []);
+        setStreamError(result.streamError ?? "");
         setFetchedAt(result.fetchedAt ?? "");
       }
     } catch {
@@ -606,13 +632,13 @@ export default function FleetMap({ darkMode, layout = "panel" }: { darkMode: boo
       };
       if (existing) {
         existing.getTooltip()?.getElement()?.classList.remove("fleet-pin-hover");
-        existing.setLatLng([item.lat, item.lng]).setIcon(icon).setPopupContent(popupHtml(item, yardOf.get(item.id)?.name)).setTooltipContent(label);
+        existing.setLatLng([item.lat, item.lng]).setIcon(icon).setPopupContent(popupHtml(item, yardOf.get(item.id)?.name, streamError)).setTooltipContent(label);
         existing.setZIndexOffset(baseZ);
         existing.off("mouseover").off("mouseout");
         existing.on("mouseover", () => showFullName(existing)).on("mouseout", () => showShortTag(existing));
       } else {
         const marker = L.marker([item.lat, item.lng], { icon, zIndexOffset: baseZ })
-          .bindPopup(popupHtml(item, yardOf.get(item.id)?.name))
+          .bindPopup(popupHtml(item, yardOf.get(item.id)?.name, streamError))
           .bindTooltip(label, { permanent: true, direction: "bottom", offset: [0, 16], className: labelClass })
           .on("click", () => setSelectedId(item.id))
           .addTo(map);
@@ -633,7 +659,7 @@ export default function FleetMap({ darkMode, layout = "panel" }: { darkMode: boo
       const frame = near.length > 0 ? near : visible;
       map.fitBounds(L.latLngBounds(frame.map((item) => [item.lat, item.lng] as [number, number])), { padding: [40, 40], maxZoom: 13 });
     }
-  }, [visible, selectedId, mapReady, yardOf]);
+  }, [visible, selectedId, mapReady, yardOf, streamError]);
 
   // Expanded ⇄ inline: let Leaflet re-measure, and Esc exits.
   useEffect(() => {

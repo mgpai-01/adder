@@ -34,7 +34,13 @@ export type FleetItem = {
   time: string;
   // Trailer length read from the name ("53 ft"), or "" when it doesn't say.
   size: string;
+  // Every fix Samsara gave for this unit (each feed, and any duplicate record),
+  // for the "Location sources" lines in the map popup — so a wrong-looking
+  // spot can be traced to the feed it came from.
+  sources?: LocationSource[];
 };
+
+export type LocationSource = { feed: string; time: string; lat: number; lng: number; address: string };
 
 // A trailer Samsara knows about but has no location for at all — no spot to
 // put on the map, but it belongs on the "No GPS" list. Samsara keeps a
@@ -43,7 +49,9 @@ export type FleetItem = {
 // it has never sent a fix ("installed").
 export type SilentUnit = { id: string; name: string; kind: FleetKind; size: string; tracker: "none" | "installed" | "unknown" };
 
-export type FleetSnapshot = { items: FleetItem[]; silent: SilentUnit[]; warnings: string[]; notes: string[]; fetchedAt: string };
+// streamError: why Samsara's newer asset location stream was refused, if it
+// was (the older call is used instead) — shown with the location sources.
+export type FleetSnapshot = { items: FleetItem[]; silent: SilentUnit[]; warnings: string[]; notes: string[]; fetchedAt: string; streamError?: string };
 
 // Samsara files many trailers as generic "assets" (unpowered trackers), so
 // the name decides: "228MGP- box (53Feet)", "100MGP-TR- 45 foot", "Larch Yard".
@@ -152,7 +160,8 @@ function gpsItems(rows: VehicleStat[], kind: FleetKind, label: string): FleetIte
       speedMph: num(row.gps?.speedMilesPerHour),
       address: str(row.gps?.reverseGeo?.formattedLocation),
       time: str(row.gps?.time),
-      size: ""
+      size: "",
+      sources: [{ feed: `${label} GPS (stats)`, time: str(row.gps?.time), lat, lng, address: str(row.gps?.reverseGeo?.formattedLocation) }]
     });
   }
   return items;
@@ -225,7 +234,7 @@ let streamSkipUntil = 0;
 // pause so it isn't replaced by "paused".
 let lastStreamError = "";
 
-async function fetchAssetPoints(): Promise<{ points: Map<string, AssetPoint>; names: Map<string, string>; note: string }> {
+async function fetchAssetPoints(): Promise<{ points: Map<string, AssetPoint>; names: Map<string, string>; note: string; feed: string; streamError: string }> {
   const now = Date.now();
   const start = rfc3339(now - ASSET_LOOKBACK_HOURS * 3600_000);
   const attempts: Array<Record<string, string>> = [
@@ -237,7 +246,7 @@ async function fetchAssetPoints(): Promise<{ points: Map<string, AssetPoint>; na
   for (const params of now < streamSkipUntil ? [] : attempts) {
     try {
       const rows = await samsaraGet<AssetPoint>("/assets/location-and-speed/stream", params);
-      return { points: newestPerAsset(rows), names: new Map(), note: "" };
+      return { points: newestPerAsset(rows), names: new Map(), note: "", feed: "Asset location stream", streamError: "" };
     } catch (error) {
       failures.push(error instanceof Error ? error.message : "failed");
     }
@@ -268,7 +277,7 @@ async function fetchAssetPoints(): Promise<{ points: Map<string, AssetPoint>; na
       });
     }
     // Same data as the stream, so nothing to tell the person looking.
-    return { points, names, note: "" };
+    return { points, names, note: "", feed: "Asset locations (older v1 call)", streamError: lastStreamError || failures[0] || "" };
   } catch (error) {
     failures.push(error instanceof Error ? error.message : "failed");
   }
@@ -287,7 +296,7 @@ async function fetchAssetPoints(): Promise<{ points: Map<string, AssetPoint>; na
         speed: row.location.speed === undefined ? undefined : { gpsSpeedMetersPerSecond: row.location.speed / 2.23694 }
       });
     }
-    return { points, names, note: `Other assets: showing equipment only (the location calls said: ${failures[0]}).` };
+    return { points, names, note: `Other assets: showing equipment only (the location calls said: ${failures[0]}).`, feed: "Equipment locations", streamError: lastStreamError || failures[0] || "" };
   } catch (error) {
     failures.push(error instanceof Error ? error.message : "failed");
   }
@@ -312,9 +321,9 @@ export async function fetchFleetSnapshot(): Promise<FleetSnapshot> {
     settle("Trailers", fetchTrailers(), [] as FleetItem[]),
     settle("Trailer names", samsaraGet<Named>("/fleet/trailers", { limit: "512" }), [] as Named[]),
     settle("Equipment names", samsaraGet<Named>("/fleet/equipment", { limit: "512" }), [] as Named[]),
-    settle("Other asset locations", fetchAssetPoints(), { points: new Map<string, AssetPoint>(), names: new Map<string, string>(), note: "" })
+    settle("Other asset locations", fetchAssetPoints(), { points: new Map<string, AssetPoint>(), names: new Map<string, string>(), note: "", feed: "", streamError: "" })
   ]);
-  const { points, names: pointNames, note } = located;
+  const { points, names: pointNames, note, feed: assetFeed, streamError } = located;
   if (note) notes.push(note);
 
   // Trucks and trailers come from their own GPS stats; the asset feed fills in
@@ -335,8 +344,17 @@ export async function fetchFleetSnapshot(): Promise<FleetSnapshot> {
     const lat = num(point.location?.latitude);
     const lng = num(point.location?.longitude);
     if (lat === null || lng === null) continue;
+    const pointAddress = point.location?.address;
+    const source: LocationSource = {
+      feed: assetFeed || "Asset feed",
+      time: str(point.happenedAtTime),
+      lat,
+      lng,
+      address: typeof pointAddress === "string" ? pointAddress : str(pointAddress?.formattedAddress) || str(pointAddress?.formattedLocation)
+    };
     const already = placed.get(id);
     if (already) {
+      already.sources = [...(already.sources ?? []), source];
       // Keep the stats fix unless this one is newer.
       if (when(str(point.happenedAtTime)) > when(already.time)) {
         const address = point.location?.address;
@@ -366,7 +384,8 @@ export async function fetchFleetSnapshot(): Promise<FleetSnapshot> {
       speedMph: metersPerSecond === null ? null : Math.round(metersPerSecond * 2.23694),
       address: typeof address === "string" ? address : str(address?.formattedAddress) || str(address?.formattedLocation),
       time: str(point.happenedAtTime),
-      size: ""
+      size: "",
+      sources: [source]
     });
   }
 
@@ -404,7 +423,10 @@ export async function fetchFleetSnapshot(): Promise<FleetSnapshot> {
     }
     const key = `${item.kind === "truck" ? "truck" : "unit"}:${Number(unit)}`;
     const current = newestByUnit.get(key);
-    if (!current || when(item.time) > when(current.time)) newestByUnit.set(key, item);
+    const tagged = (unit: FleetItem) => (unit.sources ?? []).map((src) => ({ ...src, feed: `${src.feed} — record "${unit.name}"` }));
+    if (!current) newestByUnit.set(key, item);
+    else if (when(item.time) > when(current.time)) newestByUnit.set(key, { ...item, sources: [...(item.sources ?? []), ...tagged(current)] });
+    else current.sources = [...(current.sources ?? []), ...tagged(item)];
   }
   const duplicates = all.length - others.length - newestByUnit.size;
   if (duplicates > 0) notes.push(`${duplicates} unit(s) are entered twice in Samsara; the map shows each once, at its newest GPS.`);
@@ -415,7 +437,7 @@ export async function fetchFleetSnapshot(): Promise<FleetSnapshot> {
     const number = /^\s*(\d+)\s*MGP\b/i.exec(unit.name)?.[1];
     return !number || !onMap.has(`unit:${Number(number)}`);
   });
-  return { items, silent: silentUnits, warnings, notes, fetchedAt: new Date().toISOString() };
+  return { items, silent: silentUnits, warnings, notes, fetchedAt: new Date().toISOString(), streamError };
 }
 
 // ===== Places: the addresses / geofences marked in Samsara =====
