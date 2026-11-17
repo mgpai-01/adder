@@ -116,6 +116,8 @@ async function samsaraGet<T>(path: string, params: Record<string, string> = {}):
   return rows;
 }
 
+// A Samsara timestamp as milliseconds (0 when missing), for "which is newer".
+const when = (iso: string): number => Date.parse(iso) || 0;
 const num = (value: unknown): number | null => (typeof value === "number" && Number.isFinite(value) ? value : null);
 const str = (value: unknown): string => (typeof value === "string" ? value : "");
 
@@ -315,9 +317,11 @@ export async function fetchFleetSnapshot(): Promise<FleetSnapshot> {
   const { points, names: pointNames, note } = located;
   if (note) notes.push(note);
 
-  // Trucks and trailers already placed from their own GPS stats; the asset
-  // stream only fills in what's left (equipment, or trailers if that failed).
-  const truckIds = new Set([...trucks, ...gpsTrailers].map((item) => item.id));
+  // Trucks and trailers come from their own GPS stats; the asset feed fills in
+  // equipment and any trailer those missed. When both feeds have the same
+  // unit, the NEWER fix wins — a trailer's stats GPS can lag hours behind its
+  // asset location, which put trailers where they used to be.
+  const placed = new Map([...trucks, ...gpsTrailers].map((item) => [item.id, item]));
   const trailerNames = new Map(trailers.filter((row) => row.id).map((row) => [row.id as string, str(row.name)]));
   const trailerTracker = new Map(
     trailers
@@ -328,11 +332,26 @@ export async function fetchFleetSnapshot(): Promise<FleetSnapshot> {
 
   const assets: FleetItem[] = [];
   for (const [id, point] of points) {
-    // Already placed from vehicle / trailer stats, the better source.
-    if (truckIds.has(id)) continue;
     const lat = num(point.location?.latitude);
     const lng = num(point.location?.longitude);
     if (lat === null || lng === null) continue;
+    const already = placed.get(id);
+    if (already) {
+      // Keep the stats fix unless this one is newer.
+      if (when(str(point.happenedAtTime)) > when(already.time)) {
+        const address = point.location?.address;
+        const metersPerSecond = num(point.speed?.gpsSpeedMetersPerSecond) ?? num(point.speed?.ecuSpeedMetersPerSecond);
+        Object.assign(already, {
+          lat,
+          lng,
+          headingDegrees: num(point.location?.headingDegrees) ?? already.headingDegrees,
+          speedMph: metersPerSecond === null ? null : Math.round(metersPerSecond * 2.23694),
+          address: (typeof address === "string" ? address : str(address?.formattedAddress) || str(address?.formattedLocation)) || "",
+          time: str(point.happenedAtTime)
+        });
+      }
+      continue;
+    }
     const kind: FleetKind = trailerNames.has(id) ? "trailer" : equipmentNames.has(id) ? "equipment" : "asset";
     const name = trailerNames.get(id) || equipmentNames.get(id) || pointNames.get(id) || "";
     const address = point.location?.address;
@@ -368,12 +387,35 @@ export async function fetchFleetSnapshot(): Promise<FleetSnapshot> {
     : [];
   if (silent.length > 0) notes.push(`${silent.length} trailer(s) in Samsara have no location on record, so they aren't on the map (see the No GPS 24h+ tab).`);
 
-  const items = [...trucks, ...gpsTrailers, ...assets]
-    .map((item) => {
-      const kind = classify(item.name, item.kind);
-      return { ...item, kind, size: kind === "trailer" ? trailerSize(item.name) : "" };
-    }).sort((a, b) => a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name));
-  return { items, silent, warnings, notes, fetchedAt: new Date().toISOString() };
+  const all = [...trucks, ...gpsTrailers, ...assets].map((item) => {
+    const kind = classify(item.name, item.kind);
+    return { ...item, kind, size: kind === "trailer" ? trailerSize(item.name) : "" };
+  });
+  // The same unit entered twice in Samsara (e.g. "212MGP-BOX…" and
+  // "212MGP-TR LIC…", one with an old tracker): one pin per unit number, the
+  // one with the newest GPS, so a stale record doesn't sit on the map.
+  const newestByUnit = new Map<string, FleetItem>();
+  const others: FleetItem[] = [];
+  for (const item of all) {
+    const unit = /^\s*(\d+)\s*MGP\b/i.exec(item.name)?.[1];
+    if (!unit) {
+      others.push(item);
+      continue;
+    }
+    const key = `${item.kind === "truck" ? "truck" : "unit"}:${Number(unit)}`;
+    const current = newestByUnit.get(key);
+    if (!current || when(item.time) > when(current.time)) newestByUnit.set(key, item);
+  }
+  const duplicates = all.length - others.length - newestByUnit.size;
+  if (duplicates > 0) notes.push(`${duplicates} unit(s) are entered twice in Samsara; the map shows each once, at its newest GPS.`);
+  const items = [...others, ...newestByUnit.values()].sort((a, b) => a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name));
+  // A second, never-reporting record of a unit that IS on the map isn't "no GPS".
+  const onMap = new Set(Array.from(newestByUnit.keys()).filter((key) => key.startsWith("unit:")));
+  const silentUnits = silent.filter((unit) => {
+    const number = /^\s*(\d+)\s*MGP\b/i.exec(unit.name)?.[1];
+    return !number || !onMap.has(`unit:${Number(number)}`);
+  });
+  return { items, silent: silentUnits, warnings, notes, fetchedAt: new Date().toISOString() };
 }
 
 // ===== Places: the addresses / geofences marked in Samsara =====
