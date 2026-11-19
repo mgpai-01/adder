@@ -204,6 +204,8 @@ type Named = { id?: string; name?: string; installedGateway?: { serial?: string;
 
 type AssetPoint = {
   asset?: { id?: string };
+  // Which call this point came from, when it differs from the rest.
+  feed?: string;
   happenedAtTime?: string;
   location?: {
     latitude?: number;
@@ -251,49 +253,78 @@ let streamSkipUntil = 0;
 // pause so it isn't replaced by "paused".
 let lastStreamError = "";
 
-async function fetchAssetPoints(): Promise<{ points: Map<string, AssetPoint>; names: Map<string, string>; note: string; feed: string; streamError: string }> {
+// The newer stream insists on a list of asset IDs ("Need to include asset IDs
+// to filter by"), so it's asked about the trailers and equipment by ID, a
+// few at a time to keep each answer small.
+const STREAM_ID_CHUNK = 20;
+
+async function streamPoints(ids: string[], params: Record<string, string>): Promise<Map<string, AssetPoint>> {
+  const rows: AssetPoint[] = [];
+  for (let index = 0; index < ids.length; index += STREAM_ID_CHUNK) {
+    rows.push(...(await samsaraGet<AssetPoint>("/assets/location-and-speed/stream", { ...params, ids: ids.slice(index, index + STREAM_ID_CHUNK).join(",") })));
+  }
+  return newestPerAsset(rows);
+}
+
+// The older v1 call: every asset's current location in one answer.
+async function legacyPoints(): Promise<{ points: Map<string, AssetPoint>; names: Map<string, string> }> {
+  const body = await samsaraRaw<{ assets?: LegacyAsset[] }>("/v1/fleet/assets/locations");
+  const points = new Map<string, AssetPoint>();
+  const names = new Map<string, string>();
+  for (const asset of body.assets ?? []) {
+    const id = asset.id === undefined ? "" : String(asset.id);
+    const fix = [...(asset.location ?? [])].sort((a, b) => (b.timeMs ?? 0) - (a.timeMs ?? 0))[0];
+    if (!id || !fix) continue;
+    if (asset.name) names.set(id, asset.name);
+    points.set(id, {
+      asset: { id },
+      happenedAtTime: fix.timeMs ? new Date(fix.timeMs).toISOString() : "",
+      location: { latitude: fix.latitude, longitude: fix.longitude, address: fix.location ?? "" },
+      speed: fix.speedMilesPerHour === undefined ? undefined : { gpsSpeedMetersPerSecond: fix.speedMilesPerHour / 2.23694 }
+    });
+  }
+  return { points, names };
+}
+
+async function fetchAssetPoints(ids: string[]): Promise<{ points: Map<string, AssetPoint>; names: Map<string, string>; note: string; feed: string; streamError: string }> {
   const now = Date.now();
   const start = rfc3339(now - ASSET_LOOKBACK_HOURS * 3600_000);
   const attempts: Array<Record<string, string>> = [
     { startTime: start, endTime: rfc3339(now), includeReverseGeo: "true", includeSpeed: "true" },
-    { startTime: start, endTime: rfc3339(now) },
-    { startTime: rfc3339(now - 24 * 3600_000) }
+    { startTime: start, endTime: rfc3339(now) }
   ];
   const failures: string[] = [];
-  for (const params of now < streamSkipUntil ? [] : attempts) {
+  for (const params of now < streamSkipUntil || ids.length === 0 ? [] : attempts) {
     try {
-      const rows = await samsaraGet<AssetPoint>("/assets/location-and-speed/stream", params);
-      return { points: newestPerAsset(rows), names: new Map(), note: "", feed: "Asset location stream", streamError: "" };
+      const points = await streamPoints(ids, params);
+      // Anything quiet for longer than the stream's window still gets its
+      // last spot from the older call, so it doesn't drop off the map.
+      let names = new Map<string, string>();
+      try {
+        const legacy = await legacyPoints();
+        names = legacy.names;
+        for (const [id, point] of legacy.points) if (!points.has(id)) points.set(id, { ...point, feed: "Asset locations (older v1 call)" });
+      } catch {
+        // the stream's answer stands on its own
+      }
+      lastStreamError = "";
+      return { points, names, note: "", feed: "Asset location stream", streamError: "" };
     } catch (error) {
       failures.push(error instanceof Error ? error.message : "failed");
     }
   }
   if (failures.length > 0) {
-    streamSkipUntil = now + 3600_000;
+    // Try the newer stream again in 10 minutes.
+    streamSkipUntil = now + 10 * 60_000;
     lastStreamError = failures.join(" | ");
     // Server log (Vercel → Logs) rather than the screen: the fallbacks below
     // carry the same data, so nothing is missing for the person looking.
-    console.warn(`Samsara asset stream failed; using fallback for an hour: ${lastStreamError}`);
+    console.warn(`Samsara asset stream failed; using the older call for 10 minutes: ${lastStreamError}`);
   }
   if (failures.length === 0 && now < streamSkipUntil) failures.push(lastStreamError || "the newer location call failed earlier");
 
   try {
-    const body = await samsaraRaw<{ assets?: LegacyAsset[] }>("/v1/fleet/assets/locations");
-    const points = new Map<string, AssetPoint>();
-    const names = new Map<string, string>();
-    for (const asset of body.assets ?? []) {
-      const id = asset.id === undefined ? "" : String(asset.id);
-      const fix = [...(asset.location ?? [])].sort((a, b) => (b.timeMs ?? 0) - (a.timeMs ?? 0))[0];
-      if (!id || !fix) continue;
-      if (asset.name) names.set(id, asset.name);
-      points.set(id, {
-        asset: { id },
-        happenedAtTime: fix.timeMs ? new Date(fix.timeMs).toISOString() : "",
-        location: { latitude: fix.latitude, longitude: fix.longitude, address: fix.location ?? "" },
-        speed: fix.speedMilesPerHour === undefined ? undefined : { gpsSpeedMetersPerSecond: fix.speedMilesPerHour / 2.23694 }
-      });
-    }
-    // Same data as the stream, so nothing to tell the person looking.
+    const { points, names } = await legacyPoints();
     return { points, names, note: "", feed: "Asset locations (older v1 call)", streamError: lastStreamError || failures[0] || "" };
   } catch (error) {
     failures.push(error instanceof Error ? error.message : "failed");
@@ -333,13 +364,21 @@ export async function fetchFleetSnapshot(): Promise<FleetSnapshot> {
     }
   };
 
-  const [trucks, gpsTrailers, trailers, equipment, located] = await Promise.all([
+  const [trucks, gpsTrailers, trailers, equipment] = await Promise.all([
     settle("Trucks", fetchTrucks(), [] as FleetItem[]),
     settle("Trailers", fetchTrailers(), [] as FleetItem[]),
     settle("Trailer names", samsaraGet<Named>("/fleet/trailers", { limit: "512" }), [] as Named[]),
-    settle("Equipment names", samsaraGet<Named>("/fleet/equipment", { limit: "512" }), [] as Named[]),
-    settle("Other asset locations", fetchAssetPoints(), { points: new Map<string, AssetPoint>(), names: new Map<string, string>(), note: "", feed: "", streamError: "" })
+    settle("Equipment names", samsaraGet<Named>("/fleet/equipment", { limit: "512" }), [] as Named[])
   ]);
+  // The asset stream needs IDs: every trailer and piece of equipment Samsara listed.
+  const assetIds = Array.from(new Set([...trailers, ...equipment].map((row) => row.id).filter((id): id is string => Boolean(id))));
+  const located = await settle("Other asset locations", fetchAssetPoints(assetIds), {
+    points: new Map<string, AssetPoint>(),
+    names: new Map<string, string>(),
+    note: "",
+    feed: "",
+    streamError: ""
+  });
   const { points, names: pointNames, note, feed: assetFeed, streamError } = located;
   if (note) notes.push(note);
 
@@ -363,7 +402,7 @@ export async function fetchFleetSnapshot(): Promise<FleetSnapshot> {
     if (lat === null || lng === null) continue;
     const pointAddress = point.location?.address;
     const source: LocationSource = {
-      feed: assetFeed || "Asset feed",
+      feed: point.feed || assetFeed || "Asset feed",
       time: str(point.happenedAtTime),
       lat,
       lng,
