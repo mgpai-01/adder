@@ -1,5 +1,5 @@
 // Server-only: the yard alert. Watches MGP's production yards (lib/yards,
-// `production: true` — Sultana, Merrill, Citrus) and alerts when one has had
+// `production: true` — Sultana, Meza (Merrill Ave), Citrus) and alerts when one has had
 // no trailers parked for 30 minutes.
 //
 // "Since when" has to outlive a single request, so it lives in the

@@ -469,7 +469,7 @@ export async function fetchFleetSnapshot(): Promise<FleetSnapshot> {
     return { ...item, kind, size: kind === "trailer" ? trailerSize(item.name) : "" };
   });
   // Every Samsara record is its own pin. Two records can share a unit number
-  // and still be different trailers (e.g. "107MGP-TR 1990 WIL" at Merrill and
+  // and still be different trailers (e.g. "107MGP-TR 1990 WIL" at Meza and
   // a 107MGP box at FedEx #26), so nothing is merged by number.
   const items = all.sort((a, b) => a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name));
   const silentUnits = silent;

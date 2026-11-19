@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import type { YardWatch } from "@/lib/yardWatch";
 
 // Header bell (admins / Fleet logins only): watches the production yards —
-// Sultana, Merrill, Citrus — and turns red with a count when one has had no
+// Sultana, Meza (Merrill Ave), Citrus — and turns red with a count when one has had no
 // trailers parked for 30 minutes (lib/yardWatch). Tap for the list; "Show on
 // map" opens the Fleet tab zoomed on that yard.
 

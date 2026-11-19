@@ -11,7 +11,9 @@ export type Yard = { id: string; name: string; address?: string; samsaraPlace?: 
 
 export const YARDS: Yard[] = [
   { id: "sultana", name: "Sultana (Fontana)", address: "8386 Sultana Ave, Fontana, CA 92335", production: true },
-  { id: "merrill", name: "Merrill (Fontana)", address: "14619 Merrill Ave, Fontana, CA 92335", production: true },
+  // Shown as "Meza", the yard's name (Samsara: "MEZA YARD 14619 MERRILL AVE").
+  // The id stays "merrill" so saved yard-alert timers keep working.
+  { id: "merrill", name: "Meza (Fontana)", address: "14619 Merrill Ave, Fontana, CA 92335", production: true },
   { id: "citrus", name: "Citrus (Riverside)", address: "1326 W Citrus St, Riverside, CA 92507", production: true },
   { id: "fedex", name: "FedEx #26", samsaraPlace: "FedEx #26" },
   // Samsara place "US Elogistic 1002 S Carnegie Ave ONTARIO" — named in full
