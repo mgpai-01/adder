@@ -468,33 +468,11 @@ export async function fetchFleetSnapshot(): Promise<FleetSnapshot> {
     const kind = classify(item.name, item.kind);
     return { ...item, kind, size: kind === "trailer" ? trailerSize(item.name) : "" };
   });
-  // The same unit entered twice in Samsara (e.g. "212MGP-BOX…" and
-  // "212MGP-TR LIC…", one with an old tracker): one pin per unit number, the
-  // one with the newest GPS, so a stale record doesn't sit on the map.
-  const newestByUnit = new Map<string, FleetItem>();
-  const others: FleetItem[] = [];
-  for (const item of all) {
-    const unit = /^\s*(\d+)\s*MGP\b/i.exec(item.name)?.[1];
-    if (!unit) {
-      others.push(item);
-      continue;
-    }
-    const key = `${item.kind === "truck" ? "truck" : "unit"}:${Number(unit)}`;
-    const current = newestByUnit.get(key);
-    const tagged = (unit: FleetItem) => (unit.sources ?? []).map((src) => ({ ...src, feed: `${src.feed} — record "${unit.name}"` }));
-    if (!current) newestByUnit.set(key, item);
-    else if (when(item.time) > when(current.time)) newestByUnit.set(key, { ...item, sources: [...(item.sources ?? []), ...tagged(current)] });
-    else current.sources = [...(current.sources ?? []), ...tagged(item)];
-  }
-  const duplicates = all.length - others.length - newestByUnit.size;
-  if (duplicates > 0) notes.push(`${duplicates} unit(s) are entered twice in Samsara; the map shows each once, at its newest GPS.`);
-  const items = [...others, ...newestByUnit.values()].sort((a, b) => a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name));
-  // A second, never-reporting record of a unit that IS on the map isn't "no GPS".
-  const onMap = new Set(Array.from(newestByUnit.keys()).filter((key) => key.startsWith("unit:")));
-  const silentUnits = silent.filter((unit) => {
-    const number = /^\s*(\d+)\s*MGP\b/i.exec(unit.name)?.[1];
-    return !number || !onMap.has(`unit:${Number(number)}`);
-  });
+  // Every Samsara record is its own pin. Two records can share a unit number
+  // and still be different trailers (e.g. "107MGP-TR 1990 WIL" at Merrill and
+  // a 107MGP box at FedEx #26), so nothing is merged by number.
+  const items = all.sort((a, b) => a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name));
+  const silentUnits = silent;
   return { items, silent: silentUnits, warnings, notes, fetchedAt: new Date().toISOString(), streamError };
 }
 
