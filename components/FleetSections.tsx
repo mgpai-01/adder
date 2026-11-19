@@ -3,7 +3,8 @@
 import { AlertTriangle, Bell, BellOff, Check, MapPin, Route, Search, Truck, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import YardBoard from "@/components/YardBoard";
-import { insideGeofence, type Geofence } from "@/lib/geo";
+import { type Geofence } from "@/lib/geo";
+import { isAt, placeCenters } from "@/lib/yardMatch";
 import type { FleetItem, FleetPlace, SilentUnit } from "@/lib/samsara";
 import type { YardArea } from "@/lib/yards";
 
@@ -188,7 +189,9 @@ export default function FleetSections({
     if (tab === "tamper" && !tamperShown) setTab("yards");
   }, [tab, tamperShown]);
 
-  const unitsIn = (place: FleetPlace) => items.filter((item) => insideGeofence(place, item.lat, item.lng, 150));
+  // At a pinned place: Samsara's own "inside which address" when it says, else the shape (lib/yardMatch).
+  const centers = useMemo(() => placeCenters(places), [places]);
+  const unitsIn = (place: FleetPlace) => items.filter((item) => isAt(item, { ...place, placeId: place.id }, centers, 150));
   const yardPlaceIds = new Set(yards.map((yard) => yard.placeId).filter(Boolean));
 
   // Geofence search across every Samsara place.

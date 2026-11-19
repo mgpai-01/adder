@@ -10,7 +10,7 @@ import { YARDS, type Yard, type YardArea } from "./yards";
 const CACHE_MS = 10 * 60_000;
 const MATCH_METERS = 400;
 const DEFAULT_RADIUS = 250;
-let cached: { at: number; yards: YardArea[]; warnings: string[] } | null = null;
+let cached: { at: number; yards: YardArea[]; warnings: string[]; places: FleetPlace[] } | null = null;
 
 // "FedEx #26" matches "FEDEX #26", "Fedex 26", "FedEx#26 yard".
 const squash = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -39,7 +39,7 @@ function fromPlace(yard: Yard, place: FleetPlace): YardArea {
   };
 }
 
-async function build(key: string): Promise<{ yards: YardArea[]; warnings: string[] }> {
+async function build(key: string): Promise<{ yards: YardArea[]; warnings: string[]; places: FleetPlace[] }> {
   const warnings: string[] = [];
   let places: FleetPlace[] = [];
   try {
@@ -77,12 +77,14 @@ async function build(key: string): Promise<{ yards: YardArea[]; warnings: string
       warnings.push(`${yard.name}: ${error instanceof Error ? error.message : "couldn't be placed"}`);
     }
   }
-  return { yards, warnings };
+  return { yards, warnings, places };
 }
 
-export async function resolveYardAreas(): Promise<{ yards: YardArea[]; warnings: string[] }> {
+// `places`: every Samsara address, for lib/yardMatch (a smaller address drawn
+// inside a yard still counts as the yard).
+export async function resolveYardAreas(): Promise<{ yards: YardArea[]; warnings: string[]; places: FleetPlace[] }> {
   if (!cached || Date.now() - cached.at > CACHE_MS) {
     cached = { at: Date.now(), ...(await build(process.env.TOMTOM_API_KEY ?? "")) };
   }
-  return { yards: cached.yards, warnings: cached.warnings };
+  return { yards: cached.yards, warnings: cached.warnings, places: cached.places };
 }

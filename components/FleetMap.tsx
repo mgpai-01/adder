@@ -7,7 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { authedFetch } from "@/lib/auth";
 import type { FleetItem, FleetKind, FleetPlace, SilentUnit } from "@/lib/samsara";
 import type { YardArea, YardEta } from "@/lib/yards";
-import { insideGeofence } from "@/lib/geo";
+import { isAt, placeCenters } from "@/lib/yardMatch";
 import YardBoard from "@/components/YardBoard";
 import FleetSections from "@/components/FleetSections";
 import { metersBetween, type Geofence } from "@/lib/geo";
@@ -100,6 +100,13 @@ function popupHtml(item: FleetItem, yardName?: string, streamError = ""): string
     <div style="font-size:15px;font-weight:900;margin:2px 0 4px">${escapeHtml(item.name)}</div>
     ${item.address ? `<div style="font-size:12px;font-weight:600;color:#26333f">${escapeHtml(item.address)}</div>` : ""}
     ${yardName ? `<div style="font-size:12px;font-weight:800;color:${YARD_COLOR};margin-top:4px">At: ${escapeHtml(yardName)}</div>` : ""}
+    ${
+      item.samsaraPlace === undefined
+        ? ""
+        : `<div style="font-size:11px;font-weight:700;color:#6c7a86;margin-top:2px">Samsara: ${
+            item.samsaraPlace ? `inside ${escapeHtml(item.samsaraPlace.name || "a geofence")}` : "not inside any geofence"
+          }</div>`
+    }
     <div style="font-size:12px;font-weight:700;color:#6c7a86;margin-top:4px">${moving} · ${timeAgo(item.time) || "time unknown"}</div>
     ${sourcesHtml(item, streamError)}
   </div>`;
@@ -568,14 +575,17 @@ export default function FleetMap({ darkMode, layout = "panel" }: { darkMode: boo
   }
 
   // Which yard each truck/trailer is in right now (none = on the road).
+  // Samsara place centers, for "inside a yard" when Samsara names a smaller
+  // address drawn within it (lib/yardMatch).
+  const centers = useMemo(() => placeCenters(places), [places]);
   const yardOf = useMemo(() => {
     const result = new Map<string, YardArea>();
     for (const item of items) {
-      const yard = yards.find((area) => insideGeofence(area, item.lat, item.lng, 250));
+      const yard = yards.find((area) => isAt(item, area, centers, 250));
       if (yard) result.set(item.id, yard);
     }
     return result;
-  }, [items, yards]);
+  }, [items, yards, centers]);
 
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();

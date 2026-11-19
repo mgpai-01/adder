@@ -12,9 +12,9 @@
 // its count every minute, on every page). If the table hasn't been created
 // yet, this server's memory is used instead, which can reset on a redeploy.
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { insideGeofence } from "./geo";
 import type { FleetItem } from "./samsara";
 import { resolveYardAreas } from "./yardAreas";
+import { isAt, placeCenters } from "./yardMatch";
 import { YARDS } from "./yards";
 
 export const YARD_EMPTY_ALERT_MS = 30 * 60 * 1000;
@@ -43,11 +43,13 @@ export async function updateYardWatch(supabase: SupabaseClient | null, items: Fl
   // emptied at once — don't start (or reset) any timers on that.
   if (!items.some((item) => item.kind === "trailer")) return null;
 
-  const { yards } = await resolveYardAreas();
-  // Same rule as the Yard board: a unit counts at the first yard it's inside.
+  const { yards, places } = await resolveYardAreas();
+  const centers = placeCenters(places);
+  // Same rule as the Yard board (lib/yardMatch): Samsara's own "inside which
+  // geofence" when it says, else the shape; a unit counts at the first yard.
   const counts = new Map<string, { trailers: number; trucks: number }>();
   for (const item of items) {
-    const yard = yards.find((area) => insideGeofence(area, item.lat, item.lng, 250));
+    const yard = yards.find((area) => isAt(item, area, centers, 250));
     if (!yard) continue;
     const row = counts.get(yard.id) ?? { trailers: 0, trucks: 0 };
     if (item.kind === "trailer") row.trailers += 1;

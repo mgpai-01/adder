@@ -38,6 +38,11 @@ export type FleetItem = {
   // for the "Location sources" lines in the map popup — so a wrong-looking
   // spot can be traced to the feed it came from.
   sources?: LocationSource[];
+  // Samsara's own answer to "which address (geofence) is it in": a place, or
+  // null when Samsara says it's in none. Undefined when the feed this fix came
+  // from doesn't say — then the map checks the geofence shape itself
+  // (lib/yardMatch).
+  samsaraPlace?: { id: string; name: string } | null;
 };
 
 export type LocationSource = { feed: string; time: string; lat: number; lng: number; address: string };
@@ -139,6 +144,8 @@ type VehicleStat = {
     headingDegrees?: number;
     speedMilesPerHour?: number;
     reverseGeo?: { formattedLocation?: string };
+    // The Samsara address (geofence) this fix is inside, when it's in one.
+    address?: { id?: string; name?: string } | null;
   };
 };
 
@@ -146,6 +153,11 @@ type VehicleStat = {
 // (/fleet/trailers/stats, "Read Trailer Statistics") — same shape for both.
 function gpsItems(rows: VehicleStat[], kind: FleetKind, label: string): FleetItem[] {
   const items: FleetItem[] = [];
+  // Samsara only adds gps.address when a fix is inside one of its addresses.
+  // If this feed gives it for any unit, a unit without it is "in none"; if it
+  // gives it for no unit at all, the feed may simply not support it — then
+  // leave it unknown and let the shape check decide.
+  const feedSaysPlaces = rows.some((row) => row.gps?.address?.id);
   for (const row of rows) {
     const lat = num(row.gps?.latitude);
     const lng = num(row.gps?.longitude);
@@ -161,7 +173,12 @@ function gpsItems(rows: VehicleStat[], kind: FleetKind, label: string): FleetIte
       address: str(row.gps?.reverseGeo?.formattedLocation),
       time: str(row.gps?.time),
       size: "",
-      sources: [{ feed: `${label} GPS (stats)`, time: str(row.gps?.time), lat, lng, address: str(row.gps?.reverseGeo?.formattedLocation) }]
+      sources: [{ feed: `${label} GPS (stats)`, time: str(row.gps?.time), lat, lng, address: str(row.gps?.reverseGeo?.formattedLocation) }],
+      samsaraPlace: row.gps?.address?.id
+        ? { id: String(row.gps.address.id), name: str(row.gps.address.name) }
+        : feedSaysPlaces
+          ? null
+          : undefined
     });
   }
   return items;
@@ -365,7 +382,9 @@ export async function fetchFleetSnapshot(): Promise<FleetSnapshot> {
           headingDegrees: num(point.location?.headingDegrees) ?? already.headingDegrees,
           speedMph: metersPerSecond === null ? null : Math.round(metersPerSecond * 2.23694),
           address: (typeof address === "string" ? address : str(address?.formattedAddress) || str(address?.formattedLocation)) || "",
-          time: str(point.happenedAtTime)
+          time: str(point.happenedAtTime),
+          // That place was for the older fix; this feed doesn't say one.
+          samsaraPlace: undefined
         });
       }
       continue;
